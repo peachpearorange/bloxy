@@ -1,0 +1,17 @@
+#!/bin/sh
+# tools/duo [name] — dedicated server + two clients under xvfb; screenshots what the second client (Bob) sees of the first (Ann).
+cargo build --quiet --features dev || exit 1
+name=${1:-duo}
+port=${PORT:-7791}
+BLOXY="{serve: $port}" setsid cargo run --quiet --features dev > /tmp/bloxy-server.log 2>&1 &
+server=$!
+sleep 3
+BLOXY="{connect: 'ws://127.0.0.1:$port', name: 'Ann', reach: 3, at: [${ANN:-3, -4}], ${ANN_OPTS:-}}" \
+  setsid xvfb-run -a -s "-screen 0 800x600x24" cargo run --quiet --features dev > /tmp/bloxy-ann.log 2>&1 &
+first=$!
+sleep ${LEAD:-40}
+BLOXY="{connect: 'ws://127.0.0.1:$port', name: 'Bob', shot: 2, reach: 4, ${BOB:-yaw: -37, pitch: -6}}" SHOT_NAME="$name" \
+  timeout ${SHOT_TIMEOUT:-400} xvfb-run -a -s "-screen 0 1600x900x24" cargo run --quiet --features dev > /tmp/bloxy-bob.log 2>&1
+kill -- -$first -$server 2>/dev/null
+grep -hE "panicked" -A5 /tmp/bloxy-server.log /tmp/bloxy-ann.log /tmp/bloxy-bob.log
+grep -E "connected|disconnected" /tmp/bloxy-server.log

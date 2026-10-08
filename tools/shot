@@ -1,0 +1,4 @@
+#!/bin/sh
+# tools/shot <name> '<json5 opts>' — builds, then screenshots under xvfb.
+cargo build --quiet --features dev || exit 1
+BLOXY="$2" SHOT_NAME="$1" timeout ${SHOT_TIMEOUT:-400} xvfb-run -a -s "-screen 0 1600x900x24" cargo run --quiet --features dev 2>&1 | grep -E "panicked|ERROR" -A5
