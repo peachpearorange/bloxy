@@ -11,6 +11,7 @@ mod noise;
 mod opts;
 mod player;
 mod protocol;
+mod save;
 mod sky;
 mod stream;
 mod texture;
@@ -163,7 +164,11 @@ fn serve(mut commands: Commands) {
   let _ = &mut commands;
 }
 
-fn forget_dirt(mut voxels: ResMut<voxels::Voxels>) { voxels.dirty.clear() }
+fn forget_dirt(mut voxels: ResMut<voxels::Voxels>) {
+  if !voxels.dirty.is_empty() {
+    voxels.dirty.clear()
+  }
+}
 
 fn main() {
   let role = role();
@@ -190,7 +195,8 @@ fn main() {
       RepliconPlugins,
       protocol::Protocol,
       net::ClientNet,
-      authority::Authority
+      authority::Authority,
+      save::Saving
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

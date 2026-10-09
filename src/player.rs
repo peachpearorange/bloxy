@@ -65,7 +65,6 @@ fn possess(
   mut possessions: MessageReader<Possess>,
   avatars: Query<&Avatar>,
   voxels: Option<Res<Voxels>>,
-  mut hello: MessageWriter<Hello>,
   mut waiting: Local<Option<Entity>>
 ) {
   *waiting = possessions.read().last().map(|possess| possess.0).or(*waiting);
@@ -89,8 +88,7 @@ fn possess(
       pitch: opts().pitch.map_or(avatar.pitch, f32::to_radians),
       grounded: false,
       swimming: false
-    });
-    hello.write(Hello { name: opts().name.clone().unwrap_or_else(|| "Wanderer".into()) });
+    })
   }
 }
 
@@ -357,11 +355,16 @@ fn apply_changes(
   }
 }
 
-fn arrive(mut commands: Commands, mut welcomes: MessageReader<Welcome>) {
+fn arrive(
+  mut commands: Commands,
+  mut welcomes: MessageReader<Welcome>,
+  mut hello: MessageWriter<Hello>
+) {
   welcomes.read().for_each(|welcome| {
     let mut voxels = Voxels::new(welcome.seed);
     welcome.edits.iter().for_each(|&(at, block)| voxels.set(at, block));
-    commands.insert_resource(voxels)
+    commands.insert_resource(voxels);
+    hello.write(Hello { name: opts().called() });
   })
 }
 

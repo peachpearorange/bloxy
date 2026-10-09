@@ -9,6 +9,7 @@ pub struct Opts {
   pub serve: Option<u16>,
   pub host: Option<u16>,
   pub name: Option<String>,
+  pub save: Option<String>,
   pub seed: u32,
   pub reach: i32,
   pub hour: f32,
@@ -28,6 +29,7 @@ impl Default for Opts {
       serve: None,
       host: None,
       name: None,
+      save: None,
       seed: 1,
       reach: if cfg!(target_arch = "wasm32") { 6 } else { 9 },
       hour: 10.0,
@@ -70,6 +72,16 @@ fn given() -> Option<String> {
 #[cfg(target_arch = "wasm32")]
 fn serde_json_quote(text: &str) -> String {
   format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+impl Opts {
+  pub fn called(&self) -> String {
+    self.name.clone().unwrap_or_else(|| "Wanderer".into())
+  }
+
+  pub fn saved_at(&self) -> Option<&str> {
+    self.save.as_deref().or(self.serve.map(|_| "world.json"))
+  }
 }
 
 pub fn opts() -> &'static Opts {

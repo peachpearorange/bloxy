@@ -2,3 +2,4 @@ target
 screenshots
 .claude
 dist
+world.json*

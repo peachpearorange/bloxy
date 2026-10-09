@@ -3,7 +3,9 @@
 cargo build --quiet --features dev || exit 1
 name=${1:-duo}
 port=${PORT:-7791}
-BLOXY="{serve: $port}" setsid cargo run --quiet --features dev > /tmp/bloxy-server.log 2>&1 &
+save=/tmp/bloxy-duo-world.json
+rm -f $save
+BLOXY="{serve: $port, save: '$save'}" setsid cargo run --quiet --features dev > /tmp/bloxy-server.log 2>&1 &
 server=$!
 sleep 3
 BLOXY="{connect: 'ws://127.0.0.1:$port', name: 'Ann', reach: 3, at: [${ANN:-3, -4}], ${ANN_OPTS:-}}" \

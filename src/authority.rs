@@ -1,4 +1,9 @@
-use {crate::{block::Block, generate, opts::opts, protocol::*, voxels::Voxels},
+use {crate::{block::Block,
+             generate,
+             opts::opts,
+             protocol::*,
+             save::{self, Roster, World},
+             voxels::Voxels},
      bevy::prelude::*,
      bevy_replicon::prelude::*};
 
@@ -36,15 +41,27 @@ fn starter(creative: bool) -> Inventory {
   }
 }
 
-fn embody(commands: &mut Commands, voxels: &mut Voxels, client: ClientId, count: usize) {
-  let at = generate::spawn_point(voxels.seed);
+fn embody(
+  commands: &mut Commands,
+  roster: &mut Roster,
+  seed: u32,
+  client: ClientId,
+  name: String,
+  count: usize
+) {
+  let (avatar, inventory) = roster.0.remove(&name).unwrap_or_else(|| {
+    (
+      Avatar { at: generate::spawn_point(seed), yaw: 0.0, pitch: 0.0 },
+      starter(opts().creative)
+    )
+  });
   let player = commands
     .spawn((
       Replicated,
       Controller(client),
-      Player { name: format!("Player {}", count + 1), tint: TINTS[count % TINTS.len()] },
-      Avatar { at, yaw: 0.0, pitch: 0.0 },
-      starter(opts().creative)
+      Player { name, tint: TINTS[count % TINTS.len()] },
+      avatar,
+      inventory
     ))
     .id();
   commands.write_message(ToClients {
@@ -54,41 +71,93 @@ fn embody(commands: &mut Commands, voxels: &mut Voxels, client: ClientId, count:
 }
 
 fn found_world(mut commands: Commands) {
-  let mut voxels = Voxels::new(opts().seed);
-  let at = generate::spawn_point(voxels.seed).floor().as_ivec3();
-  voxels.ensure(at);
-  commands.insert_resource(voxels)
+  let World { seed, edits, players } = save::load().unwrap_or_else(|| World {
+    seed: opts().seed,
+    edits: default(),
+    players: default()
+  });
+  let mut voxels = Voxels::new(seed);
+  edits.iter().for_each(|&(at, block)| voxels.set(at, block));
+  voxels.ensure(generate::spawn_point(seed).floor().as_ivec3());
+  commands.insert_resource(voxels);
+  commands.insert_resource(Roster(players))
 }
 
-fn embody_host(mut commands: Commands, mut voxels: ResMut<Voxels>, role: Res<Role>) {
+fn embody_host(
+  mut commands: Commands,
+  mut roster: ResMut<Roster>,
+  voxels: Res<Voxels>,
+  role: Res<Role>
+) {
   if role.plays() {
-    embody(&mut commands, &mut voxels, ClientId::Server, 0)
+    embody(&mut commands, &mut roster, voxels.seed, ClientId::Server, opts().called(), 0)
   }
 }
 
 fn welcome(
   joined: On<Add, AuthorizedClient>,
   mut commands: Commands,
-  mut voxels: ResMut<Voxels>,
-  players: Query<(), With<Player>>
+  voxels: Res<Voxels>
 ) {
-  let client = ClientId::Client(joined.entity);
   commands.write_message(ToClients {
-    targets: SendTargets::Single(client),
+    targets: SendTargets::Single(ClientId::Client(joined.entity)),
     message: Welcome { seed: voxels.seed, edits: voxels.all_edits() }
   });
-  embody(&mut commands, &mut voxels, client, players.iter().count())
+}
+
+fn introduce(
+  mut hellos: MessageReader<FromClient<Hello>>,
+  mut commands: Commands,
+  mut roster: ResMut<Roster>,
+  voxels: Res<Voxels>,
+  players: Query<(&Controller, &Player)>
+) {
+  let mut present: Vec<(ClientId, String)> = players
+    .iter()
+    .map(|(controller, player)| (controller.0, player.name.clone()))
+    .collect();
+  hellos.read().for_each(|hello| {
+    let given: String =
+      hello.message.name.chars().filter(|c| !c.is_control()).take(24).collect();
+    let given = match given.trim() {
+      "" => "Wanderer".to_string(),
+      trimmed => trimmed.to_string()
+    };
+    let taken = |name: &String| present.iter().any(|(_, other)| other == name);
+    let name = (1..)
+      .map(|n| match n {
+        1 => given.clone(),
+        n => format!("{given} {n}")
+      })
+      .find(|name| !taken(name))
+      .unwrap_or(given);
+    if !present.iter().any(|(client, _)| *client == hello.client_id) {
+      embody(
+        &mut commands,
+        &mut roster,
+        voxels.seed,
+        hello.client_id,
+        name.clone(),
+        present.len()
+      );
+      present.push((hello.client_id, name))
+    }
+  })
 }
 
 fn farewell(
   left: On<Remove, ConnectedClient>,
   mut commands: Commands,
-  players: Query<(Entity, &Controller)>
+  mut roster: ResMut<Roster>,
+  players: Query<(Entity, &Controller, &Player, &Avatar, &Inventory)>
 ) {
   players
     .iter()
-    .filter(|(_, controller)| controller.0 == ClientId::Client(left.entity))
-    .for_each(|(player, _)| commands.entity(player).despawn())
+    .filter(|(_, controller, ..)| controller.0 == ClientId::Client(left.entity))
+    .for_each(|(entity, _, player, &avatar, inventory)| {
+      roster.0.insert(player.name.clone(), (avatar, inventory.clone()));
+      commands.entity(entity).despawn()
+    })
 }
 
 fn player_of<'a, T>(
@@ -99,21 +168,6 @@ fn player_of<'a, T>(
     .into_iter()
     .find(|(controller, _)| controller.0 == client)
     .map(|(_, found)| found)
-}
-
-fn introduce(
-  mut hellos: MessageReader<FromClient<Hello>>,
-  mut players: Query<(&Controller, &mut Player)>
-) {
-  hellos.read().for_each(|hello| {
-    let name: String =
-      hello.message.name.chars().filter(|c| !c.is_control()).take(24).collect();
-    if let Some(mut player) = player_of(players.iter_mut(), hello.client_id)
-      && !name.trim().is_empty()
-    {
-      player.name = name
-    }
-  })
 }
 
 fn follow(
