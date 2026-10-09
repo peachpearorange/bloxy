@@ -10,8 +10,6 @@ use {crate::{block::Block,
             window::{CursorGrabMode, CursorOptions, PrimaryWindow}},
      bevy_replicon::prelude::*};
 
-const HALF_WIDTH: f32 = 0.3;
-const TALL: f32 = 1.8;
 const GRAVITY: f32 = 30.0;
 const JUMP: f32 = 8.6;
 const WALK: f32 = 4.3;
@@ -143,24 +141,40 @@ fn look(
   }
 }
 
-fn body(at: Vec3) -> (Vec3, Vec3) {
-  (
-    at - Vec3::new(HALF_WIDTH, 0.0, HALF_WIDTH),
-    at + Vec3::new(HALF_WIDTH, TALL, HALF_WIDTH)
-  )
+#[derive(Clone, Copy)]
+pub struct Bulk {
+  pub half: f32,
+  pub tall: f32
 }
 
-fn cells(low: Vec3, high: Vec3) -> impl Iterator<Item = IVec3> {
+impl Bulk {
+  pub const PERSON: Bulk = Bulk { half: 0.3, tall: 1.8 };
+
+  pub fn body(self, at: Vec3) -> (Vec3, Vec3) {
+    (
+      at - Vec3::new(self.half, 0.0, self.half),
+      at + Vec3::new(self.half, self.tall, self.half)
+    )
+  }
+}
+
+pub fn cells(low: Vec3, high: Vec3) -> impl Iterator<Item = IVec3> {
   let (from, to) = (low.floor().as_ivec3(), (high - SKIN).floor().as_ivec3());
   (from.y..=to.y).flat_map(move |y| {
     (from.z..=to.z).flat_map(move |z| (from.x..=to.x).map(move |x| IVec3::new(x, y, z)))
   })
 }
 
-fn slide(voxels: &Voxels, at: Vec3, axis: usize, distance: f32) -> (Vec3, bool) {
+pub fn slide(
+  voxels: &Voxels,
+  bulk: Bulk,
+  at: Vec3,
+  axis: usize,
+  distance: f32
+) -> (Vec3, bool) {
   let mut moved = at;
   moved[axis] += distance;
-  let (low, high) = body(moved);
+  let (low, high) = bulk.body(moved);
   let blocking: Vec<IVec3> =
     cells(low, high).filter(|&cell| voxels.solid(cell)).collect();
   match (blocking.is_empty(), distance > 0.0) {
@@ -223,7 +237,7 @@ fn fly(
       pilot.swimming = swimming;
       let (at, mut velocity) = (pilot.at, pilot.velocity);
       let (at, landed) = [1, 0, 2].into_iter().fold((at, false), |(at, landed), axis| {
-        let (at, hit) = slide(&voxels, at, axis, velocity[axis] * STEP);
+        let (at, hit) = slide(&voxels, Bulk::PERSON, at, axis, velocity[axis] * STEP);
         if hit {
           velocity[axis] = 0.0
         }
@@ -343,7 +357,7 @@ fn work(
     {
       *cooldown = PLACE_EVERY;
       let at = hit.at + hit.normal;
-      let (low, high) = body(pilot.at);
+      let (low, high) = Bulk::PERSON.body(pilot.at);
       let inside = cells(low, high).any(|cell| cell == at);
       if !inside && voxels.block(at).is_some_and(|block| !block.solid()) {
         puts.write(Put { at, block: stack.block });

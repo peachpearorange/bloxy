@@ -19,6 +19,7 @@ mod player;
 mod protocol;
 mod save;
 mod settings;
+mod shroomling;
 mod skin;
 mod sky;
 mod stream;
@@ -209,7 +210,8 @@ fn main() {
       protocol::Protocol,
       net::ClientNet,
       authority::Authority,
-      save::Saving
+      save::Saving,
+      shroomling::Shroomlings
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

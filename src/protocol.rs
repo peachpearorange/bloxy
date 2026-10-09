@@ -37,6 +37,13 @@ pub struct Avatar {
   pub pitch: f32
 }
 
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+pub struct Hopper {
+  pub at: Vec3,
+  pub yaw: f32,
+  pub aloft: bool
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct Stack {
   pub block: Block,
@@ -159,6 +166,7 @@ impl Plugin for Protocol {
       .add_server_message::<Verdict>(Channel::Ordered)
       .replicate::<Visited>()
       .add_client_message::<Travel>(Channel::Ordered)
-      .add_server_message::<Teleport>(Channel::Ordered);
+      .add_server_message::<Teleport>(Channel::Ordered)
+      .replicate::<Hopper>();
   }
 }
