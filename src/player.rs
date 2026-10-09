@@ -1,6 +1,8 @@
 use {crate::{block::Block,
+             menu::{Menu, closed},
              opts::opts,
              protocol::*,
+             settings::Settings,
              stream::ready_around,
              voxels::{Hit, Voxels}},
      bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -92,15 +94,15 @@ fn possess(
   }
 }
 
-fn spawn_eye(mut commands: Commands) {
+fn spawn_eye(mut commands: Commands, settings: Res<Settings>) {
   commands.spawn((
     Eye,
     Camera3d::default(),
     Projection::Perspective(PerspectiveProjection {
-      fov: 75f32.to_radians(),
+      fov: settings.fov.to_radians(),
       ..default()
     }),
-    crate::sky::lens(),
+    crate::sky::lens(&settings),
     Transform::default()
   ));
 }
@@ -108,34 +110,36 @@ fn spawn_eye(mut commands: Commands) {
 fn grab(
   mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
   buttons: Res<ButtonInput<MouseButton>>,
-  keys: Res<ButtonInput<KeyCode>>
+  menu: Res<Menu>
 ) {
-  if let Ok(mut cursor) = cursor.single_mut() {
-    if buttons.just_pressed(MouseButton::Left) && cursor.grab_mode == CursorGrabMode::None
-    {
-      cursor.grab_mode = CursorGrabMode::Locked;
-      cursor.visible = false
-    }
-    if keys.just_pressed(KeyCode::Escape) {
-      cursor.grab_mode = CursorGrabMode::None;
-      cursor.visible = true
-    }
+  if let Ok(mut cursor) = cursor.single_mut()
+    && !menu.open
+    && buttons.just_pressed(MouseButton::Left)
+    && cursor.grab_mode == CursorGrabMode::None
+  {
+    cursor.grab_mode = CursorGrabMode::Locked;
+    cursor.visible = false
   }
 }
 
-fn captured(cursor: &Query<&CursorOptions, With<PrimaryWindow>>) -> bool {
-  cursor.single().is_ok_and(|cursor| cursor.grab_mode != CursorGrabMode::None)
-    || opts().shot.is_some()
+fn captured(cursor: &Query<&CursorOptions, With<PrimaryWindow>>, menu: &Menu) -> bool {
+  !menu.open
+    && (cursor.single().is_ok_and(|cursor| cursor.grab_mode != CursorGrabMode::None)
+      || opts().shot.is_some())
 }
 
 fn look(
   mut pilot: ResMut<Pilot>,
   motion: Res<AccumulatedMouseMotion>,
-  cursor: Query<&CursorOptions, With<PrimaryWindow>>
+  cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+  menu: Res<Menu>,
+  settings: Res<Settings>
 ) {
-  if captured(&cursor) && motion.delta != Vec2::ZERO {
-    pilot.yaw -= motion.delta.x * LOOK;
-    pilot.pitch = (pilot.pitch - motion.delta.y * LOOK).clamp(-1.55, 1.55)
+  if captured(&cursor, &menu) && motion.delta != Vec2::ZERO {
+    let turn = motion.delta * LOOK * settings.sensitivity;
+    let rise = if settings.invert { -turn.y } else { turn.y };
+    pilot.yaw -= turn.x;
+    pilot.pitch = (pilot.pitch - rise).clamp(-1.55, 1.55)
   }
 }
 
@@ -178,6 +182,7 @@ fn slide(voxels: &Voxels, at: Vec3, axis: usize, distance: f32) -> (Vec3, bool) 
 fn fly(
   time: Res<Time>,
   keys: Res<ButtonInput<KeyCode>>,
+  menu: Res<Menu>,
   voxels: Option<Res<Voxels>>,
   mut pilot: ResMut<Pilot>,
   mut spare: Local<f32>
@@ -185,12 +190,13 @@ fn fly(
   if let Some(voxels) = voxels
     && ready_around(&voxels, pilot.at)
   {
-    let held = |key: KeyCode| f32::from(u8::from(keys.pressed(key)));
+    let pressed = |key: KeyCode| !menu.open && keys.pressed(key);
+    let held = |key: KeyCode| f32::from(u8::from(pressed(key)));
     let wish = Vec2::new(
       held(KeyCode::KeyD) - held(KeyCode::KeyA),
       held(KeyCode::KeyS) - held(KeyCode::KeyW)
     );
-    let speed = match (pilot.swimming, keys.pressed(KeyCode::ControlLeft)) {
+    let speed = match (pilot.swimming, pressed(KeyCode::ControlLeft)) {
       (true, _) => SWIM,
       (false, true) => SPRINT,
       (false, false) => WALK
@@ -206,7 +212,7 @@ fn fly(
       let blend = if pilot.grounded { 0.35 } else { 0.06 };
       let velocity = pilot.velocity;
       let horizontal = velocity.xz().lerp(walk.xz(), blend);
-      let vertical = match (swimming, keys.pressed(KeyCode::Space), pilot.grounded) {
+      let vertical = match (swimming, pressed(KeyCode::Space), pilot.grounded) {
         (true, true, _) => (velocity.y + 20.0 * STEP).min(3.0),
         (true, false, _) => (velocity.y - 8.0 * STEP).max(-2.5),
         (false, true, true) => JUMP,
@@ -281,6 +287,7 @@ fn work(
   time: Res<Time>,
   buttons: Res<ButtonInput<MouseButton>>,
   cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+  menu: Res<Menu>,
   role: Res<Role>,
   pilot: Res<Pilot>,
   selected: Res<Selected>,
@@ -293,7 +300,7 @@ fn work(
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
     aim.hit = voxels.cast(pilot.eye(), pilot.facing() * Vec3::NEG_Z, REACH);
-    let active = captured(&cursor);
+    let active = captured(&cursor, &menu);
     let target = aim.hit.as_ref().map(|hit| (hit.at, hit.block));
     match (target, active && buttons.pressed(MouseButton::Left)) {
       (Some((at, block)), true) if block.breakable() => {
@@ -355,16 +362,11 @@ fn apply_changes(
   }
 }
 
-fn arrive(
-  mut commands: Commands,
-  mut welcomes: MessageReader<Welcome>,
-  mut hello: MessageWriter<Hello>
-) {
+fn arrive(mut commands: Commands, mut welcomes: MessageReader<Welcome>) {
   welcomes.read().for_each(|welcome| {
     let mut voxels = Voxels::new(welcome.seed);
     welcome.edits.iter().for_each(|&(at, block)| voxels.set(at, block));
-    commands.insert_resource(voxels);
-    hello.write(Hello { name: opts().called() });
+    commands.insert_resource(voxels)
   })
 }
 
@@ -389,7 +391,7 @@ impl Plugin for Piloting {
         (
           possess,
           grab,
-          (look, fly, follow, select, work, report)
+          (look, fly, follow, select.run_if(closed), work, report)
             .chain()
             .run_if(resource_exists::<Pilot>)
         )

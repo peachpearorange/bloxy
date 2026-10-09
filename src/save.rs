@@ -1,21 +1,22 @@
-use {crate::{block::Block, opts::opts, protocol::*, voxels::Voxels},
+use {crate::{account::{Account, Accounts},
+             authority::Controller,
+             block::Block,
+             opts::opts,
+             protocol::*,
+             skin::Skin,
+             voxels::Voxels},
      bevy::prelude::*,
      serde::{Deserialize, Serialize},
-     std::{collections::HashMap,
-           sync::atomic::{AtomicBool, Ordering}}};
+     std::sync::atomic::{AtomicBool, Ordering}};
 
 const EVERY: f32 = 5.0;
-
-pub type Belongings = (Avatar, Inventory);
-
-#[derive(Resource, Default)]
-pub struct Roster(pub HashMap<String, Belongings>);
 
 #[derive(Serialize, Deserialize)]
 pub struct World {
   pub seed: u32,
   pub edits: Vec<(IVec3, Block)>,
-  pub players: HashMap<String, Belongings>
+  #[serde(default)]
+  pub accounts: Vec<Account>
 }
 
 pub fn load() -> Option<World> {
@@ -40,9 +41,9 @@ fn write(path: &str, world: &World) -> std::io::Result<()> {
 fn store(
   time: Res<Time>,
   voxels: Res<Voxels>,
-  roster: Res<Roster>,
-  players: Query<(&Player, &Avatar, &Inventory)>,
-  altered: Query<(), Or<(Changed<Avatar>, Changed<Inventory>)>>,
+  accounts: Res<Accounts>,
+  players: Query<(&Controller, &Avatar, &Inventory, &Skin)>,
+  altered: Query<(), Or<(Changed<Avatar>, Changed<Inventory>, Changed<Skin>)>>,
   mut exits: MessageReader<AppExit>,
   mut commands: Commands,
   mut pending: Local<bool>,
@@ -50,7 +51,7 @@ fn store(
 ) {
   let terminated = TERMINATED.load(Ordering::Relaxed);
   let closing = exits.read().count() > 0 || terminated;
-  *pending |= voxels.is_changed() || roster.is_changed() || !altered.is_empty();
+  *pending |= voxels.is_changed() || accounts.is_changed() || !altered.is_empty();
   *since += time.delta_secs();
   if let Some(path) = opts().saved_at()
     && *pending
@@ -59,14 +60,13 @@ fn store(
     let world = World {
       seed: voxels.seed,
       edits: voxels.all_edits(),
-      players: roster
-        .0
-        .clone()
-        .into_iter()
-        .chain(players.iter().map(|(player, &avatar, inventory)| {
-          (player.name.clone(), (avatar, inventory.clone()))
-        }))
-        .collect()
+      accounts: players.iter().fold(
+        accounts.0.clone(),
+        |mut kept, (controller, avatar, inventory, skin)| {
+          kept[controller.account].keep(avatar, inventory, skin);
+          kept
+        }
+      )
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

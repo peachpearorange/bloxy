@@ -1,6 +1,8 @@
 use {crate::{player::{Eye, Me, Pilot},
-             protocol::{Avatar, Player, plays}},
-     bevy::prelude::*};
+             protocol::{Avatar, Player, plays},
+             skin::{PX, Part, Skin}},
+     bevy::{camera::visibility::RenderLayers, prelude::*},
+     std::f32::consts::PI};
 
 #[derive(Component)]
 struct Figure {
@@ -9,104 +11,116 @@ struct Figure {
 }
 
 #[derive(Component)]
-struct Head;
+pub struct Head;
 
 #[derive(Component)]
-struct Limb {
+pub struct Limb {
   phase: f32
 }
 
 #[derive(Component)]
 struct Tag(Entity);
 
+#[derive(Resource, Clone)]
+pub struct Kit {
+  head: Handle<Mesh>,
+  body: Handle<Mesh>,
+  arm: Handle<Mesh>,
+  leg: Handle<Mesh>
+}
+
+#[derive(Component)]
+pub struct Clad {
+  pub material: Handle<StandardMaterial>,
+  pub image: Handle<Image>
+}
+
+pub fn sew(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
+  let mut shaped =
+    |part: Part, lift: f32| meshes.add(part.mesh().translated_by(Vec3::Y * lift * PX));
+  commands.insert_resource(Kit {
+    head: shaped(Part::Head, 4.0),
+    body: shaped(Part::Body, 0.0),
+    arm: shaped(Part::Arm, -6.0),
+    leg: shaped(Part::Leg, -6.0)
+  })
+}
+
+pub fn clothe(
+  skin: &Skin,
+  images: &mut Assets<Image>,
+  materials: &mut Assets<StandardMaterial>
+) -> Clad {
+  let image = images.add(skin.image(false));
+  let material = materials.add(StandardMaterial {
+    base_color_texture: Some(image.clone()),
+    perceptual_roughness: 0.85,
+    ..default()
+  });
+  Clad { material, image }
+}
+
+pub fn assemble(
+  figure: &mut EntityCommands,
+  kit: &Kit,
+  clad: &Clad,
+  layers: RenderLayers
+) {
+  let material = MeshMaterial3d(clad.material.clone());
+  figure.with_children(|figure| {
+    figure.spawn((
+      Mesh3d(kit.body.clone()),
+      material.clone(),
+      layers.clone(),
+      Transform::from_xyz(0.0, 18.0 * PX, 0.0)
+    ));
+    figure.spawn((
+      Head,
+      Mesh3d(kit.head.clone()),
+      material.clone(),
+      layers.clone(),
+      Transform::from_xyz(0.0, 24.0 * PX, 0.0)
+    ));
+    [
+      (6.0, 0.0, kit.arm.clone(), 24.0),
+      (-6.0, PI, kit.arm.clone(), 24.0),
+      (2.0, PI, kit.leg.clone(), 12.0),
+      (-2.0, 0.0, kit.leg.clone(), 12.0)
+    ]
+    .into_iter()
+    .for_each(|(x, phase, mesh, pivot)| {
+      figure.spawn((
+        Limb { phase },
+        Mesh3d(mesh),
+        material.clone(),
+        layers.clone(),
+        Transform::from_xyz(x * PX, pivot * PX, 0.0)
+      ));
+    });
+  });
+}
+
 fn dress(
   pilot: Option<Res<Pilot>>,
+  kit: Res<Kit>,
   mut commands: Commands,
-  arrivals: Query<(Entity, &Player, &Avatar), (Without<Figure>, Without<Me>)>,
-  mut meshes: ResMut<Assets<Mesh>>,
+  arrivals: Query<(Entity, &Player, &Avatar, &Skin), (Without<Figure>, Without<Me>)>,
+  mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
   arrivals
     .iter()
-    .filter(|(entity, _, _)| pilot.as_ref().is_some_and(|pilot| pilot.me != *entity))
-    .for_each(|(entity, player, avatar)| {
-      let [r, g, b] = player.tint;
-      let shirt = materials.add(StandardMaterial {
-        base_color: Color::srgb(r, g, b),
-        perceptual_roughness: 0.9,
-        ..default()
-      });
-      let skin = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.86, 0.66, 0.52),
-        perceptual_roughness: 0.8,
-        ..default()
-      });
-      let trousers = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.22, 0.35),
-        perceptual_roughness: 0.9,
-        ..default()
-      });
-      let eyes = materials
-        .add(StandardMaterial { base_color: Color::srgb(0.1, 0.1, 0.12), ..default() });
-      let (torso, head, eye) = (
-        Mesh3d(meshes.add(Cuboid::from_size(Vec3::new(0.5, 0.7, 0.26)))),
-        Mesh3d(meshes.add(Cuboid::from_size(Vec3::splat(0.46)))),
-        Mesh3d(meshes.add(Cuboid::from_size(Vec3::new(0.08, 0.06, 0.02))))
-      );
-      let mut hanging = |size: Vec3| {
-        Mesh3d(meshes.add(
-          Cuboid::from_size(size).mesh().build().translated_by(Vec3::Y * -size.y / 2.0)
-        ))
-      };
-      let (arm, leg) =
-        (hanging(Vec3::new(0.2, 0.68, 0.22)), hanging(Vec3::new(0.24, 0.72, 0.24)));
-      commands
-        .entity(entity)
-        .insert((
-          Figure { shown: avatar.at, stride: 0.0 },
-          Transform::from_translation(avatar.at),
-          Visibility::default()
-        ))
-        .with_children(|figure| {
-          figure.spawn((
-            torso,
-            MeshMaterial3d(shirt.clone()),
-            Transform::from_xyz(0.0, 1.07, 0.0)
-          ));
-          figure
-            .spawn((
-              Head,
-              head,
-              MeshMaterial3d(skin.clone()),
-              Transform::from_xyz(0.0, 1.65, 0.0)
-            ))
-            .with_children(|head| {
-              [-0.1, 0.1].into_iter().for_each(|x| {
-                head.spawn((
-                  eye.clone(),
-                  MeshMaterial3d(eyes.clone()),
-                  Transform::from_xyz(x, 0.02, -0.235)
-                ));
-              })
-            });
-          [
-            (-0.36, 0.0, shirt.clone(), arm.clone(), 1.42),
-            (0.36, std::f32::consts::PI, shirt, arm, 1.42)
-          ]
-          .into_iter()
-          .chain([
-            (-0.125, std::f32::consts::PI, trousers.clone(), leg.clone(), 0.72),
-            (0.125, 0.0, trousers, leg, 0.72)
-          ])
-          .for_each(|(x, phase, material, mesh, shoulder)| {
-            figure.spawn((
-              Limb { phase },
-              mesh,
-              MeshMaterial3d(material),
-              Transform::from_xyz(x, shoulder, 0.0)
-            ));
-          });
-        });
+    .filter(|(entity, ..)| pilot.as_ref().is_some_and(|pilot| pilot.me != *entity))
+    .for_each(|(entity, player, avatar, skin)| {
+      let clad = clothe(skin, &mut images, &mut materials);
+      let mut figure = commands.entity(entity);
+      figure.insert((
+        Figure { shown: avatar.at, stride: 0.0 },
+        Transform::from_translation(avatar.at),
+        Visibility::default()
+      ));
+      assemble(&mut figure, &kit, &clad, RenderLayers::default());
+      figure.insert(clad);
       let tag = commands
         .spawn((
           Text::new(player.name.clone()),
@@ -121,6 +135,19 @@ fn dress(
         .id();
       commands.entity(entity).insert(Tag(tag));
     })
+}
+
+fn reskin(
+  figures: Query<(&Skin, &Clad), Changed<Skin>>,
+  mut images: ResMut<Assets<Image>>,
+  mut materials: ResMut<Assets<StandardMaterial>>
+) {
+  figures.iter().for_each(|(skin, clad)| {
+    if let Some(mut image) = images.get_mut(&clad.image) {
+      image.data = Some(skin.pixels(false))
+    }
+    materials.get_mut(&clad.material);
+  })
 }
 
 fn animate(
@@ -184,7 +211,7 @@ fn untag(gone: On<Remove, Tag>, tags: Query<&Tag>, mut commands: Commands) {
 fn undress(possessed: On<Add, Me>, mut commands: Commands) {
   commands
     .entity(possessed.entity)
-    .remove::<(Figure, Tag)>()
+    .remove::<(Figure, Tag, Clad)>()
     .despawn_related::<Children>();
 }
 
@@ -195,6 +222,7 @@ impl Plugin for Figures {
     app
       .add_observer(untag)
       .add_observer(undress)
-      .add_systems(Update, (dress, animate, label).chain().run_if(plays));
+      .add_systems(Startup, sew.run_if(plays))
+      .add_systems(Update, (dress, reskin, animate, label).chain().run_if(plays));
   }
 }

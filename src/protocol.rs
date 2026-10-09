@@ -1,4 +1,4 @@
-use {crate::block::Block,
+use {crate::{block::Block, skin::Skin},
      bevy::{ecs::entity::MapEntities, prelude::*},
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
@@ -27,8 +27,7 @@ pub fn plays(role: Res<Role>) -> bool { role.plays() }
 
 #[derive(Component, Serialize, Deserialize, Clone)]
 pub struct Player {
-  pub name: String,
-  pub tint: [f32; 3]
+  pub name: String
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Default, PartialEq)]
@@ -89,7 +88,17 @@ impl Inventory {
 
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Hello {
-  pub name: String
+  pub name: String,
+  pub password: String
+}
+
+#[derive(Message, Serialize, Deserialize, Clone)]
+pub struct Paint(pub Skin);
+
+#[derive(Message, Serialize, Deserialize, Clone, Debug)]
+pub enum Verdict {
+  Accepted { name: String },
+  Refused { reason: String }
 }
 
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
@@ -129,12 +138,15 @@ impl Plugin for Protocol {
       .replicate::<Player>()
       .replicate::<Avatar>()
       .replicate::<Inventory>()
+      .replicate::<Skin>()
       .add_client_message::<Hello>(Channel::Ordered)
+      .add_client_message::<Paint>(Channel::Ordered)
       .add_client_message::<Moved>(Channel::Unreliable)
       .add_client_message::<Dig>(Channel::Ordered)
       .add_client_message::<Put>(Channel::Ordered)
       .add_server_message::<Welcome>(Channel::Ordered)
       .add_mapped_server_message::<Possess>(Channel::Ordered)
-      .add_server_message::<Altered>(Channel::Ordered);
+      .add_server_message::<Altered>(Channel::Ordered)
+      .add_server_message::<Verdict>(Channel::Ordered);
   }
 }

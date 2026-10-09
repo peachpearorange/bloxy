@@ -1,25 +1,19 @@
-use {crate::{block::Block,
+use {crate::{account::{Account, Accounts, LONGEST_NAME, tidy},
+             block::Block,
              generate,
              opts::opts,
              protocol::*,
-             save::{self, Roster, World},
+             save::{self, World},
+             skin::Skin,
              voxels::Voxels},
      bevy::prelude::*,
      bevy_replicon::prelude::*};
 
 #[derive(Component)]
-struct Controller(ClientId);
-
-const TINTS: [[f32; 3]; 8] = [
-  [0.85, 0.3, 0.25],
-  [0.25, 0.5, 0.9],
-  [0.3, 0.75, 0.35],
-  [0.9, 0.75, 0.2],
-  [0.65, 0.35, 0.8],
-  [0.2, 0.75, 0.75],
-  [0.9, 0.5, 0.2],
-  [0.85, 0.85, 0.85]
-];
+pub struct Controller {
+  pub client: ClientId,
+  pub account: usize
+}
 
 fn starter(creative: bool) -> Inventory {
   let kit = [
@@ -43,55 +37,41 @@ fn starter(creative: bool) -> Inventory {
 
 fn embody(
   commands: &mut Commands,
-  roster: &mut Roster,
+  accounts: &Accounts,
   seed: u32,
   client: ClientId,
-  name: String,
-  count: usize
-) {
-  let (avatar, inventory) = roster.0.remove(&name).unwrap_or_else(|| {
-    (
-      Avatar { at: generate::spawn_point(seed), yaw: 0.0, pitch: 0.0 },
-      starter(opts().creative)
-    )
-  });
+  account: usize
+) -> Entity {
+  let Account { name, avatar, inventory, skin, .. } = accounts.0[account].clone();
+  let at = generate::spawn_point(seed);
   let player = commands
     .spawn((
       Replicated,
-      Controller(client),
-      Player { name, tint: TINTS[count % TINTS.len()] },
-      avatar,
-      inventory
+      Controller { client, account },
+      Player { name },
+      avatar.unwrap_or(Avatar { at, yaw: 0.0, pitch: 0.0 }),
+      inventory,
+      skin
     ))
     .id();
   commands.write_message(ToClients {
     targets: SendTargets::Single(client),
     message: Possess(player)
   });
+  player
 }
 
 fn found_world(mut commands: Commands) {
-  let World { seed, edits, players } = save::load().unwrap_or_else(|| World {
+  let World { seed, edits, accounts } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
-    players: default()
+    accounts: default()
   });
   let mut voxels = Voxels::new(seed);
   edits.iter().for_each(|&(at, block)| voxels.set(at, block));
   voxels.ensure(generate::spawn_point(seed).floor().as_ivec3());
   commands.insert_resource(voxels);
-  commands.insert_resource(Roster(players))
-}
-
-fn embody_host(
-  mut commands: Commands,
-  mut roster: ResMut<Roster>,
-  voxels: Res<Voxels>,
-  role: Res<Role>
-) {
-  if role.plays() {
-    embody(&mut commands, &mut roster, voxels.seed, ClientId::Server, opts().called(), 0)
-  }
+  commands.insert_resource(Accounts(accounts))
 }
 
 fn welcome(
@@ -105,57 +85,99 @@ fn welcome(
   });
 }
 
-fn introduce(
+fn sign_in(
   mut hellos: MessageReader<FromClient<Hello>>,
   mut commands: Commands,
-  mut roster: ResMut<Roster>,
+  mut accounts: ResMut<Accounts>,
   voxels: Res<Voxels>,
-  players: Query<(&Controller, &Player)>
+  players: Query<(Entity, &Controller, &Avatar, &Inventory, &Skin)>,
+  mut verdicts: MessageWriter<ToClients<Verdict>>
 ) {
-  let mut present: Vec<(ClientId, String)> = players
+  let mut online: Vec<(ClientId, usize, Entity)> = players
     .iter()
-    .map(|(controller, player)| (controller.0, player.name.clone()))
+    .map(|(entity, controller, ..)| (controller.client, controller.account, entity))
     .collect();
-  hellos.read().for_each(|hello| {
-    let given: String =
-      hello.message.name.chars().filter(|c| !c.is_control()).take(24).collect();
-    let given = match given.trim() {
-      "" => "Wanderer".to_string(),
-      trimmed => trimmed.to_string()
+  hellos.read().for_each(|FromClient { client_id, message: Hello { name, password } }| {
+    let client = *client_id;
+    let current = online
+      .iter()
+      .find(|(other, ..)| *other == client)
+      .map(|&(_, id, entity)| (id, entity));
+    let playing = online.iter().map(|&(_, id, _)| id).collect::<Vec<_>>();
+    let answer = match tidy(name) {
+      None => Err(format!("Names need 1 to {LONGEST_NAME} characters")),
+      Some(name) => match (accounts.named(&name), current) {
+        (owner, Some((mine, entity))) if owner.is_none_or(|owner| owner == mine) => {
+          accounts.0[mine].name = name.clone();
+          accounts.0[mine].lock(password);
+          commands.entity(entity).insert(Player { name: name.clone() });
+          Ok(name)
+        }
+        (Some(owner), _) if playing.contains(&owner) => {
+          Err(format!("{} is already playing", accounts.0[owner].name))
+        }
+        (Some(owner), current) if accounts.0[owner].admits(password) => {
+          if let Some((mine, entity)) = current
+            && let Ok((_, _, avatar, inventory, skin)) = players.get(entity)
+          {
+            accounts.0[mine].keep(avatar, inventory, skin);
+            commands.entity(entity).despawn();
+            online.retain(|&(other, ..)| other != client)
+          }
+          let player = embody(&mut commands, &accounts, voxels.seed, client, owner);
+          online.push((client, owner, player));
+          Ok(accounts.0[owner].name.clone())
+        }
+        (Some(owner), _) => Err(format!("Wrong password for {}", accounts.0[owner].name)),
+        (None, _) => {
+          accounts.0.push(Account::open(
+            name.clone(),
+            password,
+            starter(opts().creative)
+          ));
+          let owner = accounts.0.len() - 1;
+          let player = embody(&mut commands, &accounts, voxels.seed, client, owner);
+          online.push((client, owner, player));
+          Ok(name)
+        }
+      }
     };
-    let taken = |name: &String| present.iter().any(|(_, other)| other == name);
-    let name = (1..)
-      .map(|n| match n {
-        1 => given.clone(),
-        n => format!("{given} {n}")
+    verdicts.write(ToClients {
+      targets: SendTargets::Single(client),
+      message: match answer {
+        Ok(name) => Verdict::Accepted { name },
+        Err(reason) => Verdict::Refused { reason }
+      }
+    });
+  })
+}
+
+fn paint(
+  mut paints: MessageReader<FromClient<Paint>>,
+  mut commands: Commands,
+  players: Query<(Entity, &Controller)>
+) {
+  paints.read().filter(|paint| paint.message.0.valid()).for_each(|paint| {
+    players
+      .iter()
+      .filter(|(_, controller)| controller.client == paint.client_id)
+      .for_each(|(entity, _)| {
+        commands.entity(entity).insert(paint.message.0.clone());
       })
-      .find(|name| !taken(name))
-      .unwrap_or(given);
-    if !present.iter().any(|(client, _)| *client == hello.client_id) {
-      embody(
-        &mut commands,
-        &mut roster,
-        voxels.seed,
-        hello.client_id,
-        name.clone(),
-        present.len()
-      );
-      present.push((hello.client_id, name))
-    }
   })
 }
 
 fn farewell(
   left: On<Remove, ConnectedClient>,
   mut commands: Commands,
-  mut roster: ResMut<Roster>,
-  players: Query<(Entity, &Controller, &Player, &Avatar, &Inventory)>
+  mut accounts: ResMut<Accounts>,
+  players: Query<(Entity, &Controller, &Avatar, &Inventory, &Skin)>
 ) {
   players
     .iter()
-    .filter(|(_, controller, ..)| controller.0 == ClientId::Client(left.entity))
-    .for_each(|(entity, _, player, &avatar, inventory)| {
-      roster.0.insert(player.name.clone(), (avatar, inventory.clone()));
+    .filter(|(_, controller, ..)| controller.client == ClientId::Client(left.entity))
+    .for_each(|(entity, controller, avatar, inventory, skin)| {
+      accounts.0[controller.account].keep(avatar, inventory, skin);
       commands.entity(entity).despawn()
     })
 }
@@ -166,7 +188,7 @@ fn player_of<'a, T>(
 ) -> Option<T> {
   players
     .into_iter()
-    .find(|(controller, _)| controller.0 == client)
+    .find(|(controller, _)| controller.client == client)
     .map(|(_, found)| found)
 }
 
@@ -258,10 +280,12 @@ pub struct Authority;
 impl Plugin for Authority {
   fn build(&self, app: &mut App) {
     app
-      .add_systems(Startup, (found_world, embody_host).chain().run_if(authority))
+      .add_systems(Startup, found_world.run_if(authority))
       .add_systems(
         PreUpdate,
-        (introduce, follow, dig, put).after(ServerSystems::Receive).run_if(authority)
+        (sign_in, paint, follow, dig, put)
+          .after(ServerSystems::Receive)
+          .run_if(authority)
       )
       .add_observer(welcome)
       .add_observer(farewell);

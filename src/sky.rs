@@ -3,7 +3,7 @@ use {crate::{opts::opts, protocol::plays},
             core_pipeline::tonemapping::Tonemapping,
             light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder,
                     SunDisk, atmosphere::ScatteringMedium, light_consts::lux},
-            pbr::{AtmosphereSettings, DistanceFog, FogFalloff},
+            pbr::{AtmosphereSettings, DistanceFog},
             post_process::bloom::Bloom,
             prelude::*},
      std::f32::consts::PI};
@@ -11,8 +11,7 @@ use {crate::{opts::opts, protocol::plays},
 const EXPOSURE: f32 = 13.0;
 const HAZE: Color = Color::srgb(0.66, 0.74, 0.86);
 
-pub fn lens() -> impl Bundle {
-  let far = (opts().reach as f32 - 0.5) * crate::stream::CHUNK_METRES;
+pub fn lens(settings: &crate::settings::Settings) -> impl Bundle {
   (
     AtmosphereSettings::default(),
     AtmosphereEnvironmentMapLight::default(),
@@ -23,7 +22,7 @@ pub fn lens() -> impl Bundle {
       color: HAZE,
       directional_light_color: Color::srgba(1.0, 0.92, 0.75, 0.5),
       directional_light_exponent: 24.0,
-      falloff: FogFalloff::Linear { start: far * 0.55, end: far },
+      falloff: settings.fog(),
       ..default()
     },
     Msaa::Off

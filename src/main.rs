@@ -1,10 +1,15 @@
 #![recursion_limit = "256"]
 
+mod account;
 mod authority;
 mod block;
+mod editor;
 mod figure;
 mod generate;
 mod hud;
+mod identity;
+mod local;
+mod menu;
 mod mesh;
 mod net;
 mod noise;
@@ -12,6 +17,8 @@ mod opts;
 mod player;
 mod protocol;
 mod save;
+mod settings;
+mod skin;
 mod sky;
 mod stream;
 mod texture;
@@ -67,12 +74,14 @@ fn snapshot(
   pilot: Option<Res<player::Pilot>>,
   mut warmed: Local<Option<u32>>,
   mut taken: Local<bool>,
-  mut cameras: Query<(Entity, &mut Camera)>,
+  mut cameras: Query<(Entity, &mut Camera), With<player::Eye>>,
   compiling: Res<Compiling>,
   mut commands: Commands
 ) {
   if let Some(at) = opts().shot {
-    let settled = time.elapsed_secs() > at && progress.pending == 0 && pilot.is_some();
+    let settled = time.elapsed_secs() > at
+      && progress.pending == 0
+      && (pilot.is_some() || opts().menu.is_some());
     if time.elapsed_secs() as u32 != (time.elapsed_secs() - time.delta_secs()) as u32 {
       info!("shot waits: {} pending, pilot {}", progress.pending, pilot.is_some())
     }
@@ -129,6 +138,8 @@ fn press(
       "A" => Ok(KeyCode::KeyA),
       "S" => Ok(KeyCode::KeyS),
       "D" => Ok(KeyCode::KeyD),
+      "Tab" => Ok(KeyCode::Tab),
+      "Esc" => Ok(KeyCode::Escape),
       digit => Ok(
         [
           KeyCode::Digit1,
@@ -211,7 +222,11 @@ fn main() {
         player::Piloting,
         figure::Figures,
         hud::Hud,
-        sky::Sky
+        sky::Sky,
+        settings::Tuning,
+        identity::Identifying,
+        menu::Menus,
+        editor::Editing
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

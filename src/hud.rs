@@ -237,7 +237,7 @@ fn status(
     .unwrap_or_default();
   let link = match (*role, state.get()) {
     (Role::Guest, ClientState::Connecting) => {
-      format!("connecting to {}…", opts().connect.clone().unwrap_or_default())
+      format!("connecting to {}...", opts().connect.clone().unwrap_or_default())
     }
     (Role::Guest, ClientState::Disconnected) => "disconnected".into(),
     (Role::Guest, ClientState::Connected) => "online".into(),

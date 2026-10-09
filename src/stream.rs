@@ -1,6 +1,5 @@
 use {crate::{generate,
              mesh::{self, Meshes, Padded},
-             opts::opts,
              player::Pilot,
              protocol::plays,
              texture,
@@ -84,12 +83,13 @@ fn stream(
   voxels: Option<ResMut<Voxels>>,
   pilot: Option<Res<Pilot>>,
   palette: Res<Palette>,
+  settings: Res<crate::settings::Settings>,
   mut meshes: ResMut<Assets<Mesh>>
 ) {
   if let Some(mut voxels) = voxels
     && let Some(pilot) = pilot
   {
-    let reach = opts().reach;
+    let reach = settings.reach;
     let centre = chunk_of(pilot.at.floor().as_ivec3());
     let pool = AsyncComputeTaskPool::get();
     let seed = voxels.seed;
