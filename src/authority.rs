@@ -227,16 +227,28 @@ fn dig(
 ) {
   digs.read().for_each(|&FromClient { client_id, message: Dig { at } }| {
     let block = voxels.ensure(at);
+    let above = at + IVec3::Y;
+    let perched = Some(voxels.ensure(above)).filter(|block| block.modelled());
     let granted =
       player_of(players.iter_mut(), client_id).is_some_and(|(avatar, mut inventory)| {
         block.breakable() && within_reach(avatar, at) && {
           inventory.add(block.drop());
+          perched.into_iter().for_each(|plant| {
+            inventory.add(plant);
+          });
           true
         }
       });
     match granted {
       true => {
         voxels.set(at, Block::Air);
+        if perched.is_some() {
+          voxels.set(above, Block::Air);
+          changes.write(ToClients {
+            targets: SendTargets::All,
+            message: Altered { at: above, block: Block::Air }
+          });
+        }
         changes.write(ToClients {
           targets: SendTargets::All,
           message: Altered { at, block: Block::Air }
@@ -265,8 +277,10 @@ fn put(
         (avatar.at - Vec3::new(0.3, 0.0, 0.3), avatar.at + Vec3::new(0.3, 1.8, 0.3));
       low.cmplt(cell.1).all() && high.cmpgt(cell.0).all()
     });
-    let granted = !crowded
-      && block.solid()
+    let footed =
+      block.solid() || (block.modelled() && voxels.ensure(at - IVec3::Y).solid());
+    let granted = !(crowded && block.solid())
+      && footed
       && !present.solid()
       && player_of(players.iter_mut(), client_id).is_some_and(
         |(avatar, mut inventory)| within_reach(avatar, at) && inventory.take(block)

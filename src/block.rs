@@ -1,6 +1,18 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize)]
+#[derive(
+  Clone,
+  Copy,
+  PartialEq,
+  Eq,
+  PartialOrd,
+  Ord,
+  Hash,
+  Debug,
+  Default,
+  Serialize,
+  Deserialize,
+)]
 #[repr(u8)]
 pub enum Block {
   #[default]
@@ -40,7 +52,17 @@ pub enum Block {
   Basalt,
   Lava,
   Ice,
-  Waystone
+  Waystone,
+  Poppy,
+  Dandelion,
+  Cornflower,
+  Daisy,
+  OakSapling,
+  BirchSapling,
+  SpruceSapling,
+  PalmSapling,
+  RedMushroom,
+  BrownMushroom
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -86,11 +108,22 @@ pub enum Tile {
   Lava,
   Ice,
   WaystoneSide,
-  WaystoneTop
+  WaystoneTop,
+  Blank,
+  Poppy,
+  Dandelion,
+  Cornflower,
+  Daisy,
+  OakSapling,
+  BirchSapling,
+  SpruceSapling,
+  PalmSapling,
+  RedMushroom,
+  BrownMushroom
 }
 
 impl Tile {
-  pub const ALL: [Tile; 42] = [
+  pub const ALL: [Tile; 53] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -132,7 +165,18 @@ impl Tile {
     Tile::Lava,
     Tile::Ice,
     Tile::WaystoneSide,
-    Tile::WaystoneTop
+    Tile::WaystoneTop,
+    Tile::Blank,
+    Tile::Poppy,
+    Tile::Dandelion,
+    Tile::Cornflower,
+    Tile::Daisy,
+    Tile::OakSapling,
+    Tile::BirchSapling,
+    Tile::SpruceSapling,
+    Tile::PalmSapling,
+    Tile::RedMushroom,
+    Tile::BrownMushroom
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -143,7 +187,8 @@ pub enum Look {
   Invisible,
   Opaque,
   Cutout,
-  Liquid
+  Liquid,
+  Model
 }
 
 impl Block {
@@ -153,6 +198,7 @@ impl Block {
       Block::Glass => Look::Cutout,
       leaves if leaves.leafy() => Look::Cutout,
       Block::Water => Look::Liquid,
+      model if model.modelled() => Look::Model,
       _ => Look::Opaque
     }
   }
@@ -164,21 +210,37 @@ impl Block {
     )
   }
 
+  pub const ALL_MODELS: [Block; 10] = [
+    Block::Poppy,
+    Block::Dandelion,
+    Block::Cornflower,
+    Block::Daisy,
+    Block::OakSapling,
+    Block::BirchSapling,
+    Block::SpruceSapling,
+    Block::PalmSapling,
+    Block::RedMushroom,
+    Block::BrownMushroom
+  ];
+
+  pub fn modelled(self) -> bool { self >= Block::Poppy }
+
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
 
   pub fn fluid(self) -> bool { matches!(self, Block::Water | Block::Lava) }
 
-  pub fn solid(self) -> bool { self != Block::Air && !self.fluid() }
+  pub fn solid(self) -> bool { self != Block::Air && !self.fluid() && !self.modelled() }
 
-  pub fn targetable(self) -> bool { self.solid() }
+  pub fn targetable(self) -> bool { self.solid() || self.modelled() }
 
   pub fn breakable(self) -> bool {
-    self.solid() && !matches!(self, Block::Bedrock | Block::Waystone)
+    self.targetable() && !matches!(self, Block::Bedrock | Block::Waystone)
   }
 
   pub fn seconds_to_break(self) -> f32 {
     match self {
       Block::Glass => 0.3,
+      model if model.modelled() => 0.05,
       leaves if leaves.leafy() => 0.3,
       Block::Dirt
       | Block::Grass
@@ -247,7 +309,17 @@ impl Block {
       Block::Basalt => "Basalt",
       Block::Lava => "Lava",
       Block::Ice => "Ice",
-      Block::Waystone => "Waystone"
+      Block::Waystone => "Waystone",
+      Block::Poppy => "Poppy",
+      Block::Dandelion => "Dandelion",
+      Block::Cornflower => "Cornflower",
+      Block::Daisy => "Daisy",
+      Block::OakSapling => "Oak Sapling",
+      Block::BirchSapling => "Birch Sapling",
+      Block::SpruceSapling => "Spruce Sapling",
+      Block::PalmSapling => "Palm Sapling",
+      Block::RedMushroom => "Red Mushroom",
+      Block::BrownMushroom => "Brown Mushroom"
     }
   }
 
@@ -289,7 +361,17 @@ impl Block {
       Block::Basalt => all(Tile::Basalt),
       Block::Lava => all(Tile::Lava),
       Block::Ice => all(Tile::Ice),
-      Block::Waystone => [Tile::WaystoneTop, Tile::WaystoneSide, Tile::WaystoneTop]
+      Block::Waystone => [Tile::WaystoneTop, Tile::WaystoneSide, Tile::WaystoneTop],
+      Block::Poppy => all(Tile::Poppy),
+      Block::Dandelion => all(Tile::Dandelion),
+      Block::Cornflower => all(Tile::Cornflower),
+      Block::Daisy => all(Tile::Daisy),
+      Block::OakSapling => all(Tile::OakSapling),
+      Block::BirchSapling => all(Tile::BirchSapling),
+      Block::SpruceSapling => all(Tile::SpruceSapling),
+      Block::PalmSapling => all(Tile::PalmSapling),
+      Block::RedMushroom => all(Tile::RedMushroom),
+      Block::BrownMushroom => all(Tile::BrownMushroom)
     }
   }
 }

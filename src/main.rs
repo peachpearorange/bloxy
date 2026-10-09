@@ -12,6 +12,7 @@ mod island;
 mod local;
 mod menu;
 mod mesh;
+mod model;
 mod net;
 mod noise;
 mod opts;

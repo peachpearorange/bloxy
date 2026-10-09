@@ -1,6 +1,9 @@
-use {crate::{block::{Block, Look},
+use {crate::{block::Tile,
+             block::{Block, Look},
              generate,
              island::SEA,
+             model::{self, Bit},
+             noise::hash,
              texture::uv_corner,
              voxels::{Chunk, HEIGHT, SIZE, origin_of}},
      bevy::{asset::RenderAssetUsages,
@@ -124,8 +127,8 @@ const CORNERS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 
 fn shows(block: Block, neighbour: Block) -> bool {
   match (block.look(), neighbour.look()) {
-    (Look::Invisible, _) => false,
-    (_, Look::Invisible) => true,
+    (Look::Invisible | Look::Model, _) => false,
+    (_, Look::Invisible | Look::Model) => true,
     (_, Look::Opaque) => false,
     (Look::Liquid, Look::Liquid) => false,
     (Look::Liquid, Look::Cutout) => true,
@@ -246,7 +249,30 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
           };
           builder.indices.extend(order.map(|corner| first + corner))
         }
-      )
+      );
+      let at = origin + local;
+      let jitter = |salt: u32| (hash(seed ^ salt, at.x, at.y, at.z) % 5) as f32 - 2.0;
+      let shift = Vec3::new(jitter(0x51), 0.0, jitter(0x52));
+      let light = sky(local);
+      let blank = uv_corner(Tile::Blank, Vec2::splat(0.5)).to_array();
+      model::bits(block).iter().for_each(|&Bit { low, high, color: [r, g, b] }| {
+        let (low, high) = (
+          local.as_vec3() + (Vec3::from(low.map(f32::from)) + shift) / 16.0,
+          local.as_vec3() + (Vec3::from(high.map(f32::from)) + shift) / 16.0
+        );
+        let hue = (LinearRgba::from(Color::srgb(r, g, b)) * light).with_alpha(1.0);
+        FACES.iter().for_each(|face| {
+          let first = solid.positions.len() as u32;
+          CORNERS.iter().for_each(|&(a, b)| {
+            let unit = (face.base + face.across * a + face.up * b).as_vec3();
+            solid.positions.push((low + (high - low) * unit).to_array());
+            solid.normals.push(face.normal.as_vec3().to_array());
+            solid.uvs.push(blank);
+            solid.colors.push(hue.to_f32_array());
+          });
+          solid.indices.extend([0, 1, 2, 0, 2, 3].map(|corner| first + corner))
+        })
+      })
     }
   });
   Meshes { solid: solid.mesh(), liquid: liquid.mesh() }

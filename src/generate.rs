@@ -301,6 +301,46 @@ fn grow(
   }
 }
 
+fn bloom(seed: u32, x: i32, z: i32, ground: &Column) -> Option<Block> {
+  ground.island.and_then(|(island, _)| {
+    let pick = unit(seed ^ 0xF12, x, 3, z);
+    let field =
+      fbm2(seed.wrapping_add(41), x as f32 / 24.0, z as f32 / 24.0, 2) * 0.5 + 0.5;
+    let flower = [Block::Poppy, Block::Dandelion, Block::Cornflower, Block::Daisy]
+      [(hash(seed ^ 0xF11, x.div_euclid(7), 0, z.div_euclid(7)) % 4) as usize];
+    let mushroom = match pick < 0.5 {
+      true => Block::RedMushroom,
+      false => Block::BrownMushroom
+    };
+    let sapling = match island.wood {
+      Wood::Oak => Block::OakSapling,
+      Wood::Birch => Block::BirchSapling,
+      Wood::Spruce => Block::SpruceSapling,
+      Wood::Palm => Block::PalmSapling
+    };
+    let sown = match (island.kind, ground.top) {
+      (Kind::Meadow, Block::Grass) => Some((flower, 0.1)),
+      (Kind::Woods, Block::Grass) => Some(match pick {
+        pick if pick < 0.4 => (sapling, 0.03),
+        pick if pick < 0.7 => (mushroom, 0.03),
+        _ => (flower, 0.04)
+      }),
+      (Kind::Peak | Kind::Volcano, Block::Grass) => Some((flower, 0.04)),
+      (Kind::Mushroom, Block::Mycelium) => Some((mushroom, 0.06)),
+      (Kind::Frost, Block::Snow) => Some((Block::SpruceSapling, 0.005)),
+      (Kind::Dunes, Block::Sand) if ground.height > SEA => {
+        Some((Block::PalmSapling, 0.005))
+      }
+      _ => None
+    };
+    sown
+      .filter(|&(_, density)| {
+        unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
+      })
+      .map(|(block, _)| block)
+  })
+}
+
 fn trunk(block: Block) -> bool {
   matches!(
     block,
@@ -441,6 +481,19 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
                 }
               }
             )
+          }
+        })
+      });
+      (0..SIZE).for_each(|x| {
+        (0..SIZE).for_each(|z| {
+          let ground = column_at(x, z);
+          let local = IVec3::new(x, ground.height + 1 - origin.y, z);
+          if let Some(plant) = bloom(seed, origin.x + x, origin.z + z, &ground)
+            && inside(local)
+            && blocks[Chunk::index(local)] == Block::Air
+            && (local.y == 0 || blocks[Chunk::index(local - IVec3::Y)] == ground.top)
+          {
+            blocks[Chunk::index(local)] = plant
           }
         })
       });

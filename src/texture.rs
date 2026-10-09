@@ -1,4 +1,5 @@
-use {crate::block::Tile,
+use {crate::{block::{Block, Tile},
+             model},
      bevy::{asset::RenderAssetUsages,
             image::{ImageAddressMode, ImageFilterMode, ImageSampler,
                     ImageSamplerDescriptor},
@@ -7,7 +8,7 @@ use {crate::block::Tile,
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 6;
+pub const ROWS: u32 = 7;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -609,6 +610,21 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
         true => rune(),
         false => waystone(x, y)
       }
+    }
+    Tile::Blank => Texel::rgb(1.0, 1.0, 1.0),
+    Tile::Poppy
+    | Tile::Dandelion
+    | Tile::Cornflower
+    | Tile::Daisy
+    | Tile::OakSapling
+    | Tile::BirchSapling
+    | Tile::SpruceSapling
+    | Tile::PalmSapling
+    | Tile::RedMushroom
+    | Tile::BrownMushroom => {
+      let block = Block::ALL_MODELS[tile as usize - Tile::Poppy as usize];
+      model::icon(block, x, y)
+        .map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |[r, g, b]| Texel::rgb(r, g, b))
     }
     Tile::WaystoneTop => {
       let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
