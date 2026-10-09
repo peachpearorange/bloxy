@@ -21,6 +21,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: System libraries
         run: sudo apt-get update -q && sudo apt-get install -y -q pkg-config libwayland-dev libxkbcommon-dev libudev-dev libasound2-dev
       - name: Build
@@ -31,7 +33,10 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -t ed25519 "$HOST" > ~/.ssh/known_hosts
           ssh-keygen -lf ~/.ssh/known_hosts | grep -q "$HOST_KEY_FINGERPRINT" || { echo "host key mismatch"; exit 1; }
-          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > ~/.ssh/id_ed25519
+          case "$DEPLOY_KEY" in
+            *BEGIN*) printf '%s\n' "$DEPLOY_KEY" ;;
+            *) printf '%s' "$DEPLOY_KEY" | tr -d ' \r\n' | base64 -d ;;
+          esac | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null || { echo "DEPLOY_KEY is not a readable private key: paste all lines from -----BEGIN to -----END"; exit 1; }
       - name: Deploy

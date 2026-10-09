@@ -85,9 +85,12 @@ systemctl enable caddy
 systemctl reload caddy || systemctl restart caddy
 
 say "Done"
-echo "Add this private key as the repository secret DEPLOY_KEY"
+echo "Add this line (the deploy private key, base64) as the repository secret DEPLOY_KEY"
 echo "(GitHub: repo Settings > Secrets and variables > Actions > New repository secret):"
 echo
-cat "$KEY"
+base64 -w0 "$KEY"
+echo
+echo
+echo "It should end in: $(base64 -w0 "$KEY" | tail -c 12)"
 echo
 echo "Then run the 'Server' workflow (Actions tab) or push. Logs: journalctl -u bloxy -f"
