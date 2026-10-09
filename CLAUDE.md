@@ -21,7 +21,7 @@ A browser-first multiplayer voxel sandbox in Bevy 0.19.1, aiming at the feel of 
 - `sky.rs` — physical atmosphere, sun with cascaded shadows, `lens()` (exposure, ACES, bloom, distance fog that hides the streaming edge).
 
 # Opts
-Natively the env var `BLOXY` holds JSON5 `opts::Opts`; in the browser the URL query (`?connect=wss://host:port&name=Ann`, or `?opts={…}` for anything else). Fields: `connect` (server URL: guest), `serve: port` (headless dedicated server), `host: port` (play and serve), `name`, `seed` (1), `reach` (view radius in chunks; 9 native, 6 web), `hour` (10), `creative` (starter hotbar with stacks of building blocks, fast digging), `shot: <secs>` (screenshot to `screenshots/shot-$SHOT_NAME.png` once loaded, then exit), `at: [dx, dz]` (spawn offset from the spawn point, on the ground), `yaw`, `pitch` (degrees), `press: [[secs, 'LMB'|'RMB'|'W'|'A'|'S'|'D'|'Space'|'Ctrl'|'Shift'|'1'…'9'], …]` (taps of 0.15 s), `hold: [[from, to, key], …]`.
+Natively the env var `BLOXY` holds JSON5 `opts::Opts`; in the browser the URL query (`?connect=wss://host:port&name=Ann`, or `?opts={…}` for anything else). `connect` defaults to the build-time env var `BLOXY_CONNECT` (the Pages build sets the hosted server); `?connect=` (empty) plays solo. Fields: `connect` (server URL: guest), `serve: port` (headless dedicated server), `host: port` (play and serve), `name`, `seed` (1), `reach` (view radius in chunks; 9 native, 6 web), `hour` (10), `creative` (starter hotbar with stacks of building blocks, fast digging), `shot: <secs>` (screenshot to `screenshots/shot-$SHOT_NAME.png` once loaded, then exit), `at: [dx, dz]` (spawn offset from the spawn point, on the ground), `yaw`, `pitch` (degrees), `press: [[secs, 'LMB'|'RMB'|'W'|'A'|'S'|'D'|'Space'|'Ctrl'|'Shift'|'1'…'9'], …]` (taps of 0.15 s), `hold: [[from, to, key], …]`.
 e.g. `BLOXY='{shot: 2, yaw: 40, pitch: -15}' SHOT_NAME=valley tools/shot`. Screenshots are the way to check visuals — always look at them.
 
 # Multiplayer
@@ -37,7 +37,7 @@ Priority is fast incremental builds over runtime speed. Debug builds only; relea
 - `tools/shot <name> '<opts>'` builds and screenshots under xvfb.
 - Cloud sessions have no GPU: wrap runs in `xvfb-run -a -s "-screen 0 1600x900x24"` (lavapipe, software Vulkan, slow frames).
 - Bevy runs without default features: `Cargo.toml` lists only what the game uses. Add a feature there when using a new Bevy part.
-- Web build: `trunk build --release` (`index.html`), deployed to GitHub Pages on master push. Needs WebGPU.
+- Web build: `trunk build --release` (`index.html`), deployed to GitHub Pages (`.github/workflows/pages.yml`, Settings → Pages → Source: GitHub Actions) on pushes to `master` or the working branch, joining the hosted server by default. Needs WebGPU.
 - On a panic or startup failure (including Bevy system param conflicts), rerun with `RUST_BACKTRACE=1`.
 - Docs: https://docs.rs/bevy/0.19.1/bevy/ , https://docs.rs/bevy_replicon/0.44.3/bevy_replicon/
 

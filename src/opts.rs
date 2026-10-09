@@ -24,7 +24,7 @@ pub struct Opts {
 impl Default for Opts {
   fn default() -> Self {
     Self {
-      connect: None,
+      connect: option_env!("BLOXY_CONNECT").map(String::from),
       serve: None,
       host: None,
       name: None,
@@ -52,7 +52,10 @@ fn given() -> Option<String> {
     .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
     .map(|params| {
       let quoted = |key: &str| {
-        params.get(key).map(|value| format!("{key}: {}", serde_json_quote(&value)))
+        params.get(key).map(|value| match value.is_empty() {
+          true => format!("{key}: null"),
+          false => format!("{key}: {}", serde_json_quote(&value))
+        })
       };
       let numeric = |key: &str| params.get(key).map(|value| format!("{key}: {value}"));
       let fields = [quoted("connect"), quoted("name"), numeric("seed"), numeric("reach")]

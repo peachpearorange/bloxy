@@ -2,7 +2,7 @@ name: Pages
 
 on:
   push:
-    branches: [master]
+    branches: [master, ccr-cbea9050-s7p963]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,8 @@ jobs:
       - name: Install trunk
         run: curl -sL https://github.com/trunk-rs/trunk/releases/latest/download/trunk-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin
       - name: Build
+        env:
+          BLOXY_CONNECT: wss://v2202610434077535942.quicksrv.de
         run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
       - uses: actions/upload-pages-artifact@v3
         with:
