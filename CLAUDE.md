@@ -26,6 +26,7 @@ e.g. `BLOXY='{shot: 2, yaw: 40, pitch: -15}' SHOT_NAME=valley tools/shot`. Scree
 
 # Multiplayer
 - Dedicated server: `BLOXY='{serve: 7777}' cargo run --features dev`. Browser pages served over https (GitHub Pages) can only open `wss://`, so put the server behind a TLS proxy (e.g. Caddy `reverse_proxy localhost:7777`) and join with `?connect=wss://your.host`. Native clients use `ws://host:7777`.
+- `deploy/setup.sh` (run as root on Debian) sets up or updates the hosted server: ufw (22, 80, 443, 7777), a `bloxy` user with a read-only GitHub deploy key (the repo is private; first run prints the key to add), rustup, a dev-profile build of `BRANCH`, a `bloxy` systemd service (`serve: 7777`) and Caddy terminating TLS for `wss://$DOMAIN`. Cloud sessions can't SSH out, so the user runs it.
 - `tools/duo` runs a dedicated server and two clients under xvfb and screenshots the second seeing the first: the quickest end-to-end check of netcode.
 - Movement is client-authoritative; blocks, inventories and player list are server-authoritative.
 - World edits are kept in memory only (not saved yet); restarting the server resets the world.
