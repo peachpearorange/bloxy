@@ -1,5 +1,6 @@
 use {crate::{block::{Block, Look},
              generate,
+             island::SEA,
              texture::uv_corner,
              voxels::{Chunk, HEIGHT, SIZE, origin_of}},
      bevy::{asset::RenderAssetUsages,
@@ -12,6 +13,9 @@ const WATER_TOP: f32 = 0.88;
 const OCCLUSION: [f32; 4] = [0.42, 0.62, 0.8, 1.0];
 const SKY_FALLOFF: f32 = 7.0;
 const CAVE_DARK: f32 = 0.05;
+const OCEAN_DEPTH: f32 = 14.0;
+const SHALLOWS: LinearRgba = LinearRgba::rgb(0.03, 0.3, 0.33);
+const OPEN_SEA: LinearRgba = LinearRgba::rgb(0.004, 0.025, 0.11);
 
 pub struct Padded(Vec<Block>);
 
@@ -168,6 +172,17 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
     let depth = surface[((at.z + 1) * SPAN + at.x + 1) as usize] - origin.y - at.y;
     (1.0 - depth as f32 / SKY_FALLOFF).clamp(CAVE_DARK, 1.0)
   };
+  let column = |x: i32, z: i32| surface[((z + 1) * SPAN + x + 1) as usize];
+  let tint = |corner: Vec3| {
+    let (x, z) = (corner.x as i32, corner.z as i32);
+    let floor = [(x - 1, z - 1), (x, z - 1), (x - 1, z), (x, z)]
+      .map(|(x, z)| column(x.clamp(-1, SIZE), z.clamp(-1, SIZE)))
+      .iter()
+      .sum::<i32>() as f32
+      / 4.0;
+    let deep = ((SEA as f32 - floor) / OCEAN_DEPTH).clamp(0.0, 1.0);
+    SHALLOWS.mix(&OPEN_SEA, deep.sqrt())
+  };
   let mut solid = Builder::default();
   let mut liquid = Builder::default();
   (0..SIZE * SIZE * SIZE).for_each(|index| {
@@ -217,7 +232,11 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
                 .uvs
                 .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
               let light = OCCLUSION[shade as usize] * daylight;
-              builder.colors.push([light, light, light, 1.0]);
+              let hue = match block {
+                Block::Water => tint(corner),
+                _ => LinearRgba::WHITE
+              };
+              builder.colors.push((hue * light).with_alpha(1.0).to_f32_array());
             }
           );
           let flipped = occlusion[1] + occlusion[3] > occlusion[0] + occlusion[2];

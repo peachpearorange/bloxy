@@ -51,9 +51,8 @@ pub fn paint(
   });
   let liquid = materials.add(StandardMaterial {
     base_color_texture: Some(atlas.clone()),
-    perceptual_roughness: 0.08,
-    reflectance: 0.4,
-    alpha_mode: AlphaMode::Blend,
+    perceptual_roughness: 0.14,
+    reflectance: 0.55,
     ..default()
   });
   commands.insert_resource(Palette { solid, liquid, atlas })
