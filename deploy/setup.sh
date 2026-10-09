@@ -43,7 +43,7 @@ ConditionPathExists=$HOME_DIR/bin/bloxy
 [Service]
 User=bloxy
 WorkingDirectory=$HOME_DIR/world
-Environment=BLOXY={serve: $PORT}
+Environment="BLOXY={serve: $PORT}"
 Environment=RUST_LOG=info
 ExecStart=$HOME_DIR/bin/bloxy
 Restart=always
