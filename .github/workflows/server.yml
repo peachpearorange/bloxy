@@ -31,8 +31,9 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -t ed25519 "$HOST" > ~/.ssh/known_hosts
           ssh-keygen -lf ~/.ssh/known_hosts | grep -q "$HOST_KEY_FINGERPRINT" || { echo "host key mismatch"; exit 1; }
-          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null || { echo "DEPLOY_KEY is not a readable private key: paste all lines from -----BEGIN to -----END"; exit 1; }
       - name: Deploy
         if: env.DEPLOY_KEY != ''
         run: |
