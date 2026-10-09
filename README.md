@@ -2,7 +2,7 @@
 
 ![Two players in the same world](docs/multiplayer.png)
 
-A browser-first multiplayer voxel sandbox in Bevy, heading toward the feel of big modded block-building packs: machines, power and automation (later). A procedural ocean of islands: hilly meadows, forests of oak, birch, spruce or palm, central mountains with snowy peaks, giant mushrooms and hopping mushroom men, volcanoes with lava, frozen islands in drifting ice, sandy cays; flowers, saplings and small mushrooms modelled from tiny cubes; caves and ore veins (coal, copper, tin, iron, gold, diamond). Every island has a named, unbreakable waystone: stand by one to remember the island, right-click any waystone to travel to an island you remember; mining and building; other players over WebSockets; accounts with painted pixel skins. No mesh or texture assets: everything is generated.
+A browser-first multiplayer voxel sandbox in Bevy, heading toward the feel of big modded block-building packs: machines, power and automation (later). A procedural ocean of islands: hilly meadows, forests of oak, birch, spruce or palm, central mountains with snowy peaks, giant mushrooms and hopping mushroom men, volcanoes with lava, frozen islands in drifting ice, sandy cays; flowers, saplings and small mushrooms modelled from tiny cubes; caves and ore veins (coal, copper, tin, iron, gold, diamond). Every island has a named, unbreakable waystone: right-click one to remember its island and to travel to any island you remember; mining and building; other players over WebSockets; accounts with painted pixel skins. No mesh or texture assets: everything is generated.
 
 Play in the browser: https://peachpearorange.github.io/bloxy/ (needs WebGPU: a recent Chrome or Edge).
 

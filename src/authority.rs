@@ -300,11 +300,16 @@ fn put(
 }
 
 fn attune(
+  mut touches: MessageReader<FromClient<Attune>>,
   voxels: Res<Voxels>,
-  mut players: Query<(&Avatar, &mut Visited), Changed<Avatar>>
+  mut players: Query<(&Controller, (&Avatar, &mut Visited))>
 ) {
-  players.iter_mut().for_each(|(avatar, mut visited)| {
-    if let Some(island) = Island::beside(voxels.seed, avatar.at)
+  touches.read().for_each(|&FromClient { client_id, message: Attune(at) }| {
+    if let Some((avatar, mut visited)) = player_of(players.iter_mut(), client_id)
+      && within_reach(avatar, at)
+      && let Some(island) = Island::near(voxels.seed, at.as_vec3())
+        .into_iter()
+        .find(|island| at == island.stone || at == island.stone + IVec3::Y)
       && !visited.0.contains(&island.cell)
     {
       visited.0.push(island.cell)

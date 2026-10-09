@@ -128,6 +128,9 @@ pub struct Put {
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Travel(pub IVec2);
 
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Attune(pub IVec3);
+
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Welcome {
   pub seed: u32,
@@ -167,6 +170,7 @@ impl Plugin for Protocol {
       .replicate::<Visited>()
       .add_client_message::<Travel>(Channel::Ordered)
       .add_server_message::<Teleport>(Channel::Ordered)
-      .replicate::<Hopper>();
+      .replicate::<Hopper>()
+      .add_client_message::<Attune>(Channel::Ordered);
   }
 }

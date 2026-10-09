@@ -314,6 +314,7 @@ fn work(
   mut aim: ResMut<Aim>,
   mut digs: MessageWriter<Dig>,
   mut puts: MessageWriter<Put>,
+  mut attunes: MessageWriter<Attune>,
   mut cooldown: Local<f32>
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
@@ -349,7 +350,11 @@ fn work(
     let stack =
       inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
     let waystone = aim.hit.as_ref().is_some_and(|hit| hit.block == Block::Waystone);
-    if active && waystone && buttons.just_pressed(MouseButton::Right) {
+    if active
+      && buttons.just_pressed(MouseButton::Right)
+      && let Some(hit) = aim.hit.as_ref().filter(|_| waystone)
+    {
+      attunes.write(Attune(hit.at));
       menu.show(Tab::Waystones, time.elapsed_secs())
     } else if active
       && !waystone

@@ -21,8 +21,8 @@ pub fn page(page: &mut ChildSpawnerCommands) {
     ..default()
   }));
   page.spawn(words(
-    "Every island has a waystone. Walk up to one to remember its island; right-click \
-     any waystone to travel to an island you remember.",
+    "Every island has a waystone. Right-click one to remember its island and to travel \
+     to an island you remember.",
     14.0,
     FAINT
   ));
@@ -64,7 +64,7 @@ fn list(
     let line = match here {
       Some(island) => format!("Waystone of {}. Where to?", island.name(seed)),
       None => match visited.is_empty() {
-        true => "You have not found a waystone yet.".into(),
+        true => "Right-click a waystone to remember its island.".into(),
         false => "Stand by a waystone to travel.".into()
       }
     };
