@@ -125,7 +125,7 @@ fn shows(block: Block, neighbour: Block) -> bool {
     (_, Look::Opaque) => false,
     (Look::Liquid, Look::Liquid) => false,
     (Look::Liquid, Look::Cutout) => true,
-    (Look::Cutout, _) => block != neighbour || block == Block::Leaves,
+    (Look::Cutout, _) => block != neighbour || block.leafy(),
     (Look::Opaque, _) => true
   }
 }

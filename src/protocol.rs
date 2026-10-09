@@ -86,6 +86,9 @@ impl Inventory {
   }
 }
 
+#[derive(Component, Serialize, Deserialize, Clone, Default, PartialEq, Debug)]
+pub struct Visited(pub Vec<IVec2>);
+
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Hello {
   pub name: String,
@@ -115,6 +118,9 @@ pub struct Put {
   pub block: Block
 }
 
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Travel(pub IVec2);
+
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Welcome {
   pub seed: u32,
@@ -129,6 +135,9 @@ pub struct Altered {
   pub at: IVec3,
   pub block: Block
 }
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Teleport(pub Avatar);
 
 pub struct Protocol;
 
@@ -147,6 +156,9 @@ impl Plugin for Protocol {
       .add_server_message::<Welcome>(Channel::Ordered)
       .add_mapped_server_message::<Possess>(Channel::Ordered)
       .add_server_message::<Altered>(Channel::Ordered)
-      .add_server_message::<Verdict>(Channel::Ordered);
+      .add_server_message::<Verdict>(Channel::Ordered)
+      .replicate::<Visited>()
+      .add_client_message::<Travel>(Channel::Ordered)
+      .add_server_message::<Teleport>(Channel::Ordered);
   }
 }

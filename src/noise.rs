@@ -16,6 +16,11 @@ pub fn unit(seed: u32, x: i32, y: i32, z: i32) -> f32 {
   (hash(seed, x, y, z) >> 8) as f32 / (1u32 << 24) as f32
 }
 
+pub fn smoothstep(from: f32, to: f32, value: f32) -> f32 {
+  let t = ((value - from) / (to - from)).clamp(0.0, 1.0);
+  t * t * (3.0 - 2.0 * t)
+}
+
 fn fade(t: f32) -> f32 { t * t * t * (t * (t * 6.0 - 15.0) + 10.0) }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 { a + (b - a) * t }

@@ -1,59 +1,86 @@
 use {crate::{block::Block,
+             island::{Island, Kind, Rise, SEA, Wood},
              noise::{fbm2, hash, perlin3, unit},
              voxels::{Chunk, SIZE, VOLUME, origin_of}},
      bevy::prelude::*};
 
-pub const SEA: i32 = 62;
-const SNOW_LINE: f32 = 150.0;
+const SNOW_LINE: f32 = 128.0;
 const CAVE_GRID: i32 = 4;
-const TREE_REACH: i32 = 3;
+const TREE_REACH: i32 = 5;
+const TALLEST_GROWTH: i32 = 16;
 
-fn smoothstep(from: f32, to: f32, value: f32) -> f32 {
-  let t = ((value - from) / (to - from)).clamp(0.0, 1.0);
-  t * t * (3.0 - 2.0 * t)
+#[derive(Clone, Copy)]
+struct Surface {
+  height: f32,
+  island: Option<(Island, Rise)>,
+  ice: bool
+}
+
+fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
+  let floor = SEA as f32 - 16.0
+    + fbm2(seed.wrapping_add(32), x as f32 / 60.0, z as f32 / 60.0, 2) * 5.0;
+  islands
+    .iter()
+    .filter_map(|island| island.rise(seed, x, z).map(|rise| (*island, rise)))
+    .fold(Surface { height: floor, island: None, ice: false }, |below, (island, rise)| {
+      let ice = below.ice || rise.floe;
+      match rise.height > below.height {
+        true => Surface { height: rise.height, island: Some((island, rise)), ice },
+        false => Surface { ice, ..below }
+      }
+    })
 }
 
 pub fn height(seed: u32, x: i32, z: i32) -> i32 {
-  let (x, z) = (x as f32, z as f32);
-  let continent = fbm2(seed, x / 700.0, z / 700.0, 4);
-  let hills = fbm2(seed.wrapping_add(1), x / 140.0, z / 140.0, 4);
-  let ridges =
-    (1.0 - fbm2(seed.wrapping_add(2), x / 300.0, z / 300.0, 5).abs() * 1.6).max(0.0);
-  let highland =
-    smoothstep(0.0, 0.3, fbm2(seed.wrapping_add(3), x / 900.0, z / 900.0, 3));
-  let rise = 68.0 + continent * 34.0 + hills * 9.0 + highland * ridges * ridges * 95.0;
-  (rise as i32).clamp(6, 250)
+  let spot = IVec2::new(x, z);
+  surface(seed, &Island::within(seed, spot, spot), x, z).height.floor() as i32
 }
 
 #[derive(Clone, Copy)]
 struct Column {
   height: i32,
   top: Block,
-  under: Block
+  under: Block,
+  pool: (Block, i32),
+  ice: bool,
+  island: Option<(Island, Rise)>
 }
 
-fn column(seed: u32, x: i32, z: i32) -> Column {
-  let rise = height(seed, x, z);
-  let steep = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-    .into_iter()
-    .any(|(dx, dz)| (height(seed, x + dx, z + dz) - rise).abs() >= 3);
+fn column(seed: u32, surface: Surface, steep: bool, x: i32, z: i32) -> Column {
+  let Surface { height, island, ice } = surface;
+  let height = height.floor() as i32;
+  let kind = island.map(|(island, _)| island.kind);
+  let beach = island.is_some_and(|(island, _)| island.beach);
+  let inward = island.map_or(-1.0, |(_, rise)| rise.inward);
   let snow_line = SNOW_LINE + unit(seed ^ 0x5A0, x, 0, z) * 6.0;
   let bed = unit(seed ^ 0xBED, x / 6, 0, z / 6);
-  let (top, under) = match rise {
-    height if height < SEA - 2 => match bed {
-      bed if bed < 0.2 => (Block::Clay, Block::Clay),
-      bed if bed < 0.6 => (Block::Sand, Block::Sand),
+  let (top, under) = match kind {
+    Some(Kind::Dunes) => (Block::Sand, Block::Sand),
+    _ if height < SEA && beach && height >= SEA - 4 => (Block::Sand, Block::Sand),
+    _ if height < SEA => match (bed, kind) {
+      (bed, Some(Kind::Frost)) if bed < 0.5 => (Block::Gravel, Block::Gravel),
+      (bed, _) if bed < 0.2 => (Block::Clay, Block::Clay),
+      (bed, _) if bed < 0.6 => (Block::Sand, Block::Sand),
       _ => (Block::Gravel, Block::Gravel)
     },
-    height if height <= SEA + 1 => (Block::Sand, Block::Sand),
-    height if height as f32 > snow_line => match steep {
+    Some(Kind::Volcano) if island.is_some_and(|(_, rise)| rise.streak) => {
+      (Block::Lava, Block::Basalt)
+    }
+    Some(Kind::Volcano) if inward > 0.3 => (Block::Basalt, Block::Basalt),
+    Some(Kind::Frost) if height <= SEA + 1 => (Block::Gravel, Block::Gravel),
+    _ if height <= SEA + 1 && beach => (Block::Sand, Block::Sand),
+    _ if height as f32 > snow_line || kind == Some(Kind::Frost) => match steep {
       true => (Block::Stone, Block::Stone),
       false => (Block::Snow, Block::Dirt)
     },
-    height if steep && height > 110 => (Block::Stone, Block::Stone),
+    _ if steep && height > SEA + 24 => (Block::Stone, Block::Stone),
+    Some(Kind::Mushroom) => (Block::Mycelium, Block::Dirt),
     _ => (Block::Grass, Block::Dirt)
   };
-  Column { height: rise, top, under }
+  let pool = island
+    .filter(|(island, rise)| island.kind == Kind::Volcano && rise.inward > 0.7)
+    .map_or((Block::Water, SEA), |(island, _)| (Block::Lava, island.crater()));
+  Column { height, top, under, pool, ice, island }
 }
 
 fn tunnels(seed: u32, at: IVec3) -> f32 {
@@ -110,28 +137,217 @@ fn veins(seed: u32, key: IVec3) -> impl Iterator<Item = (Block, Vec3, f32)> {
   })
 }
 
-fn tree_at(seed: u32, x: i32, z: i32, ground: &Column) -> Option<i32> {
-  let forest =
-    (fbm2(seed.wrapping_add(9), x as f32 / 220.0, z as f32 / 220.0, 3) + 0.05) * 0.06;
-  (ground.top == Block::Grass && unit(seed ^ 0x7EE, x, 0, z) < forest.max(0.002))
-    .then(|| 4 + (hash(seed ^ 0x7A11, x, 0, z) % 3) as i32)
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Growth {
+  Tree(Wood),
+  RedShroom,
+  BrownShroom
+}
+
+fn growth(seed: u32, x: i32, z: i32, ground: &Column) -> Option<(Growth, i32)> {
+  ground.island.and_then(|(island, _)| {
+    let pick = unit(seed ^ 0x7EF, x, 1, z);
+    let either = |first: Wood, second: Wood| match pick < 0.6 {
+      true => Growth::Tree(first),
+      false => Growth::Tree(second)
+    };
+    let clearing = (island.stone.xz() - IVec2::new(x, z)).abs().max_element() <= 4;
+    let above_sea = ground.height > SEA;
+    let sown = match (island.kind, ground.top) {
+      _ if clearing => None,
+      (Kind::Mushroom, Block::Mycelium) => Some((
+        match pick < 0.55 {
+          true => Growth::RedShroom,
+          false => Growth::BrownShroom
+        },
+        0.014
+      )),
+      (Kind::Frost, Block::Snow) => Some((Growth::Tree(Wood::Spruce), 0.025)),
+      (_, Block::Grass | Block::Snow) if ground.height > SEA + 20 => {
+        Some((Growth::Tree(Wood::Spruce), 0.03))
+      }
+      (Kind::Woods, Block::Grass) => Some((
+        match pick < 0.75 {
+          true => Growth::Tree(island.wood),
+          false => either(Wood::Oak, Wood::Birch)
+        },
+        0.06
+      )),
+      (Kind::Volcano, Block::Grass | Block::Sand) => {
+        Some((either(Wood::Palm, Wood::Oak), 0.012))
+      }
+      (Kind::Meadow | Kind::Peak, Block::Grass) => {
+        Some((either(Wood::Oak, Wood::Birch), 0.012))
+      }
+      (Kind::Dunes, Block::Sand) if above_sea => Some((Growth::Tree(Wood::Palm), 0.007)),
+      (_, Block::Sand) if island.warm && above_sea => {
+        Some((Growth::Tree(Wood::Palm), 0.012))
+      }
+      _ => None
+    };
+    let grove =
+      fbm2(seed.wrapping_add(9), x as f32 / 40.0, z as f32 / 40.0, 2) * 0.5 + 0.5;
+    sown
+      .filter(|&(_, density)| unit(seed ^ 0x7EE, x, 0, z) < density * (0.4 + grove * 1.2))
+      .map(|(growth, _)| (growth, (hash(seed ^ 0x7A11, x, 0, z) % 3) as i32))
+  })
+}
+
+fn grow(
+  seed: u32,
+  (growth, size): (Growth, i32),
+  root: IVec3,
+  mut put: impl FnMut(IVec3, Block)
+) {
+  let speck = |offset: IVec3, salt: u32| {
+    let at = root + offset;
+    unit(seed ^ salt, at.x, at.y, at.z)
+  };
+  let disc = |radius: i32| {
+    (-radius..=radius).flat_map(move |dx| (-radius..=radius).map(move |dz| (dx, dz)))
+  };
+  match growth {
+    Growth::Tree(Wood::Oak) => {
+      let trunk = 4 + size;
+      disc(2).for_each(|(dx, dz)| {
+        (trunk - 2..=trunk + 1).for_each(|dy| {
+          let corner = dx.abs() == 2 && dz.abs() == 2;
+          let inside = match dy < trunk {
+            true => !corner || speck(IVec3::new(dx, dy, dz), 0x1EAF) < 0.4,
+            false => dx.abs() + dz.abs() <= 1
+          };
+          if inside {
+            put(root + IVec3::new(dx, dy, dz), Block::Leaves)
+          }
+        })
+      });
+      (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::Log))
+    }
+    Growth::Tree(Wood::Birch) => {
+      let trunk = 5 + size;
+      disc(2).for_each(|(dx, dz)| {
+        (trunk - 3..=trunk + 1).for_each(|dy| {
+          let offset = IVec3::new(dx, dy, dz);
+          let inside = match dy {
+            dy if dy >= trunk => dx.abs() + dz.abs() <= 1,
+            dy if dy == trunk - 1 => dx.abs().max(dz.abs()) <= 1,
+            _ => dx.abs() + dz.abs() <= 3 && speck(offset, 0xB1C) < 0.85
+          };
+          if inside {
+            put(root + offset, Block::BirchLeaves)
+          }
+        })
+      });
+      (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::BirchLog))
+    }
+    Growth::Tree(Wood::Spruce) => {
+      let trunk = 6 + size * 2;
+      disc(3).for_each(|(dx, dz)| {
+        (2..=trunk + 1).for_each(|dy| {
+          let tier = (trunk + 2 - dy) / 2 - (trunk - dy).rem_euclid(2);
+          let radius = tier.clamp(0, 3);
+          if dx * dx + dz * dz <= radius * radius + 1 - i32::from(radius == 0) {
+            put(root + IVec3::new(dx, dy, dz), Block::SpruceLeaves)
+          }
+        })
+      });
+      (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::SpruceLog))
+    }
+    Growth::Tree(Wood::Palm) => {
+      let trunk = 5 + size;
+      let lean = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z]
+        [(hash(seed ^ 0xBA1, root.x, root.y, root.z) % 4) as usize];
+      let shift = |dy: i32| match dy {
+        dy if dy >= trunk - 1 => 2,
+        dy if dy >= trunk / 2 => 1,
+        _ => 0
+      };
+      let crown = root + lean * shift(trunk) + IVec3::Y * trunk;
+      put(crown, Block::PalmLeaves);
+      put(crown + IVec3::Y, Block::PalmLeaves);
+      disc(1).filter(|&(dx, dz)| dx != 0 || dz != 0).for_each(|(dx, dz)| {
+        let way = IVec3::new(dx, 0, dz);
+        let length = if dx != 0 && dz != 0 { 2 } else { 3 };
+        (1..=length).for_each(|step| {
+          let droop = if step == length { -1 } else { 0 };
+          put(crown + way * step + IVec3::Y * droop, Block::PalmLeaves)
+        })
+      });
+      (0..trunk)
+        .for_each(|dy| put(root + lean * shift(dy) + IVec3::Y * dy, Block::PalmLog))
+    }
+    Growth::RedShroom => {
+      let (stem, radius) = (5 + size * 2, 2 + size.min(1) + 1);
+      disc(radius).for_each(|(dx, dz)| {
+        let ring = dx.abs().max(dz.abs());
+        let corner = dx.abs() == dz.abs() && ring >= radius - 1;
+        if ring < radius && !(corner && ring == radius - 1) {
+          put(root + IVec3::new(dx, stem, dz), Block::RedCap)
+        }
+        if ring == radius && dx.abs() != dz.abs() {
+          (stem - 2..stem)
+            .for_each(|dy| put(root + IVec3::new(dx, dy, dz), Block::RedCap))
+        }
+      });
+      (0..stem).for_each(|dy| put(root + IVec3::Y * dy, Block::MushroomStem))
+    }
+    Growth::BrownShroom => {
+      let (stem, radius) = (4 + size * 2, 3 + size.min(2));
+      disc(radius)
+        .filter(|&(dx, dz)| dx * dx + dz * dz <= radius * radius + 1)
+        .for_each(|(dx, dz)| put(root + IVec3::new(dx, stem, dz), Block::BrownCap));
+      (0..stem).for_each(|dy| put(root + IVec3::Y * dy, Block::MushroomStem))
+    }
+  }
+}
+
+fn trunk(block: Block) -> bool {
+  matches!(
+    block,
+    Block::Log
+      | Block::BirchLog
+      | Block::SpruceLog
+      | Block::PalmLog
+      | Block::MushroomStem
+  )
 }
 
 pub fn chunk(seed: u32, key: IVec3) -> Chunk {
   let origin = origin_of(key);
   let reach = SIZE + TREE_REACH * 2;
+  let wide = reach + 2;
+  let islands = Island::within(
+    seed,
+    origin.xz() - TREE_REACH - 1,
+    origin.xz() + SIZE + TREE_REACH + 1
+  );
+  let surfaces: Vec<Surface> = (0..wide * wide)
+    .map(|index| {
+      let (x, z) = (index % wide - TREE_REACH - 1, index / wide - TREE_REACH - 1);
+      surface(seed, &islands, origin.x + x, origin.z + z)
+    })
+    .collect();
+  let surface_at = |x: i32, z: i32| {
+    surfaces[((z + TREE_REACH + 1) * wide + x + TREE_REACH + 1) as usize]
+  };
   let columns: Vec<Column> = (0..reach * reach)
     .map(|index| {
       let (x, z) = (index % reach - TREE_REACH, index / reach - TREE_REACH);
-      column(seed, origin.x + x, origin.z + z)
+      let here = surface_at(x, z);
+      let steep = [(1, 0), (-1, 0), (0, 1), (0, -1)].into_iter().any(|(dx, dz)| {
+        (surface_at(x + dx, z + dz).height.floor() - here.height.floor()).abs() >= 3.0
+      });
+      column(seed, here, steep, origin.x + x, origin.z + z)
     })
     .collect();
   let column_at =
     |x: i32, z: i32| columns[((z + TREE_REACH) * reach + x + TREE_REACH) as usize];
-  let highest = columns.iter().map(|column| column.height).max().unwrap_or(0);
+  let highest = columns.iter().map(|column| column.height.max(column.pool.1)).max();
   let lowest = columns.iter().map(|column| column.height).min().unwrap_or(0);
   match () {
-    () if origin.y > highest.max(SEA) + 10 => Chunk::Uniform(Block::Air),
+    () if origin.y > highest.unwrap_or(0).max(SEA) + TALLEST_GROWTH => {
+      Chunk::Uniform(Block::Air)
+    }
     () => {
       let corners = SIZE / CAVE_GRID + 1;
       let carved: Vec<f32> = (0..corners * corners * corners)
@@ -165,14 +381,19 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
         let depth = ground.height - at.y;
         let bedrock =
           at.y == 0 || (at.y < 4 && unit(seed ^ 0xB0, at.x, at.y, at.z) < 0.5);
+        let wet = ground.height <= SEA + 2
+          || ground.top == Block::Lava
+          || ground.pool.0 == Block::Lava;
         let open = at.y > 4
           && depth >= 0
-          && (ground.height > SEA + 2 || depth > 5)
+          && (!wet || depth > 5)
           && at.y < lowest.max(SEA) + 40
           && carving(local) < OPEN;
+        let (pool, level) = ground.pool;
         blocks[Chunk::index(local)] = match () {
           () if bedrock => Block::Bedrock,
-          () if depth < 0 && at.y <= SEA => Block::Water,
+          () if depth < 0 && at.y == SEA && ground.ice => Block::Ice,
+          () if depth < 0 && at.y <= level => pool,
           () if depth < 0 || open => Block::Air,
           () if depth == 0 => ground.top,
           () if depth < 4 => ground.under,
@@ -196,44 +417,54 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
           })
         })
       });
+      let inside = |local: IVec3| {
+        local.cmpge(IVec3::ZERO).all() && local.cmplt(IVec3::splat(SIZE)).all()
+      };
       (-TREE_REACH..SIZE + TREE_REACH).for_each(|x| {
         (-TREE_REACH..SIZE + TREE_REACH).for_each(|z| {
           let ground = column_at(x, z);
-          if let Some(trunk) = tree_at(seed, origin.x + x, origin.z + z, &ground)
-            && ground.height + trunk + 2 >= origin.y
+          if let Some(sprout) = growth(seed, origin.x + x, origin.z + z, &ground)
+            && ground.height + TALLEST_GROWTH >= origin.y
             && ground.height < origin.y + SIZE
           {
-            let base = IVec3::new(x, ground.height + 1 - origin.y, z);
-            let mut put = |local: IVec3, block: Block| {
-              if local.cmpge(IVec3::ZERO).all() && local.cmplt(IVec3::splat(SIZE)).all() {
-                let slot = &mut blocks[Chunk::index(local)];
-                if *slot == Block::Air || (block == Block::Log && *slot == Block::Leaves)
-                {
-                  *slot = block
+            grow(
+              seed,
+              sprout,
+              IVec3::new(x, ground.height + 1, z) + origin,
+              |at, block| {
+                let local = at - origin;
+                if inside(local) {
+                  let slot = &mut blocks[Chunk::index(local)];
+                  if *slot == Block::Air || (trunk(block) && slot.leafy()) {
+                    *slot = block
+                  }
                 }
               }
-            };
-            (-2..=2i32).for_each(|dx| {
-              (-2..=2i32).for_each(|dz| {
-                (trunk - 2..=trunk + 1).for_each(|dy| {
-                  let wide = dy < trunk;
-                  let corner = dx.abs() == 2 && dz.abs() == 2;
-                  let inside = match wide {
-                    true => {
-                      !corner
-                        || unit(seed ^ 0x1EAF, origin.x + x + dx, dy, origin.z + z + dz)
-                          < 0.4
-                    }
-                    false => dx.abs() + dz.abs() <= 1
-                  };
-                  if inside {
-                    put(base + IVec3::new(dx, dy, dz), Block::Leaves)
-                  }
-                })
-              })
-            });
-            (0..trunk).for_each(|dy| put(base + IVec3::Y * dy, Block::Log))
+            )
           }
+        })
+      });
+      islands.iter().for_each(|island| {
+        let stone = island.stone;
+        (-2..=2).for_each(|dx| {
+          (-2..=2).for_each(|dz| {
+            let local = stone - origin + IVec3::new(dx, 0, dz);
+            if (0..SIZE).contains(&local.x) && (0..SIZE).contains(&local.z) {
+              let ground = column_at(local.x, local.z).height;
+              (ground.min(stone.y - 1)..=stone.y + 4).for_each(|y| {
+                let cell = IVec3::new(local.x, y - origin.y, local.z);
+                let block = match y - stone.y {
+                  0 | 1 if dx == 0 && dz == 0 => Block::Waystone,
+                  -1 => Block::Cobblestone,
+                  rise if rise < -1 => Block::Stone,
+                  _ => Block::Air
+                };
+                if inside(cell) {
+                  blocks[Chunk::index(cell)] = block
+                }
+              })
+            }
+          })
         })
       });
       Chunk::Mixed(blocks).settled()
@@ -242,23 +473,7 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
 }
 
 pub fn spawn_point(seed: u32) -> Vec3 {
-  let (x, z) = (0..400)
-    .map(|step| {
-      let turn = step as f32 * 2.4;
-      let distance = (step as f32).sqrt() * 12.0;
-      ((turn.cos() * distance) as i32, (turn.sin() * distance) as i32)
-    })
-    .find(|&(x, z)| {
-      let ground = column(seed, x, z);
-      let shaded = (-2..=2).any(|dx| {
-        (-2..=2).any(|dz| {
-          tree_at(seed, x + dx, z + dz, &column(seed, x + dx, z + dz)).is_some()
-        })
-      });
-      ground.top == Block::Grass && !shaded
-    })
-    .unwrap_or((0, 0));
-  Vec3::new(x as f32 + 0.5, height(seed, x, z) as f32 + 1.05, z as f32 + 0.5)
+  Island::at(seed, IVec2::ZERO).map_or(Vec3::new(0.5, 200.0, 0.5), |home| home.arrival())
 }
 
 #[cfg(test)]
@@ -305,5 +520,44 @@ mod tests {
     ]
     .into_iter()
     .for_each(|wanted| assert!(found(wanted), "no {wanted:?}"));
+  }
+
+  #[test]
+  #[ignore]
+  fn map() {
+    let (span, step) = (1280, 2);
+    let pixels = span / step;
+    let islands = Island::within(1, IVec2::splat(-span / 2), IVec2::splat(span / 2));
+    let image: Vec<u8> = (0..pixels * pixels)
+      .flat_map(|index| {
+        let (x, z) = (index % pixels * step - span / 2, index / pixels * step - span / 2);
+        let here = surface(1, &islands, x, z);
+        let ground = column(1, here, false, x, z);
+        let stone = islands
+          .iter()
+          .any(|island| (island.stone.xz() - IVec2::new(x, z)).abs().max_element() <= 3);
+        let colour: [u8; 3] = match ground.top {
+          _ if stone => [255, 0, 255],
+          _ if ground.height < ground.pool.1 && ground.pool.0 == Block::Lava => {
+            [255, 120, 0]
+          }
+          _ if ground.height < SEA && ground.ice => [200, 225, 245],
+          _ if ground.height < SEA => [30, 60, 140],
+          Block::Grass => [70, 130, 50],
+          Block::Sand => [220, 205, 140],
+          Block::Snow => [240, 240, 250],
+          Block::Mycelium => [130, 100, 140],
+          Block::Basalt => [50, 50, 55],
+          Block::Lava => [255, 90, 0],
+          Block::Gravel => [130, 130, 130],
+          _ => [110, 110, 110]
+        };
+        let shade = (0.6 + (ground.height - SEA) as f32 / 120.0).clamp(0.5, 1.2);
+        colour.map(|channel| (channel as f32 * shade).min(255.0) as u8)
+      })
+      .collect();
+    let mut file = format!("P6 {pixels} {pixels} 255\n").into_bytes();
+    file.extend(image);
+    std::fs::write("screenshots/map.ppm", file).unwrap()
   }
 }

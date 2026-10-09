@@ -1,5 +1,5 @@
 use {crate::{block::Block,
-             menu::{Menu, closed},
+             menu::{Menu, Tab, closed},
              opts::opts,
              protocol::*,
              settings::Settings,
@@ -207,8 +207,9 @@ fn fly(
     let steps = (banked / STEP).floor();
     *spare = banked - steps * STEP;
     (0..steps as u32).for_each(|_| {
-      let swimming =
-        voxels.block((pilot.at + Vec3::Y * 0.6).floor().as_ivec3()) == Some(Block::Water);
+      let swimming = voxels
+        .block((pilot.at + Vec3::Y * 0.6).floor().as_ivec3())
+        .is_some_and(Block::fluid);
       let blend = if pilot.grounded { 0.35 } else { 0.06 };
       let velocity = pilot.velocity;
       let horizontal = velocity.xz().lerp(walk.xz(), blend);
@@ -287,7 +288,7 @@ fn work(
   time: Res<Time>,
   buttons: Res<ButtonInput<MouseButton>>,
   cursor: Query<&CursorOptions, With<PrimaryWindow>>,
-  menu: Res<Menu>,
+  mut menu: ResMut<Menu>,
   role: Res<Role>,
   pilot: Res<Pilot>,
   selected: Res<Selected>,
@@ -330,7 +331,11 @@ fn work(
     *cooldown = (*cooldown - time.delta_secs()).max(0.0);
     let stack =
       inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
-    if active
+    let waystone = aim.hit.as_ref().is_some_and(|hit| hit.block == Block::Waystone);
+    if active && waystone && buttons.just_pressed(MouseButton::Right) {
+      menu.show(Tab::Waystones, time.elapsed_secs())
+    } else if active
+      && !waystone
       && buttons.pressed(MouseButton::Right)
       && (*cooldown <= 0.0 || buttons.just_pressed(MouseButton::Right))
       && let Some(hit) = &aim.hit

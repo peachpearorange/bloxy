@@ -3,7 +3,8 @@ use {crate::{editor::{self, Draft},
              local,
              opts::opts,
              protocol::plays,
-             settings::{Knob, Settings}},
+             settings::{Knob, Settings},
+             waystone},
      bevy::{input::{ButtonState,
                     keyboard::{Key, KeyboardInput}},
             prelude::*,
@@ -14,7 +15,7 @@ pub const FAINT: Color = Color::srgb(0.62, 0.66, 0.66);
 pub const BUTTON: Color = Color::srgb(0.17, 0.19, 0.22);
 const HOVERED: Color = Color::srgb(0.25, 0.28, 0.32);
 const PANEL: Color = Color::srgba(0.07, 0.08, 0.1, 0.94);
-const EDGE: Color = Color::srgb(0.3, 0.33, 0.36);
+pub const EDGE: Color = Color::srgb(0.3, 0.33, 0.36);
 const LIT: Color = Color::srgb(0.95, 0.85, 0.45);
 const ESCAPE_GRACE: f32 = 0.3;
 
@@ -22,17 +23,19 @@ const ESCAPE_GRACE: f32 = 0.3;
 pub enum Tab {
   Settings,
   Profile,
-  Skin
+  Skin,
+  Waystones
 }
 
 impl Tab {
-  const ALL: [Tab; 3] = [Tab::Settings, Tab::Profile, Tab::Skin];
+  const ALL: [Tab; 4] = [Tab::Settings, Tab::Profile, Tab::Skin, Tab::Waystones];
 
   fn label(self) -> &'static str {
     match self {
       Tab::Settings => "Settings",
       Tab::Profile => "Profile",
-      Tab::Skin => "Skin"
+      Tab::Skin => "Skin",
+      Tab::Waystones => "Waystones"
     }
   }
 }
@@ -90,7 +93,8 @@ pub enum Act {
   Swatch(u8),
   Randomize,
   Revert,
-  Wear
+  Wear,
+  Travel(IVec2)
 }
 
 #[derive(Message, Clone, Copy)]
@@ -279,7 +283,8 @@ fn build(mut commands: Commands, draft: Res<Draft>) {
               .with_children(|page| match tab {
                 Tab::Settings => settings_page(page),
                 Tab::Profile => profile_page(page),
-                Tab::Skin => editor::page(page, &draft)
+                Tab::Skin => editor::page(page, &draft),
+                Tab::Waystones => waystone::page(page)
               });
           })
         });
@@ -292,7 +297,8 @@ fn toggle(
   mut menu: ResMut<Menu>,
   mut focus: ResMut<Focus>,
   mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
-  mut locked: Local<bool>
+  mut locked: Local<bool>,
+  mut was: Local<bool>
 ) {
   let now = time.elapsed_secs();
   let lost = local::pointer_locked().is_some_and(|held| {
@@ -301,7 +307,6 @@ fn toggle(
     lost
   });
   let escape = keys.just_pressed(KeyCode::Escape) && now - menu.since > ESCAPE_GRACE;
-  let was = menu.open;
   match (menu.open, keys.just_pressed(KeyCode::Tab) || escape, lost) {
     (false, true, _) | (false, _, true) => {
       let tab = menu.tab;
@@ -310,9 +315,10 @@ fn toggle(
     (true, true, _) => menu.open = false,
     _ => ()
   }
-  if was != menu.open
+  if *was != menu.open
     && let Ok(mut cursor) = cursor.single_mut()
   {
+    *was = menu.open;
     focus.0 = None;
     let playing = !menu.open && opts().shot.is_none();
     cursor.grab_mode =
@@ -506,6 +512,7 @@ impl Plugin for Menus {
     let tab = match opts().menu.as_deref() {
       Some("profile") => Tab::Profile,
       Some("skin") => Tab::Skin,
+      Some("waystones") => Tab::Waystones,
       _ => Tab::Settings
     };
     app

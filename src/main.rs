@@ -8,6 +8,7 @@ mod figure;
 mod generate;
 mod hud;
 mod identity;
+mod island;
 mod local;
 mod menu;
 mod mesh;
@@ -23,6 +24,7 @@ mod sky;
 mod stream;
 mod texture;
 mod voxels;
+mod waystone;
 
 use {bevy::{app::ScheduleRunnerPlugin,
             camera::{Viewport, visibility::RenderLayers},
@@ -226,7 +228,8 @@ fn main() {
         settings::Tuning,
         identity::Identifying,
         menu::Menus,
-        editor::Editing
+        editor::Editing,
+        waystone::Waystones
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

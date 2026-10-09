@@ -1,4 +1,4 @@
-use {crate::{account::{Account, Accounts},
+use {crate::{account::{Account, Accounts, Kept},
              authority::Controller,
              block::Block,
              opts::opts,
@@ -42,8 +42,11 @@ fn store(
   time: Res<Time>,
   voxels: Res<Voxels>,
   accounts: Res<Accounts>,
-  players: Query<(&Controller, &Avatar, &Inventory, &Skin)>,
-  altered: Query<(), Or<(Changed<Avatar>, Changed<Inventory>, Changed<Skin>)>>,
+  players: Query<(&Controller, Kept)>,
+  altered: Query<
+    (),
+    Or<(Changed<Avatar>, Changed<Inventory>, Changed<Skin>, Changed<Visited>)>
+  >,
   mut exits: MessageReader<AppExit>,
   mut commands: Commands,
   mut pending: Local<bool>,
@@ -62,9 +65,9 @@ fn store(
       edits: voxels.all_edits(),
       accounts: players.iter().fold(
         accounts.0.clone(),
-        |mut kept, (controller, avatar, inventory, skin)| {
-          kept[controller.account].keep(avatar, inventory, skin);
-          kept
+        |mut accounts, (controller, kept)| {
+          accounts[controller.account].keep(kept);
+          accounts
         }
       )
     };

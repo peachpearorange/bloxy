@@ -1,10 +1,10 @@
-use {crate::{account::{Account, Accounts, LONGEST_NAME, tidy},
+use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              block::Block,
              generate,
+             island::{FACING_STONE, Island},
              opts::opts,
              protocol::*,
              save::{self, World},
-             skin::Skin,
              voxels::Voxels},
      bevy::prelude::*,
      bevy_replicon::prelude::*};
@@ -42,16 +42,18 @@ fn embody(
   client: ClientId,
   account: usize
 ) -> Entity {
-  let Account { name, avatar, inventory, skin, .. } = accounts.0[account].clone();
+  let Account { name, avatar, inventory, skin, visited, .. } =
+    accounts.0[account].clone();
   let at = generate::spawn_point(seed);
   let player = commands
     .spawn((
       Replicated,
       Controller { client, account },
       Player { name },
-      avatar.unwrap_or(Avatar { at, yaw: 0.0, pitch: 0.0 }),
+      avatar.unwrap_or(Avatar { at, yaw: FACING_STONE, pitch: 0.0 }),
       inventory,
-      skin
+      skin,
+      visited
     ))
     .id();
   commands.write_message(ToClients {
@@ -90,7 +92,7 @@ fn sign_in(
   mut commands: Commands,
   mut accounts: ResMut<Accounts>,
   voxels: Res<Voxels>,
-  players: Query<(Entity, &Controller, &Avatar, &Inventory, &Skin)>,
+  players: Query<(Entity, &Controller, Kept)>,
   mut verdicts: MessageWriter<ToClients<Verdict>>
 ) {
   let mut online: Vec<(ClientId, usize, Entity)> = players
@@ -118,9 +120,9 @@ fn sign_in(
         }
         (Some(owner), current) if accounts.0[owner].admits(password) => {
           if let Some((mine, entity)) = current
-            && let Ok((_, _, avatar, inventory, skin)) = players.get(entity)
+            && let Ok((_, _, kept)) = players.get(entity)
           {
-            accounts.0[mine].keep(avatar, inventory, skin);
+            accounts.0[mine].keep(kept);
             commands.entity(entity).despawn();
             online.retain(|&(other, ..)| other != client)
           }
@@ -171,13 +173,13 @@ fn farewell(
   left: On<Remove, ConnectedClient>,
   mut commands: Commands,
   mut accounts: ResMut<Accounts>,
-  players: Query<(Entity, &Controller, &Avatar, &Inventory, &Skin)>
+  players: Query<(Entity, &Controller, Kept)>
 ) {
   players
     .iter()
-    .filter(|(_, controller, ..)| controller.client == ClientId::Client(left.entity))
-    .for_each(|(entity, controller, avatar, inventory, skin)| {
-      accounts.0[controller.account].keep(avatar, inventory, skin);
+    .filter(|(_, controller, _)| controller.client == ClientId::Client(left.entity))
+    .for_each(|(entity, controller, kept)| {
+      accounts.0[controller.account].keep(kept);
       commands.entity(entity).despawn()
     })
 }
@@ -275,6 +277,47 @@ fn put(
   })
 }
 
+fn attune(
+  voxels: Res<Voxels>,
+  mut players: Query<(&Avatar, &mut Visited), Changed<Avatar>>
+) {
+  players.iter_mut().for_each(|(avatar, mut visited)| {
+    if let Some(island) = Island::beside(voxels.seed, avatar.at)
+      && !visited.0.contains(&island.cell)
+    {
+      visited.0.push(island.cell)
+    }
+  })
+}
+
+fn travel(
+  mut travels: MessageReader<FromClient<Travel>>,
+  mut voxels: ResMut<Voxels>,
+  mut players: Query<(&Controller, (&mut Avatar, &Visited))>,
+  mut teleports: MessageWriter<ToClients<Teleport>>
+) {
+  travels.read().for_each(|&FromClient { client_id, message: Travel(cell) }| {
+    let seed = voxels.seed;
+    if let Some((mut avatar, visited)) = player_of(players.iter_mut(), client_id)
+      && visited.0.contains(&cell)
+      && Island::beside(seed, avatar.at).is_some()
+      && let Some(island) = Island::at(seed, cell)
+    {
+      let arrival = island.arrival();
+      let feet = (0..32)
+        .map(|lift| arrival.floor().as_ivec3() + IVec3::Y * lift)
+        .find(|&at| !voxels.ensure(at).solid() && !voxels.ensure(at + IVec3::Y).solid())
+        .map_or(arrival.y, |at| at.y as f32 + 0.05);
+      let moved = Avatar { at: arrival.with_y(feet), yaw: FACING_STONE, pitch: 0.0 };
+      *avatar = moved;
+      teleports.write(ToClients {
+        targets: SendTargets::Single(client_id),
+        message: Teleport(moved)
+      });
+    }
+  })
+}
+
 pub struct Authority;
 
 impl Plugin for Authority {
@@ -283,7 +326,8 @@ impl Plugin for Authority {
       .add_systems(Startup, found_world.run_if(authority))
       .add_systems(
         PreUpdate,
-        (sign_in, paint, follow, dig, put)
+        (sign_in, paint, follow, attune, travel, dig, put)
+          .chain()
           .after(ServerSystems::Receive)
           .run_if(authority)
       )

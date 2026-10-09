@@ -8,7 +8,7 @@ use {crate::{block::Tile,
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 4;
+pub const ROWS: u32 = 6;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -89,6 +89,35 @@ fn snow(x: u32, y: u32) -> Texel {
   Texel::rgb(0.92, 0.95, 0.99).scaled(0.95 + speck(8, x, y, 5) * 0.06)
 }
 
+fn leaves(x: u32, y: u32, tile: u32, color: [f32; 3], holes: f32) -> Texel {
+  let hole = speck(tile, x, y, 20) < holes;
+  let tone = 0.65 + speck(tile, x, y, 21) * 0.5;
+  Texel::rgb(color[0], color[1], color[2]).scaled(tone).alpha(if hole {
+    0.0
+  } else {
+    1.0
+  })
+}
+
+fn mycelium(x: u32, y: u32) -> Texel {
+  let spore = speck(30, x, y, 27) < 0.12;
+  Texel::rgb(0.44, 0.37, 0.46).scaled(match spore {
+    true => 1.35,
+    false => 0.85 + speck(30, x, y, 28) * 0.25
+  })
+}
+
+fn waystone(x: u32, y: u32, tile: u32) -> Texel {
+  Texel::rgb(0.2, 0.22, 0.28).scaled(0.9 + speck(tile, x / 2, y / 2, 29) * 0.18)
+}
+
+fn rune() -> Texel { Texel::rgb(0.3, 0.85, 1.0).glowing(0.7) }
+
+fn churn(tile: u32, x: u32, y: u32) -> f32 {
+  let blob = |scale: u32, salt: u32| speck(tile, x / scale, (y + x / 3) / scale, salt);
+  (blob(4, 46) + blob(2, 47) + speck(tile, x, y, 48) * 0.5) / 2.5
+}
+
 fn ore(x: u32, y: u32, tile: u32, color: [f32; 3], glow: f32) -> Texel {
   let (edge, cell) = cell_edge(x, y, 4, 40 + tile);
   let spot = cell % 3 == 0 && edge > 0.9;
@@ -165,11 +194,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
         })
       }
     }
-    Tile::Leaves => {
-      let hole = speck(index, x, y, 20) < 0.16;
-      let tone = 0.65 + speck(index, x, y, 21) * 0.5;
-      Texel::rgb(0.2, 0.45, 0.16).scaled(tone).alpha(if hole { 0.0 } else { 1.0 })
-    }
+    Tile::Leaves => leaves(x, y, index, [0.2, 0.45, 0.16], 0.16),
     Tile::Planks => {
       let seam = y % 4 == 3 || (x + (y / 4) * 5) % 16 == 0;
       let tone =
@@ -212,6 +237,98 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
       match mortar {
         true => Texel::rgb(0.62, 0.6, 0.56),
         false => Texel::rgb(0.6, 0.27, 0.2).scaled(grain(index, x, y, 26))
+      }
+    }
+    Tile::BirchSide => {
+      let mark = speck(index, x / 3, y, 31) < 0.14 && speck(index, x, y, 32) < 0.8;
+      match mark {
+        true => Texel::rgb(0.12, 0.11, 0.1),
+        false => Texel::rgb(0.86, 0.85, 0.8).scaled(0.92 + speck(index, x, y, 33) * 0.1)
+      }
+    }
+    Tile::BirchLeaves => leaves(x, y, index, [0.42, 0.6, 0.22], 0.18),
+    Tile::SpruceSide => {
+      let ridge = speck(index, x, y / 5, 34) * 0.3 + if x % 3 == 0 { 0.65 } else { 0.9 };
+      Texel::rgb(0.27, 0.18, 0.11).scaled(ridge)
+    }
+    Tile::SpruceLeaves => leaves(x, y, index, [0.1, 0.27, 0.18], 0.1),
+    Tile::PalmSide => {
+      let ring = (y + x / 8) % 4 == 0;
+      Texel::rgb(0.58, 0.47, 0.3).scaled(match ring {
+        true => 0.7,
+        false => 0.92 + speck(index, x, y, 35) * 0.14
+      })
+    }
+    Tile::PalmLeaves => {
+      let frond = leaves(x, y, index, [0.3, 0.58, 0.14], 0.06);
+      let slit = (x + y) % 4 == 0 && speck(index, x, y, 36) < 0.75;
+      frond.alpha(if slit { 0.0 } else { frond.color[3] })
+    }
+    Tile::MyceliumTop => mycelium(x, y),
+    Tile::MyceliumSide => {
+      let fringe = 2 + (speck(index, x, 0, 37) * 3.0) as u32;
+      match y < fringe {
+        true => mycelium(x, y),
+        false => dirt(x, y)
+      }
+    }
+    Tile::Stem => Texel::rgb(0.86, 0.83, 0.74).scaled(
+      0.9 + speck(index, x, y / 4, 38) * 0.12 - if x % 5 == 2 { 0.06 } else { 0.0 }
+    ),
+    Tile::RedCap => {
+      let (edge, cell) = cell_edge(x, y, 8, 39);
+      match edge > 2.2 && cell % 3 != 0 {
+        true => Texel::rgb(0.93, 0.9, 0.86),
+        false => Texel::rgb(0.74, 0.12, 0.1).scaled(grain(index, x, y, 40))
+      }
+    }
+    Tile::BrownCap => Texel::rgb(0.55, 0.4, 0.27).scaled(
+      grain(index, x, y, 41)
+        * if speck(index, x / 2, y / 2, 42) < 0.15 { 0.85 } else { 1.0 }
+    ),
+    Tile::Pores => {
+      let gill = x % 2 == 0;
+      Texel::rgb(0.8, 0.74, 0.62).scaled(if gill { 0.82 } else { 1.0 })
+    }
+    Tile::Basalt => {
+      let joint = (x + y / 6 * 3) % 5 == 0 || y % 6 == 5;
+      Texel::rgb(0.2, 0.2, 0.22).scaled(match joint {
+        true => 0.6,
+        false => 0.85 + speck(index, x, y, 43) * 0.3
+      })
+    }
+    Tile::Lava => {
+      let swirl = churn(index, x, y);
+      match swirl {
+        crust if crust < 0.18 => Texel::rgb(0.28, 0.08, 0.03).glowing(0.4),
+        bright if bright > 0.7 => Texel::rgb(1.0, 0.82, 0.35).glowing(2.2),
+        _ => Texel::rgb(0.98, 0.42, 0.06).glowing(1.6)
+      }
+    }
+    Tile::Ice => {
+      let crack = (x * 3 + y * 5) % 17 == 0 || speck(index, x, y / 3, 44) < 0.05;
+      Texel::rgb(0.64, 0.8, 0.96).scaled(match crack {
+        true => 1.15,
+        false => 0.92 + speck(index, x / 2, y, 45) * 0.1
+      })
+    }
+    Tile::WaystoneSide => {
+      let (dx, dy) = ((x as f32 - 7.5).abs(), (y as f32 - 7.5).abs());
+      let diamond = (4.0..5.5).contains(&(dx + dy));
+      let spine = dx < 1.0 && (2.0..14.0).contains(&(y as f32));
+      let frame = x == 0 || x == PIXELS - 1;
+      match (diamond || spine, frame) {
+        (true, _) => rune(),
+        (_, true) => waystone(x, y, index).scaled(1.5),
+        _ => waystone(x, y, index)
+      }
+    }
+    Tile::WaystoneTop => {
+      let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
+      let ring = (dx * dx + dy * dy).sqrt();
+      match (4.0..5.2).contains(&ring) || ring < 1.6 {
+        true => rune(),
+        false => waystone(x, y, index).scaled(1.2)
       }
     }
   }
