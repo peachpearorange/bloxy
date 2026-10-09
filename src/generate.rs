@@ -160,7 +160,7 @@ fn growth(seed: u32, x: i32, z: i32, ground: &Column) -> Option<(Growth, i32)> {
           true => Growth::RedShroom,
           false => Growth::BrownShroom
         },
-        0.014
+        0.007
       )),
       (Kind::Frost, Block::Snow) => Some((Growth::Tree(Wood::Spruce), 0.025)),
       (_, Block::Grass | Block::Snow) if ground.height > SEA + 20 => {
@@ -179,7 +179,7 @@ fn growth(seed: u32, x: i32, z: i32, ground: &Column) -> Option<(Growth, i32)> {
       (Kind::Meadow | Kind::Peak, Block::Grass) => {
         Some((either(Wood::Oak, Wood::Birch), 0.012))
       }
-      (Kind::Dunes, Block::Sand) if above_sea => Some((Growth::Tree(Wood::Palm), 0.02)),
+      (Kind::Dunes, Block::Sand) if above_sea => Some((Growth::Tree(Wood::Palm), 0.01)),
       (_, Block::Sand) if island.warm && above_sea => {
         Some((Growth::Tree(Wood::Palm), 0.012))
       }
