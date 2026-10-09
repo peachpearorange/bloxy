@@ -230,7 +230,6 @@ const FLESH: u32 = 3;
 const FACE: u32 = 4;
 
 fn texel(patch: u32, x: u32, y: u32) -> [u8; 4] {
-  let speck = unit(0x5B, x as i32, y as i32, patch as i32);
   let shade = |[r, g, b]: [f32; 3], by: f32| {
     [r, g, b].map(|channel| (channel * by * 255.0).min(255.0) as u8)
   };
@@ -240,10 +239,12 @@ fn texel(patch: u32, x: u32, y: u32) -> [u8; 4] {
   let [r, g, b] = match patch {
     CAP_SIDE if spotted(&[(1, 3), (5, 1), (6, 5)]) => shade([0.95, 0.93, 0.9], 1.0),
     CAP_TOP if spotted(&[(2, 2), (6, 3), (3, 6)]) => shade([0.95, 0.93, 0.9], 1.0),
-    CAP_SIDE | CAP_TOP => shade([0.82, 0.1, 0.09], 0.9 + speck * 0.15),
+    CAP_SIDE | CAP_TOP => {
+      shade([0.82, 0.1, 0.09], if (x + y) % 5 == 0 { 0.88 } else { 1.0 })
+    }
     GILLS => shade([0.86, 0.79, 0.66], if x % 2 == 0 { 0.85 } else { 1.0 }),
     FACE if (x == 2 || x == 5) && (2..=3).contains(&y) => [18, 16, 20],
-    _ => shade([0.95, 0.93, 0.88], if y == 7 { 0.85 } else { 0.95 + speck * 0.05 })
+    _ => shade([0.95, 0.93, 0.88], if y == 7 { 0.85 } else { 1.0 })
   };
   [r, g, b, 255]
 }
