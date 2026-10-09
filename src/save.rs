@@ -3,6 +3,7 @@ use {crate::{account::{Account, Accounts, Kept},
              block::Block,
              opts::opts,
              protocol::*,
+             shroomling::Wander,
              skin::Skin,
              voxels::Voxels},
      bevy::prelude::*,
@@ -16,7 +17,9 @@ pub struct World {
   pub seed: u32,
   pub edits: Vec<(IVec3, Block)>,
   #[serde(default)]
-  pub accounts: Vec<Account>
+  pub accounts: Vec<Account>,
+  #[serde(default)]
+  pub shroomlings: Vec<(IVec2, Hopper)>
 }
 
 pub fn load() -> Option<World> {
@@ -43,9 +46,16 @@ fn store(
   voxels: Res<Voxels>,
   accounts: Res<Accounts>,
   players: Query<(&Controller, Kept)>,
+  shroomlings: Query<(&Hopper, &Wander)>,
   altered: Query<
     (),
-    Or<(Changed<Avatar>, Changed<Inventory>, Changed<Skin>, Changed<Visited>)>
+    Or<(
+      Changed<Avatar>,
+      Changed<Inventory>,
+      Changed<Skin>,
+      Changed<Visited>,
+      Changed<Hopper>
+    )>
   >,
   mut exits: MessageReader<AppExit>,
   mut commands: Commands,
@@ -69,7 +79,11 @@ fn store(
           accounts[controller.account].keep(kept);
           accounts
         }
-      )
+      ),
+      shroomlings: shroomlings
+        .iter()
+        .map(|(&hopper, wander)| (wander.home, hopper))
+        .collect()
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

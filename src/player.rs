@@ -7,7 +7,8 @@ use {crate::{block::Block,
              voxels::{Hit, Voxels}},
      bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
             prelude::*,
-            window::{CursorGrabMode, CursorOptions, PrimaryWindow}},
+            window::{CursorGrabMode, CursorOptions, MonitorSelection, PrimaryWindow,
+                     WindowMode}},
      bevy_replicon::prelude::*};
 
 const GRAVITY: f32 = 30.0;
@@ -106,17 +107,19 @@ fn spawn_eye(mut commands: Commands, settings: Res<Settings>) {
 }
 
 fn grab(
-  mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
+  mut windows: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
   buttons: Res<ButtonInput<MouseButton>>,
   menu: Res<Menu>
 ) {
-  if let Ok(mut cursor) = cursor.single_mut()
+  if let Ok((mut window, mut cursor)) = windows.single_mut()
     && !menu.open
     && buttons.just_pressed(MouseButton::Left)
     && cursor.grab_mode == CursorGrabMode::None
+    && opts().shot.is_none()
   {
     cursor.grab_mode = CursorGrabMode::Locked;
-    cursor.visible = false
+    cursor.visible = false;
+    window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Current)
   }
 }
 
@@ -210,7 +213,7 @@ fn fly(
       held(KeyCode::KeyD) - held(KeyCode::KeyA),
       held(KeyCode::KeyS) - held(KeyCode::KeyW)
     );
-    let speed = match (pilot.swimming, pressed(KeyCode::ControlLeft)) {
+    let speed = match (pilot.swimming, pressed(KeyCode::ShiftLeft)) {
       (true, _) => SWIM,
       (false, true) => SPRINT,
       (false, false) => WALK

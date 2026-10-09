@@ -24,8 +24,8 @@ const GRAVITY: f32 = 30.0;
 const STEP: f32 = 1.0 / 60.0;
 
 #[derive(Component)]
-struct Wander {
-  home: IVec2,
+pub struct Wander {
+  pub home: IVec2,
   velocity: Vec3,
   grounded: bool,
   resting: f32,
@@ -42,7 +42,19 @@ impl Wander {
 }
 
 #[derive(Resource, Default)]
-struct Colonies(HashSet<IVec2>);
+pub struct Colonies(pub HashSet<IVec2>);
+
+pub fn lodge(commands: &mut Commands, home: IVec2, hopper: Hopper, luck: u32) {
+  commands.spawn((Replicated, hopper, Wander {
+    home,
+    velocity: Vec3::ZERO,
+    grounded: false,
+    resting: 0.0,
+    turning: 0.0,
+    hopping: (luck % 5) as f32,
+    luck
+  }));
+}
 
 fn ahead(yaw: f32) -> Vec3 { Quat::from_rotation_y(yaw) * Vec3::NEG_Z }
 
@@ -50,22 +62,9 @@ fn muster(
   voxels: Res<Voxels>,
   mut colonies: ResMut<Colonies>,
   players: Query<&Avatar>,
-  shroomlings: Query<(Entity, &Wander)>,
   mut commands: Commands
 ) {
   let seed = voxels.seed;
-  let watched = |island: &Island| {
-    players.iter().any(|avatar| avatar.at.xz().distance(island.centre) < SLEEP)
-  };
-  colonies.0.clone().into_iter().for_each(|cell| {
-    if Island::at(seed, cell).is_none_or(|island| !watched(&island)) {
-      colonies.0.remove(&cell);
-      shroomlings
-        .iter()
-        .filter(|(_, wander)| wander.home == cell)
-        .for_each(|(entity, _)| commands.entity(entity).despawn())
-    }
-  });
   players
     .iter()
     .flat_map(|avatar| {
@@ -91,22 +90,19 @@ fn muster(
             (ground > SEA + 1).then(|| {
               (
                 Vec3::new(spot.x as f32 + 0.5, ground as f32 + 1.05, spot.y as f32 + 0.5),
-                { roll(3) * PI }
+                roll(3) * PI
               )
             })
           })
           .take(count as usize)
           .enumerate()
           .for_each(|(index, (at, yaw))| {
-            commands.spawn((Replicated, Hopper { at, yaw, aloft: false }, Wander {
-              home: island.cell,
-              velocity: Vec3::ZERO,
-              grounded: false,
-              resting: 0.0,
-              turning: 0.0,
-              hopping: index as f32,
-              luck: key ^ index as u32
-            }));
+            lodge(
+              &mut commands,
+              island.cell,
+              Hopper { at, yaw, aloft: false },
+              key ^ index as u32
+            )
           })
       }
     })
@@ -115,88 +111,93 @@ fn muster(
 fn wander(
   time: Res<Time>,
   mut voxels: ResMut<Voxels>,
+  players: Query<&Avatar>,
   mut shroomlings: Query<(&mut Hopper, &mut Wander)>
 ) {
   let dt = time.delta_secs().min(0.1);
   let seed = voxels.seed;
-  shroomlings.iter_mut().for_each(|(mut hopper, mut wander)| {
-    let Hopper { mut at, mut yaw, .. } = *hopper;
-    [
-      IVec3::ZERO,
-      IVec3::X * 2,
-      IVec3::X * -2,
-      IVec3::Z * 2,
-      IVec3::Z * -2,
-      IVec3::Y * -2
-    ]
-    .into_iter()
-    .for_each(|offset| {
-      voxels.ensure(at.floor().as_ivec3() + offset);
-    });
-    let (low, high) = BULK.body(at);
-    if cells(low, high).any(|cell| voxels.solid(cell)) {
-      at.y = at.y.floor() + 1.0
-    }
-    wander.turning -= dt;
-    wander.resting -= dt;
-    wander.hopping -= dt;
-    if wander.turning <= 0.0 {
-      wander.turning = 2.0 + wander.dice() * 4.0;
-      let roll = wander.dice();
-      match roll {
-        roll if roll < 0.3 => wander.resting = 1.0 + wander.dice() * 2.5,
-        _ => yaw += (wander.dice() - 0.5) * PI * 1.4
-      }
-    }
-    if let Some(island) = Island::at(seed, wander.home)
-      && at.xz().distance(island.centre) > island.radius * 0.8
-    {
-      let home = island.centre - at.xz();
-      yaw = (-home.x).atan2(-home.y)
-    }
-    let toward = ahead(yaw);
-    let probe = (at + toward * 0.7).floor().as_ivec3();
-    let drop = (0..4).all(|depth| !voxels.solid(probe - IVec3::Y * (depth + 1)));
-    let wet = [probe, probe - IVec3::Y]
+  let watched =
+    |at: Vec3| players.iter().any(|avatar| avatar.at.xz().distance(at.xz()) < SLEEP);
+  shroomlings.iter_mut().filter(|(hopper, _)| watched(hopper.at)).for_each(
+    |(mut hopper, mut wander)| {
+      let Hopper { mut at, mut yaw, .. } = *hopper;
+      [
+        IVec3::ZERO,
+        IVec3::X * 2,
+        IVec3::X * -2,
+        IVec3::Z * 2,
+        IVec3::Z * -2,
+        IVec3::Y * -2
+      ]
       .into_iter()
-      .any(|cell| voxels.block(cell).is_some_and(Block::fluid));
-    if (drop || wet) && wander.grounded {
-      yaw += PI;
-      wander.turning = 1.0
-    }
-    let pace = if wander.resting > 0.0 { 0.0 } else { WALK };
-    let walk = ahead(yaw) * pace;
-    let jump = match (wander.grounded, wander.hopping <= 0.0) {
-      (true, true) => {
-        wander.hopping = 1.0 + wander.dice() * 5.0;
-        Some(HOP)
-      }
-      _ => None
-    };
-    let mut velocity = Vec3::new(walk.x, wander.velocity.y, walk.z);
-    velocity.y = jump.unwrap_or((velocity.y - GRAVITY * dt).max(-40.0));
-    let steps = (dt / STEP).ceil().max(1.0);
-    let (moved, blocked, landed) =
-      (0..steps as u32).fold((at, false, false), |(at, blocked, landed), _| {
-        [1, 0, 2].into_iter().fold(
-          (at, blocked, landed),
-          |(at, blocked, landed), axis| {
-            let falling = velocity[axis] < 0.0;
-            let (at, hit) = slide(&voxels, BULK, at, axis, velocity[axis] * dt / steps);
-            if hit {
-              velocity[axis] = 0.0
-            }
-            (at, blocked || (hit && axis != 1), landed || (hit && axis == 1 && falling))
-          }
-        )
+      .for_each(|offset| {
+        voxels.ensure(at.floor().as_ivec3() + offset);
       });
-    if blocked && landed {
-      velocity.y = LEAP
+      let (low, high) = BULK.body(at);
+      if cells(low, high).any(|cell| voxels.solid(cell)) {
+        at.y = at.y.floor() + 1.0
+      }
+      wander.turning -= dt;
+      wander.resting -= dt;
+      wander.hopping -= dt;
+      if wander.turning <= 0.0 {
+        wander.turning = 2.0 + wander.dice() * 4.0;
+        let roll = wander.dice();
+        match roll {
+          roll if roll < 0.3 => wander.resting = 1.0 + wander.dice() * 2.5,
+          _ => yaw += (wander.dice() - 0.5) * PI * 1.4
+        }
+      }
+      if let Some(island) = Island::at(seed, wander.home)
+        && at.xz().distance(island.centre) > island.radius * 0.8
+      {
+        let home = island.centre - at.xz();
+        yaw = (-home.x).atan2(-home.y)
+      }
+      let toward = ahead(yaw);
+      let probe = (at + toward * 0.7).floor().as_ivec3();
+      let drop = (0..4).all(|depth| !voxels.solid(probe - IVec3::Y * (depth + 1)));
+      let wet = [probe, probe - IVec3::Y]
+        .into_iter()
+        .any(|cell| voxels.block(cell).is_some_and(Block::fluid));
+      if (drop || wet) && wander.grounded {
+        yaw += PI;
+        wander.turning = 1.0
+      }
+      let pace = if wander.resting > 0.0 { 0.0 } else { WALK };
+      let walk = ahead(yaw) * pace;
+      let jump = match (wander.grounded, wander.hopping <= 0.0) {
+        (true, true) => {
+          wander.hopping = 1.0 + wander.dice() * 5.0;
+          Some(HOP)
+        }
+        _ => None
+      };
+      let mut velocity = Vec3::new(walk.x, wander.velocity.y, walk.z);
+      velocity.y = jump.unwrap_or((velocity.y - GRAVITY * dt).max(-40.0));
+      let steps = (dt / STEP).ceil().max(1.0);
+      let (moved, blocked, landed) =
+        (0..steps as u32).fold((at, false, false), |(at, blocked, landed), _| {
+          [1, 0, 2].into_iter().fold(
+            (at, blocked, landed),
+            |(at, blocked, landed), axis| {
+              let falling = velocity[axis] < 0.0;
+              let (at, hit) = slide(&voxels, BULK, at, axis, velocity[axis] * dt / steps);
+              if hit {
+                velocity[axis] = 0.0
+              }
+              (at, blocked || (hit && axis != 1), landed || (hit && axis == 1 && falling))
+            }
+          )
+        });
+      if blocked && landed {
+        velocity.y = LEAP
+      }
+      wander.velocity = velocity;
+      wander.grounded = landed;
+      hopper.set_if_neq(Hopper { at: moved, yaw: yaw.rem_euclid(TAU), aloft: !landed });
     }
-    wander.velocity = velocity;
-    wander.grounded = landed;
-    hopper.set_if_neq(Hopper { at: moved, yaw: yaw.rem_euclid(TAU), aloft: !landed });
-  })
+  )
 }
 
 #[derive(Component)]

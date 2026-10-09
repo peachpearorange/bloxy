@@ -5,6 +5,7 @@ use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              opts::opts,
              protocol::*,
              save::{self, World},
+             shroomling,
              voxels::Voxels},
      bevy::prelude::*,
      bevy_replicon::prelude::*};
@@ -64,11 +65,18 @@ fn embody(
 }
 
 fn found_world(mut commands: Commands) {
-  let World { seed, edits, accounts } = save::load().unwrap_or_else(|| World {
-    seed: opts().seed,
-    edits: default(),
-    accounts: default()
+  let World { seed, edits, accounts, shroomlings } =
+    save::load().unwrap_or_else(|| World {
+      seed: opts().seed,
+      edits: default(),
+      accounts: default(),
+      shroomlings: default()
+    });
+  let colonies = shroomlings.iter().map(|&(home, _)| home).collect();
+  shroomlings.into_iter().enumerate().for_each(|(index, (home, hopper))| {
+    shroomling::lodge(&mut commands, home, hopper, index as u32 * 0x9E37 + 1)
   });
+  commands.insert_resource(shroomling::Colonies(colonies));
   let mut voxels = Voxels::new(seed);
   edits.iter().for_each(|&(at, block)| voxels.set(at, block));
   voxels.ensure(generate::spawn_point(seed).floor().as_ivec3());
