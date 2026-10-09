@@ -1,0 +1,47 @@
+name: Server
+
+on:
+  push:
+    branches: [master, ccr-cbea9050-s7p963]
+  workflow_dispatch:
+
+concurrency:
+  group: server
+  cancel-in-progress: true
+
+env:
+  HOST: v2202610434077535942.quicksrv.de
+  HOST_KEY_FINGERPRINT: SHA256:IxlPl67ozKfTmydoewkYfV240LUhNzJuCUPgFYqgbZo
+  DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries
+        run: sudo apt-get update -q && sudo apt-get install -y -q pkg-config libwayland-dev libxkbcommon-dev libudev-dev libasound2-dev
+      - name: Build
+        run: cargo build --profile server
+      - name: Trust the server
+        if: env.DEPLOY_KEY != ''
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -t ed25519 "$HOST" > ~/.ssh/known_hosts
+          ssh-keygen -lf ~/.ssh/known_hosts | grep -q "$HOST_KEY_FINGERPRINT" || { echo "host key mismatch"; exit 1; }
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+      - name: Deploy
+        if: env.DEPLOY_KEY != ''
+        run: |
+          started() { ssh "bloxy@$HOST" systemctl show bloxy -p ActiveEnterTimestampMonotonic --value; }
+          before=$(started)
+          scp target/server/bloxy "bloxy@$HOST:/opt/bloxy/bin/bloxy.new"
+          ssh "bloxy@$HOST" 'chmod +x /opt/bloxy/bin/bloxy.new && mv -f /opt/bloxy/bin/bloxy.new /opt/bloxy/bin/bloxy'
+          for _ in $(seq 30); do
+            sleep 1
+            [ "$(started)" != "$before" ] && ssh "bloxy@$HOST" systemctl is-active bloxy && exit 0
+          done
+          echo "server did not restart"; ssh "bloxy@$HOST" systemctl status bloxy --no-pager || true; exit 1
