@@ -1,5 +1,4 @@
-use {crate::{block::Tile,
-             block::{Block, Look},
+use {crate::{block::{Block, Look},
              generate,
              island::SEA,
              model::{self, Bit},
@@ -123,12 +122,25 @@ const FACES: [Face; 6] = [
   }
 ];
 
+const CUT: f32 = 5.0 / 16.0;
+
+const OCTAGON: [Vec2; 8] = [
+  Vec2::new(CUT, 0.0),
+  Vec2::new(1.0 - CUT, 0.0),
+  Vec2::new(1.0, CUT),
+  Vec2::new(1.0, 1.0 - CUT),
+  Vec2::new(1.0 - CUT, 1.0),
+  Vec2::new(CUT, 1.0),
+  Vec2::new(0.0, 1.0 - CUT),
+  Vec2::new(0.0, CUT)
+];
+
 const CORNERS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 
 fn shows(block: Block, neighbour: Block) -> bool {
   match (block.look(), neighbour.look()) {
-    (Look::Invisible | Look::Model, _) => false,
-    (_, Look::Invisible | Look::Model) => true,
+    (Look::Invisible | Look::Model | Look::Log, _) => false,
+    (_, Look::Invisible | Look::Model | Look::Log) => true,
     (_, Look::Opaque) => false,
     (Look::Liquid, Look::Liquid) => false,
     (Look::Liquid, Look::Cutout) => true,
@@ -147,6 +159,23 @@ struct Builder {
 }
 
 impl Builder {
+  fn polygon(&mut self, points: &[Vec3], uvs: &[Vec2], normal: Vec3, hue: LinearRgba) {
+    let first = self.positions.len() as u32;
+    points.iter().zip(uvs).for_each(|(point, uv)| {
+      self.positions.push(point.to_array());
+      self.normals.push(normal.to_array());
+      self.uvs.push(uv.to_array());
+      self.colors.push(hue.with_alpha(1.0).to_f32_array())
+    });
+    let facing = (points[1] - points[0]).cross(points[2] - points[0]).dot(normal) > 0.0;
+    (1..points.len() as u32 - 1).for_each(|corner| {
+      self.indices.extend(match facing {
+        true => [first, first + corner, first + corner + 1],
+        false => [first, first + corner + 1, first + corner]
+      })
+    })
+  }
+
   fn mesh(self) -> Option<Mesh> {
     (!self.indices.is_empty()).then(|| {
       Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
@@ -254,25 +283,65 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
       let jitter = |salt: u32| (hash(seed ^ salt, at.x, at.y, at.z) % 5) as f32 - 2.0;
       let shift = Vec3::new(jitter(0x51), 0.0, jitter(0x52));
       let light = sky(local);
-      let blank = uv_corner(Tile::Blank, Vec2::splat(0.5)).to_array();
-      model::bits(block).iter().for_each(|&Bit { low, high, color: [r, g, b] }| {
-        let (low, high) = (
-          local.as_vec3() + (Vec3::from(low.map(f32::from)) + shift) / 16.0,
-          local.as_vec3() + (Vec3::from(high.map(f32::from)) + shift) / 16.0
-        );
+      model::bits(block).iter().for_each(|&Bit { low, high, color: [r, g, b], tile }| {
+        let (low, high) =
+          (Vec3::from(low.map(f32::from)), Vec3::from(high.map(f32::from)));
         let hue = (LinearRgba::from(Color::srgb(r, g, b)) * light).with_alpha(1.0);
         FACES.iter().for_each(|face| {
-          let first = solid.positions.len() as u32;
-          CORNERS.iter().for_each(|&(a, b)| {
-            let unit = (face.base + face.across * a + face.up * b).as_vec3();
-            solid.positions.push((low + (high - low) * unit).to_array());
-            solid.normals.push(face.normal.as_vec3().to_array());
-            solid.uvs.push(blank);
-            solid.colors.push(hue.to_f32_array());
+          let texels = CORNERS.map(|(a, b)| {
+            low + (high - low) * (face.base + face.across * a + face.up * b).as_vec3()
           });
-          solid.indices.extend([0, 1, 2, 0, 2, 3].map(|corner| first + corner))
+          solid.polygon(
+            &texels.map(|texel| local.as_vec3() + (texel + shift) / 16.0),
+            &texels.map(|texel| {
+              let (u, v) = (
+                texel.dot(face.across.abs().as_vec3()),
+                texel.dot(face.up.abs().as_vec3())
+              );
+              uv_corner(tile, Vec2::new(u / 16.0, 1.0 - v / 16.0))
+            }),
+            face.normal.as_vec3(),
+            hue
+          )
         })
-      })
+      });
+      if block.look() == Look::Log {
+        let [top, side, bottom] = block.tiles();
+        let hue = LinearRgba::rgb(light, light, light);
+        let corner = local.as_vec3();
+        (0..8).for_each(|edge| {
+          let (from, to) = (OCTAGON[edge], OCTAGON[(edge + 1) % 8]);
+          let outward = ((from + to) / 2.0 - 0.5).normalize();
+          let normal = Vec3::new(outward.x, 0.0, outward.y);
+          let along_x = outward.y.abs() > outward.x.abs();
+          let across = |point: Vec2| if along_x { point.x } else { point.y };
+          let covered =
+            edge % 2 == 0 && padded.get(local + normal.round().as_ivec3()).opaque();
+          if !covered {
+            solid.polygon(
+              &[(from, 0.0), (to, 0.0), (to, 1.0), (from, 1.0)]
+                .map(|(point, y)| corner + Vec3::new(point.x, y, point.y)),
+              &[(from, 1.0), (to, 1.0), (to, 0.0), (from, 0.0)]
+                .map(|(point, v)| uv_corner(side, Vec2::new(across(point), v))),
+              normal,
+              hue
+            )
+          }
+        });
+        [(1.0, IVec3::Y, top), (0.0, IVec3::NEG_Y, bottom)].into_iter().for_each(
+          |(y, normal, tile)| {
+            let next = padded.get(local + normal);
+            if !next.opaque() && next.look() != Look::Log {
+              solid.polygon(
+                &OCTAGON.map(|point| corner + Vec3::new(point.x, y, point.y)),
+                &OCTAGON.map(|point| uv_corner(tile, point)),
+                normal.as_vec3(),
+                hue
+              )
+            }
+          }
+        )
+      }
     }
   });
   Meshes { solid: solid.mesh(), liquid: liquid.mesh() }

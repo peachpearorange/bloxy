@@ -308,20 +308,20 @@ const SPOTS: Art = [
 
 const DOTTED: Art = [
   "2222222222222222",
-  "2233322222222222",
-  "2333332222223322",
-  "2333332222233332",
-  "2233322222233332",
-  "2222222222223322",
-  "1222222222222221",
+  "2232222222223222",
+  "2333222222233322",
+  "2232222322223222",
+  "2222223332222222",
+  "2222222322222222",
+  "1222222222222321",
+  "2223222222223332",
+  "2233322222222322",
+  "2223222232222222",
   "2222222333222222",
-  "2222223333322222",
-  "2222223333322222",
-  "2222222333222222",
-  "2222222222222222",
-  "2233222222222332",
-  "2333322222223333",
-  "2233222222222332",
+  "2222222232222222",
+  "2322222222222322",
+  "3332222222223332",
+  "2322222222222322",
   "1222222112222222"
 ];
 
@@ -449,6 +449,9 @@ const FROZEN: Palette =
   [[0.5, 0.65, 0.84], [0.57, 0.72, 0.9], [0.64, 0.8, 0.96], [0.8, 0.9, 1.0]];
 const FOAM: Palette =
   [[0.78, 0.78, 0.78], [0.86, 0.86, 0.86], [0.93, 0.93, 0.93], [1.0, 1.0, 1.0]];
+
+const GRAIN: Palette =
+  [[0.74, 0.74, 0.74], [0.84, 0.84, 0.84], [0.93, 0.93, 0.93], [1.0, 1.0, 1.0]];
 
 fn drawn(art: &Art, palette: &Palette, x: u32, y: u32) -> Option<Texel> {
   art[y as usize]
@@ -611,7 +614,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
         false => waystone(x, y)
       }
     }
-    Tile::Blank => Texel::rgb(1.0, 1.0, 1.0),
+    Tile::Grain => solid(&STONE, &GRAIN, x, y),
     Tile::Poppy
     | Tile::Dandelion
     | Tile::Cornflower
@@ -623,8 +626,11 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     | Tile::RedMushroom
     | Tile::BrownMushroom => {
       let block = Block::ALL_MODELS[tile as usize - Tile::Poppy as usize];
-      model::icon(block, x, y)
-        .map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |[r, g, b]| Texel::rgb(r, g, b))
+      model::icon(block, x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |bit| {
+        let [r, g, b, _] = paint(bit.tile, x, y).color;
+        let [tint_r, tint_g, tint_b] = bit.color;
+        Texel::rgb(r * tint_r, g * tint_g, b * tint_b)
+      })
     }
     Tile::WaystoneTop => {
       let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);

@@ -1,14 +1,19 @@
-use crate::block::Block;
+use crate::block::{Block, Tile};
 
 #[derive(Clone, Copy)]
 pub struct Bit {
   pub low: [u8; 3],
   pub high: [u8; 3],
-  pub color: [f32; 3]
+  pub color: [f32; 3],
+  pub tile: Tile
 }
 
 const fn bit(low: [u8; 3], high: [u8; 3], color: [f32; 3]) -> Bit {
-  Bit { low, high, color }
+  Bit { low, high, color, tile: Tile::Grain }
+}
+
+const fn skin(low: [u8; 3], high: [u8; 3], tile: Tile) -> Bit {
+  Bit { low, high, color: [1.0; 3], tile }
 }
 
 const STALK: [f32; 3] = [0.24, 0.46, 0.16];
@@ -20,18 +25,10 @@ const PALE_YELLOW: [f32; 3] = [1.0, 0.93, 0.5];
 const BLUE: [f32; 3] = [0.28, 0.42, 0.9];
 const DEEP_BLUE: [f32; 3] = [0.14, 0.2, 0.55];
 const WHITE: [f32; 3] = [0.95, 0.95, 0.92];
-const BARK: [f32; 3] = [0.38, 0.27, 0.17];
-const BIRCH_BARK: [f32; 3] = [0.88, 0.87, 0.83];
-const BIRCH_MARK: [f32; 3] = [0.15, 0.14, 0.13];
-const SPRUCE_BARK: [f32; 3] = [0.27, 0.18, 0.1];
-const PALM_BARK: [f32; 3] = [0.6, 0.48, 0.3];
 const OAK_GREEN: [f32; 3] = [0.2, 0.44, 0.15];
 const BIRCH_GREEN: [f32; 3] = [0.42, 0.6, 0.22];
 const SPRUCE_GREEN: [f32; 3] = [0.1, 0.27, 0.18];
 const PALM_GREEN: [f32; 3] = [0.3, 0.6, 0.15];
-const CAP_RED: [f32; 3] = [0.8, 0.12, 0.1];
-const CAP_BROWN: [f32; 3] = [0.55, 0.4, 0.27];
-const FLESH: [f32; 3] = [0.9, 0.87, 0.78];
 
 const POPPY_BITS: &[Bit] = &[
   bit([7, 0, 7], [8, 7, 8], STALK),
@@ -70,7 +67,7 @@ const DAISY_BITS: &[Bit] = &[
 ];
 
 const OAK_SAPLING_BITS: &[Bit] = &[
-  bit([7, 0, 7], [9, 5, 9], BARK),
+  skin([7, 0, 7], [9, 5, 9], Tile::LogSide),
   bit([5, 5, 5], [11, 9, 11], OAK_GREEN),
   bit([6, 9, 6], [10, 10, 10], OAK_GREEN),
   bit([4, 6, 6], [5, 8, 9], OAK_GREEN),
@@ -78,16 +75,14 @@ const OAK_SAPLING_BITS: &[Bit] = &[
 ];
 
 const BIRCH_SAPLING_BITS: &[Bit] = &[
-  bit([7, 0, 7], [9, 2, 9], BIRCH_BARK),
-  bit([7, 2, 7], [9, 3, 9], BIRCH_MARK),
-  bit([7, 3, 7], [9, 6, 9], BIRCH_BARK),
+  skin([7, 0, 7], [9, 6, 9], Tile::BirchSide),
   bit([6, 6, 6], [10, 11, 10], BIRCH_GREEN),
   bit([5, 7, 7], [6, 10, 9], BIRCH_GREEN),
   bit([10, 7, 7], [11, 10, 9], BIRCH_GREEN)
 ];
 
 const SPRUCE_SAPLING_BITS: &[Bit] = &[
-  bit([7, 0, 7], [9, 3, 9], SPRUCE_BARK),
+  skin([7, 0, 7], [9, 3, 9], Tile::SpruceSide),
   bit([4, 3, 4], [12, 5, 12], SPRUCE_GREEN),
   bit([5, 5, 5], [11, 7, 11], SPRUCE_GREEN),
   bit([6, 7, 6], [10, 9, 10], SPRUCE_GREEN),
@@ -95,9 +90,9 @@ const SPRUCE_SAPLING_BITS: &[Bit] = &[
 ];
 
 const PALM_SAPLING_BITS: &[Bit] = &[
-  bit([7, 0, 7], [9, 3, 9], PALM_BARK),
-  bit([8, 3, 7], [10, 6, 9], PALM_BARK),
-  bit([9, 6, 7], [11, 8, 9], PALM_BARK),
+  skin([7, 0, 7], [9, 3, 9], Tile::PalmSide),
+  skin([8, 3, 7], [10, 6, 9], Tile::PalmSide),
+  skin([9, 6, 7], [11, 8, 9], Tile::PalmSide),
   bit([5, 8, 7], [15, 9, 9], PALM_GREEN),
   bit([9, 8, 3], [11, 9, 13], PALM_GREEN),
   bit([4, 7, 7], [5, 8, 9], PALM_GREEN),
@@ -106,18 +101,15 @@ const PALM_SAPLING_BITS: &[Bit] = &[
 ];
 
 const RED_MUSHROOM_BITS: &[Bit] = &[
-  bit([7, 0, 7], [9, 3, 9], FLESH),
-  bit([5, 3, 5], [11, 5, 11], CAP_RED),
-  bit([6, 5, 6], [10, 6, 10], CAP_RED),
-  bit([6, 6, 7], [7, 7, 8], WHITE),
-  bit([8, 6, 8], [9, 7, 9], WHITE),
-  bit([4, 4, 9], [5, 5, 10], WHITE)
+  skin([7, 0, 7], [9, 3, 9], Tile::Stem),
+  skin([5, 3, 5], [11, 5, 11], Tile::RedCap),
+  skin([6, 5, 6], [10, 6, 10], Tile::RedCap)
 ];
 
 const BROWN_MUSHROOM_BITS: &[Bit] = &[
-  bit([7, 0, 7], [9, 2, 9], FLESH),
-  bit([4, 2, 4], [12, 3, 12], CAP_BROWN),
-  bit([5, 3, 5], [11, 4, 11], CAP_BROWN)
+  skin([7, 0, 7], [9, 2, 9], Tile::Stem),
+  skin([4, 2, 4], [12, 3, 12], Tile::BrownCap),
+  skin([5, 3, 5], [11, 4, 11], Tile::BrownCap)
 ];
 
 pub fn bits(block: Block) -> &'static [Bit] {
@@ -136,12 +128,12 @@ pub fn bits(block: Block) -> &'static [Bit] {
   }
 }
 
-pub fn icon(block: Block, x: u32, y: u32) -> Option<[f32; 3]> {
+pub fn icon(block: Block, x: u32, y: u32) -> Option<Bit> {
   let (x, y) = (x as u8, 15 - y as u8);
   bits(block)
     .iter()
     .filter(|bit| (bit.low[0]..bit.high[0].max(bit.low[0] + 1)).contains(&x))
     .filter(|bit| (bit.low[1]..bit.high[1].max(bit.low[1] + 1)).contains(&y))
     .min_by_key(|bit| bit.low[2])
-    .map(|bit| bit.color)
+    .copied()
 }

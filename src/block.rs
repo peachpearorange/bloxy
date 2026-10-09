@@ -109,7 +109,7 @@ pub enum Tile {
   Ice,
   WaystoneSide,
   WaystoneTop,
-  Blank,
+  Grain,
   Poppy,
   Dandelion,
   Cornflower,
@@ -166,7 +166,7 @@ impl Tile {
     Tile::Ice,
     Tile::WaystoneSide,
     Tile::WaystoneTop,
-    Tile::Blank,
+    Tile::Grain,
     Tile::Poppy,
     Tile::Dandelion,
     Tile::Cornflower,
@@ -188,7 +188,8 @@ pub enum Look {
   Opaque,
   Cutout,
   Liquid,
-  Model
+  Model,
+  Log
 }
 
 impl Block {
@@ -199,6 +200,7 @@ impl Block {
       leaves if leaves.leafy() => Look::Cutout,
       Block::Water => Look::Liquid,
       model if model.modelled() => Look::Model,
+      Block::Log | Block::BirchLog | Block::SpruceLog | Block::PalmLog => Look::Log,
       _ => Look::Opaque
     }
   }
