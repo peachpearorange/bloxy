@@ -133,7 +133,7 @@ impl Island {
       let core = t.max(0.0);
       let elevation = match self.kind {
         Kind::Peak => {
-          core * core * self.summit
+          core * core * (3.0 - 2.0 * core) * self.summit
             + core * 6.0
             + lift * (hills * 5.0 + ridges * 7.0 * core)
         }

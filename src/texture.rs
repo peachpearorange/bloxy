@@ -300,9 +300,9 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::Lava => {
       let swirl = churn(index, x, y);
       match swirl {
-        crust if crust < 0.18 => Texel::rgb(0.28, 0.08, 0.03).glowing(0.4),
-        bright if bright > 0.7 => Texel::rgb(1.0, 0.82, 0.35).glowing(2.2),
-        _ => Texel::rgb(0.98, 0.42, 0.06).glowing(1.6)
+        crust if crust < 0.18 => Texel::rgb(0.28, 0.08, 0.03).glowing(0.05),
+        bright if bright > 0.7 => Texel::rgb(1.0, 0.72, 0.25).glowing(0.35),
+        _ => Texel::rgb(0.95, 0.35, 0.05).glowing(0.22)
       }
     }
     Tile::Ice => {
