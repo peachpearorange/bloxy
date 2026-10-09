@@ -179,7 +179,7 @@ fn growth(seed: u32, x: i32, z: i32, ground: &Column) -> Option<(Growth, i32)> {
       (Kind::Meadow | Kind::Peak, Block::Grass) => {
         Some((either(Wood::Oak, Wood::Birch), 0.012))
       }
-      (Kind::Dunes, Block::Sand) if above_sea => Some((Growth::Tree(Wood::Palm), 0.007)),
+      (Kind::Dunes, Block::Sand) if above_sea => Some((Growth::Tree(Wood::Palm), 0.02)),
       (_, Block::Sand) if island.warm && above_sea => {
         Some((Growth::Tree(Wood::Palm), 0.012))
       }
@@ -430,7 +430,7 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
             grow(
               seed,
               sprout,
-              IVec3::new(x, ground.height + 1, z) + origin,
+              IVec3::new(origin.x + x, ground.height + 1, origin.z + z),
               |at, block| {
                 let local = at - origin;
                 if inside(local) {
