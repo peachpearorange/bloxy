@@ -29,11 +29,20 @@ pub enum Wood {
   Palm
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Lobe {
+  pub offset: Vec2,
+  pub radius: f32
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Island {
   pub cell: IVec2,
   pub centre: Vec2,
   pub radius: f32,
+  pub lobes: [Lobe; 3],
+  pub axis: Vec2,
+  pub stretch: f32,
   pub kind: Kind,
   pub wood: Wood,
   pub beach: bool,
@@ -102,9 +111,34 @@ impl Kind {
 }
 
 impl Island {
-  fn reach(&self, seed: u32, point: Vec2) -> f32 {
-    let warp = fbm2(seed.wrapping_add(30), point.x / 40.0, point.y / 40.0, 3);
-    self.radius * (1.0 + warp.clamp(-0.6, 0.6) * 0.5)
+  fn swirl(&self) -> f32 { (self.radius * 0.4).min(22.0) }
+
+  fn extent(&self) -> f32 {
+    let lobe = |Lobe { offset, radius }: Lobe| offset.length() + radius;
+    self.lobes.into_iter().map(lobe).fold(self.radius, f32::max) * self.stretch * 1.3
+      + self.swirl()
+      + FLOES
+      + 6.0
+  }
+
+  fn inland(&self, seed: u32, point: Vec2) -> f32 {
+    let wave = |salt: u32, scale: f32| {
+      fbm2(seed.wrapping_add(salt), point.x / scale, point.y / scale, 2)
+    };
+    let warped = point + Vec2::new(wave(37, 34.0), wave(38, 34.0)) * self.swirl();
+    let edge = 1.0 + wave(30, 40.0).clamp(-0.6, 0.6) * 0.5 + wave(39, 11.0) * 0.18;
+    let along = self.axis;
+    let reach = |Lobe { offset, radius }: Lobe| {
+      let away = warped - self.centre - offset;
+      let squeezed = Vec2::new(away.dot(along) / self.stretch, away.perp_dot(along));
+      radius * edge - squeezed.length()
+    };
+    self
+      .lobes
+      .into_iter()
+      .filter(|lobe| lobe.radius > 0.0)
+      .map(reach)
+      .fold(reach(Lobe { offset: Vec2::ZERO, radius: self.radius }), f32::max)
   }
 
   fn shore(&self, inland: f32) -> f32 {
@@ -121,16 +155,15 @@ impl Island {
   pub fn rise(&self, seed: u32, x: i32, z: i32) -> Option<Rise> {
     let point = Vec2::new(x as f32, z as f32);
     let distance = point.distance(self.centre);
-    (distance < self.radius * 1.5 + 30.0).then(|| {
-      let reach = self.reach(seed, point);
-      let t = 1.0 - distance / reach;
-      let inland = t * reach;
+    (distance < self.extent()).then(|| {
+      let inland = self.inland(seed, point);
+      let t = inland / self.radius;
       let lift = smoothstep(0.0, 0.4, t);
       let hills =
         fbm2(seed.wrapping_add(31), point.x / 30.0, point.y / 30.0, 3) * 0.5 + 0.5;
       let ridges =
         1.0 - fbm2(seed.wrapping_add(36), point.x / 22.0, point.y / 22.0, 3).abs() * 1.5;
-      let core = t.max(0.0);
+      let core = (1.0 - distance / self.radius).max(0.0).min(t.max(0.0));
       let elevation = match self.kind {
         Kind::Peak => {
           core * core * (3.0 - 2.0 * core) * self.summit
@@ -155,7 +188,7 @@ impl Island {
           < 0.4;
       let toward = (point - self.centre) / distance.max(1.0);
       let streak = self.kind == Kind::Volcano
-        && (0.22..CRATER).contains(&t)
+        && (0.22..CRATER).contains(&core)
         && perlin2(
           seed.wrapping_add(33),
           toward.x * 2.2 + self.cell.x as f32 * 5.3,
@@ -164,7 +197,7 @@ impl Island {
         .abs()
           * distance
           < 1.6;
-      Rise { height, inward: t, floe, streak }
+      Rise { height, inward: core, floe, streak }
     })
   }
 
@@ -245,7 +278,21 @@ impl Island {
         Kind::Peak | Kind::Volcano => radius.max(26.0),
         Kind::Dunes => radius.min(40.0),
         _ => radius
-      };
+      } * 0.85;
+      let lobes = std::array::from_fn(|index| {
+        let salt = 20 + index as u32 * 3;
+        let toward = COMPASS[(roll(salt) * 8.0) as usize];
+        match roll(19) * 4.0 > index as f32 + 0.3 {
+          true => Lobe {
+            offset: toward * radius * (0.5 + roll(salt + 1) * 0.45),
+            radius: radius * (0.3 + roll(salt + 2) * 0.4)
+          },
+          false => Lobe::default()
+        }
+      });
+      let axis =
+        Vec2::new(roll(30) * 2.0 - 1.0, roll(31) * 2.0 - 1.0).normalize_or(Vec2::X);
+      let stretch = 1.0 + roll(32) * 0.8;
       let jitter = Vec2::new(roll(7) * 2.0 - 1.0, roll(8) * 2.0 - 1.0) * DRIFT;
       let centre = (cell * CELL).as_vec2()
         + CELL as f32 / 2.0
@@ -275,6 +322,9 @@ impl Island {
         cell,
         centre,
         radius,
+        lobes,
+        axis,
+        stretch,
         kind,
         wood,
         beach,
@@ -302,7 +352,7 @@ impl Island {
   fn cell_of(at: IVec2) -> IVec2 { at.div_euclid(IVec2::splat(CELL)) }
 
   pub fn within(seed: u32, low: IVec2, high: IVec2) -> Vec<Island> {
-    let (from, to) = (Island::cell_of(low) - 1, Island::cell_of(high) + 1);
+    let (from, to) = (Island::cell_of(low) - 2, Island::cell_of(high) + 2);
     (from.x..=to.x)
       .flat_map(|x| (from.y..=to.y).map(move |y| IVec2::new(x, y)))
       .filter_map(|cell| Island::at(seed, cell))
