@@ -3,7 +3,8 @@ use crate::{block::Block, protocol::Inventory};
 #[derive(Clone, Copy)]
 pub struct Recipe {
   pub inputs: &'static [(Block, u16)],
-  pub output: (Block, u16)
+  pub output: (Block, u16),
+  pub station: Option<Block>
 }
 
 impl Recipe {
@@ -18,39 +19,60 @@ impl Recipe {
       .collect()
   }
 
-  pub fn made(&self, inventory: &Inventory) -> Option<Inventory> {
+  pub fn housed(&self, stations: &[Block]) -> bool {
+    self.station.is_none_or(|station| stations.contains(&station))
+  }
+
+  pub fn ready(&self, inventory: &Inventory, stations: &[Block]) -> bool {
+    self.housed(stations) && self.missing(inventory).is_empty()
+  }
+
+  pub fn made(&self, inventory: &Inventory, stations: &[Block]) -> Option<Inventory> {
     let mut after = inventory.clone();
     let (output, count) = self.output;
-    (self.inputs.iter().all(|&(block, need)| (0..need).all(|_| after.take(block)))
+    (self.housed(stations)
+      && self.inputs.iter().all(|&(block, need)| (0..need).all(|_| after.take(block)))
       && (0..count).all(|_| after.add(output)))
     .then_some(after)
   }
 }
 
-const fn recipe(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
-  Recipe { inputs, output }
+const fn hand(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
+  Recipe { inputs, output, station: None }
+}
+
+const fn table(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
+  Recipe { inputs, output, station: Some(Block::CraftingTable) }
+}
+
+const fn furnace(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
+  Recipe { inputs, output, station: Some(Block::Furnace) }
 }
 
 pub const RECIPES: &[Recipe] = &[
-  recipe(&[(Block::Log, 1)], (Block::Planks, 4)),
-  recipe(&[(Block::BirchLog, 1)], (Block::Planks, 4)),
-  recipe(&[(Block::SpruceLog, 1)], (Block::Planks, 4)),
-  recipe(&[(Block::PalmLog, 1)], (Block::Planks, 4)),
-  recipe(&[(Block::Cobblestone, 8), (Block::CoalOre, 1)], (Block::Stone, 8)),
-  recipe(&[(Block::GraniteCobble, 8), (Block::CoalOre, 1)], (Block::Granite, 8)),
-  recipe(&[(Block::DioriteCobble, 8), (Block::CoalOre, 1)], (Block::Diorite, 8)),
-  recipe(&[(Block::AndesiteCobble, 8), (Block::CoalOre, 1)], (Block::Andesite, 8)),
-  recipe(&[(Block::LimestoneCobble, 8), (Block::CoalOre, 1)], (Block::Limestone, 8)),
-  recipe(&[(Block::SlateCobble, 8), (Block::CoalOre, 1)], (Block::Slate, 8)),
-  recipe(&[(Block::Cobblestone, 1)], (Block::Gravel, 1)),
-  recipe(&[(Block::Gravel, 1)], (Block::Sand, 1)),
-  recipe(&[(Block::Sand, 4), (Block::CoalOre, 1)], (Block::Glass, 4)),
-  recipe(&[(Block::Clay, 4), (Block::CoalOre, 1)], (Block::Bricks, 4)),
-  recipe(&[(Block::Glass, 2), (Block::CopperOre, 1)], (Block::Lamp, 2)),
-  recipe(&[(Block::Snow, 4)], (Block::Ice, 1)),
-  recipe(&[(Block::RedMushroom, 4)], (Block::RedCap, 1)),
-  recipe(&[(Block::BrownMushroom, 4)], (Block::BrownCap, 1)),
-  recipe(&[(Block::RedMushroom, 1), (Block::BrownMushroom, 1)], (Block::MushroomStem, 1))
+  hand(&[(Block::Log, 1)], (Block::Planks, 4)),
+  hand(&[(Block::BirchLog, 1)], (Block::Planks, 4)),
+  hand(&[(Block::SpruceLog, 1)], (Block::Planks, 4)),
+  hand(&[(Block::PalmLog, 1)], (Block::Planks, 4)),
+  hand(&[(Block::Planks, 4)], (Block::CraftingTable, 1)),
+  hand(&[(Block::Planks, 1), (Block::CoalOre, 1)], (Block::Torch, 4)),
+  table(&[(Block::Cobblestone, 8)], (Block::Furnace, 1)),
+  table(&[(Block::Planks, 5)], (Block::Boat, 1)),
+  table(&[(Block::Glass, 2), (Block::CopperOre, 1)], (Block::Lamp, 2)),
+  furnace(&[(Block::Cobblestone, 8), (Block::CoalOre, 1)], (Block::Stone, 8)),
+  furnace(&[(Block::GraniteCobble, 8), (Block::CoalOre, 1)], (Block::Granite, 8)),
+  furnace(&[(Block::DioriteCobble, 8), (Block::CoalOre, 1)], (Block::Diorite, 8)),
+  furnace(&[(Block::AndesiteCobble, 8), (Block::CoalOre, 1)], (Block::Andesite, 8)),
+  furnace(&[(Block::LimestoneCobble, 8), (Block::CoalOre, 1)], (Block::Limestone, 8)),
+  furnace(&[(Block::SlateCobble, 8), (Block::CoalOre, 1)], (Block::Slate, 8)),
+  furnace(&[(Block::Sand, 4), (Block::CoalOre, 1)], (Block::Glass, 4)),
+  furnace(&[(Block::Clay, 4), (Block::CoalOre, 1)], (Block::Bricks, 4)),
+  hand(&[(Block::Cobblestone, 1)], (Block::Gravel, 1)),
+  hand(&[(Block::Gravel, 1)], (Block::Sand, 1)),
+  hand(&[(Block::Snow, 4)], (Block::Ice, 1)),
+  hand(&[(Block::RedMushroom, 4)], (Block::RedCap, 1)),
+  hand(&[(Block::BrownMushroom, 4)], (Block::BrownCap, 1)),
+  hand(&[(Block::RedMushroom, 1), (Block::BrownMushroom, 1)], (Block::MushroomStem, 1))
 ];
 
 pub fn making(block: Block) -> impl Iterator<Item = (usize, &'static Recipe)> {
@@ -58,12 +80,12 @@ pub fn making(block: Block) -> impl Iterator<Item = (usize, &'static Recipe)> {
 }
 
 pub fn using(block: Block) -> impl Iterator<Item = (usize, &'static Recipe)> {
-  RECIPES
-    .iter()
-    .enumerate()
-    .filter(move |(_, recipe)| recipe.inputs.iter().any(|&(input, _)| input == block))
+  RECIPES.iter().enumerate().filter(move |(_, recipe)| {
+    recipe.inputs.iter().any(|&(input, _)| input == block)
+      || recipe.station == Some(block)
+  })
 }
 
-pub fn craftable(block: Block, inventory: &Inventory) -> bool {
-  making(block).any(|(_, recipe)| recipe.missing(inventory).is_empty())
+pub fn craftable(block: Block, inventory: &Inventory, stations: &[Block]) -> bool {
+  making(block).any(|(_, recipe)| recipe.ready(inventory, stations))
 }

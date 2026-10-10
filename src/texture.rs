@@ -8,7 +8,7 @@ use {crate::{block::{Block, Tile},
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 8;
+pub const ROWS: u32 = 9;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -403,8 +403,6 @@ const SWELL: Art = [
 
 const GREY: Palette =
   [[0.3, 0.3, 0.32], [0.4, 0.4, 0.42], [0.48, 0.48, 0.5], [0.56, 0.56, 0.58]];
-const COBBLES: Palette =
-  [[0.2, 0.2, 0.21], [0.34, 0.34, 0.36], [0.46, 0.46, 0.48], [0.58, 0.58, 0.6]];
 const EARTH: Palette =
   [[0.25, 0.17, 0.11], [0.36, 0.25, 0.16], [0.44, 0.31, 0.2], [0.53, 0.39, 0.26]];
 const GREEN: Palette =
@@ -455,7 +453,6 @@ fn shades(base: [f32; 3], spread: [f32; 4]) -> Palette {
 }
 
 const STONE_SPREAD: [f32; 4] = [0.62, 0.83, 1.0, 1.17];
-const COBBLE_SPREAD: [f32; 4] = [0.42, 0.71, 0.96, 1.21];
 
 fn rock(tile: Tile) -> [f32; 3] {
   match tile {
@@ -489,6 +486,121 @@ fn solid(art: &Art, palette: &Palette, x: u32, y: u32) -> Texel {
   drawn(art, palette, x, y).unwrap_or(Texel::rgb(1.0, 0.0, 1.0))
 }
 
+fn lattice(seed: u32, cells: u32, x: u32, y: u32) -> f32 {
+  let scale = cells as f32 / PIXELS as f32;
+  let (u, v) = ((x as f32 + 0.5) * scale, (y as f32 + 0.5) * scale);
+  let (cell_x, cell_y) = (u.floor(), v.floor());
+  let (fx, fy) = (u - cell_x, v - cell_y);
+  let corner = |dx: u32, dy: u32| {
+    let wrap = |at: f32, by: u32| ((at as u32 + by) % cells) as i32;
+    crate::noise::unit(seed, wrap(cell_x, dx), wrap(cell_y, dy), 0)
+  };
+  let ease = |t: f32| t * t * (3.0 - 2.0 * t);
+  let (sx, sy) = (ease(fx), ease(fy));
+  let top = corner(0, 0) + (corner(1, 0) - corner(0, 0)) * sx;
+  let bottom = corner(0, 1) + (corner(1, 1) - corner(0, 1)) * sx;
+  top + (bottom - top) * sy
+}
+
+fn ramp(palette: &Palette, along: f32) -> Texel {
+  let position = along.clamp(0.0, 1.0) * 3.0;
+  let low = (position.floor() as usize).min(2);
+  let blend = position - low as f32;
+  let [r, g, b] = std::array::from_fn(|channel| {
+    palette[low][channel] + (palette[low + 1][channel] - palette[low][channel]) * blend
+  });
+  Texel::rgb(r, g, b)
+}
+
+fn smooth(palette: &Palette, x: u32, y: u32) -> Texel {
+  let cloud = lattice(0x57, 4, x, y) * 0.55
+    + lattice(0x58, 8, x, y) * 0.3
+    + lattice(0x59, 16, x, y) * 0.15;
+  let fleck = match shade_of(&STONE, x, y) {
+    Some(0) => -0.28,
+    Some(1) => -0.14,
+    Some(3) => 0.14,
+    _ => 0.0
+  };
+  ramp(palette, 0.15 + cloud * 0.75 + fleck)
+}
+
+fn mortar(x: u32, y: u32) -> bool { shade_of(&COBBLE, x, y) == Some(0) }
+
+fn wrapped(x: i32, y: i32) -> (u32, u32) {
+  (x.rem_euclid(PIXELS as i32) as u32, y.rem_euclid(PIXELS as i32) as u32)
+}
+
+static PEBBLES_OF_COBBLE: std::sync::LazyLock<Vec<u32>> =
+  std::sync::LazyLock::new(|| {
+    let size = PIXELS * PIXELS;
+    let mut labels = vec![0u32; size as usize];
+    (0..size).for_each(|start| {
+      if !mortar(start % PIXELS, start / PIXELS) && labels[start as usize] == 0 {
+        labels[start as usize] = start + 1;
+        let neighbours = |at: u32| {
+          let (x, y) = ((at % PIXELS) as i32, (at / PIXELS) as i32);
+          [(1, 0), (-1, 0), (0, 1), (0, -1)].map(|(dx, dy)| {
+            let (nx, ny) = wrapped(x + dx, y + dy);
+            ny * PIXELS + nx
+          })
+        };
+        std::iter::successors(Some(vec![start]), |frontier: &Vec<u32>| {
+          let next: Vec<u32> = frontier
+            .iter()
+            .flat_map(|&at| neighbours(at))
+            .filter(|&next| {
+              let fresh =
+                !mortar(next % PIXELS, next / PIXELS) && labels[next as usize] == 0;
+              if fresh {
+                labels[next as usize] = start + 1
+              }
+              fresh
+            })
+            .collect();
+          (!next.is_empty()).then_some(next)
+        })
+        .count();
+      }
+    });
+    labels
+  });
+
+const PEBBLE_TINTS: [[f32; 3]; 6] = [
+  [1.0, 1.0, 1.0],
+  [1.08, 1.0, 0.9],
+  [0.92, 0.97, 1.08],
+  [0.97, 1.04, 0.94],
+  [1.12, 1.07, 1.02],
+  [0.86, 0.86, 0.88]
+];
+
+fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
+  let pebble = PEBBLES_OF_COBBLE[(y * PIXELS + x) as usize];
+  let near = |dx: i32, dy: i32| {
+    let (nx, ny) = wrapped(x as i32 + dx, y as i32 + dy);
+    mortar(nx, ny)
+  };
+  let tint = PEBBLE_TINTS[(crate::noise::hash(0xC0B, pebble as i32, 0, 0) % 6) as usize];
+  let bright = 0.88 + crate::noise::unit(0xC0C, pebble as i32, 0, 0) * 0.26;
+  let rim = [(-1, 0), (0, -1), (1, 0), (0, 1)].map(|(dx, dy)| near(dx, dy));
+  let light = match rim {
+    _ if pebble == 0 => 0.3 + lattice(0xC0D, 8, x, y) * 0.12,
+    [left, top, ..] if left || top => 1.2,
+    [_, _, right, bottom] if right || bottom => 0.62,
+    _ => 0.92 + (lattice(0xC0E, 8, x, y) - 0.5) * 0.25
+  };
+  let shade = shade_of(&COBBLE, x, y).map_or(0.0, |shade| (shade as f32 - 2.0) * 0.05);
+  let [r, g, b] = std::array::from_fn(|channel| {
+    base[channel]
+      * match pebble {
+        0 => light,
+        _ => tint[channel] * bright * (light + shade)
+      }
+  });
+  Texel::rgb(r, g, b)
+}
+
 fn fringed(over: &Palette, x: u32, y: u32) -> Texel {
   drawn(&FRINGE, over, x, y).unwrap_or_else(|| solid(&DIRT, &EARTH, x, y))
 }
@@ -500,17 +612,79 @@ fn cutout(art: &Art, palette: &Palette, x: u32, y: u32) -> Texel {
 fn ore(x: u32, y: u32, [dark, base, light]: [[f32; 3]; 3], glow: f32) -> Texel {
   drawn(&SPOTS, &[dark, base, light, light], x, y)
     .map(|texel| texel.glowing(glow))
-    .unwrap_or_else(|| solid(&STONE, &GREY, x, y))
+    .unwrap_or_else(|| smooth(&GREY, x, y))
 }
 
-fn waystone(x: u32, y: u32) -> Texel {
-  let rim = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
-  let inner = x == 1 || y == 1 || x == PIXELS - 2 || y == PIXELS - 2;
-  Texel::rgb(0.2, 0.22, 0.28).scaled(match (rim, inner) {
-    (true, _) => 1.45,
-    (_, true) => 0.8,
-    _ => 1.0
-  })
+const WAYSTONE: [f32; 3] = [0.62, 0.6, 0.55];
+
+fn waystone(x: u32, y: u32) -> Texel { smooth(&shades(WAYSTONE, STONE_SPREAD), x, y) }
+
+const RUNES: Art = [
+  "................",
+  ".....33.33......",
+  ".....3...3......",
+  ".....3333.......",
+  "................",
+  ".......333......",
+  "......3..3......",
+  ".....33..3......",
+  "................",
+  ".....3.3.3......",
+  ".....33333......",
+  ".......3........",
+  "................",
+  "......333.......",
+  ".....3...3......",
+  "......33.3......"
+];
+
+const HAMMER: Art = [
+  "................",
+  "................",
+  "..3333..........",
+  "..3333....2.....",
+  "...11....222....",
+  "...11...222.....",
+  "...11..222......",
+  "...11.222.......",
+  "...11..2........",
+  "...11...........",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................"
+];
+
+const BOAT: Art = [
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+  "3..............3",
+  "23............32",
+  "1222222222222221",
+  ".12222222222221.",
+  "..111111111111..",
+  "...1111111111...",
+  "................",
+  "................",
+  "................",
+  "................"
+];
+
+const WOOD: Palette =
+  [[0.32, 0.22, 0.12], [0.46, 0.33, 0.19], [0.6, 0.45, 0.27], [0.7, 0.55, 0.34]];
+const TOOLS: Palette =
+  [[0.2, 0.2, 0.2], [0.42, 0.28, 0.15], [0.6, 0.6, 0.62], [0.55, 0.55, 0.58]];
+
+fn flame(x: u32, y: u32) -> Texel {
+  let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
+  let heat = (1.0 - (dx * dx + dy * dy).sqrt() / 9.0).clamp(0.0, 1.0);
+  Texel::rgb(1.0, 0.45 + heat * 0.5, 0.1 + heat * 0.5).glowing(0.6 + heat)
 }
 
 pub const WATER_FRAMES: u32 = PIXELS * 2;
@@ -519,20 +693,28 @@ fn water(x: u32, y: u32, frame: u32) -> Texel {
   solid(&SWELL, &FOAM, (x + frame) % PIXELS, (y + PIXELS - frame / 2) % PIXELS)
 }
 
-fn rune() -> Texel { Texel::rgb(0.3, 0.85, 1.0).glowing(0.7) }
+fn rune() -> Texel { Texel::rgb(0.85, 0.97, 1.0).glowing(0.9) }
+
+fn model_icon(block: Block, x: u32, y: u32) -> Texel {
+  model::icon(block, x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |bit| {
+    let Texel { color: [r, g, b, _], glow } = paint(bit.tile, x, y);
+    let [tint_r, tint_g, tint_b] = bit.color;
+    Texel { color: [r * tint_r, g * tint_g, b * tint_b, 1.0], glow }
+  })
+}
 
 pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
   match tile {
-    Tile::Stone => solid(&STONE, &GREY, x, y),
-    Tile::Cobblestone => solid(&COBBLE, &COBBLES, x, y),
+    Tile::Stone => smooth(&GREY, x, y),
+    Tile::Cobblestone => cobble([0.48, 0.48, 0.5], x, y),
     Tile::Granite | Tile::Diorite | Tile::Andesite | Tile::Limestone | Tile::Slate => {
-      solid(&STONE, &shades(rock(tile), STONE_SPREAD), x, y)
+      smooth(&shades(rock(tile), STONE_SPREAD), x, y)
     }
     Tile::GraniteCobble
     | Tile::DioriteCobble
     | Tile::AndesiteCobble
     | Tile::LimestoneCobble
-    | Tile::SlateCobble => solid(&COBBLE, &shades(rock(tile), COBBLE_SPREAD), x, y),
+    | Tile::SlateCobble => cobble(rock(tile), x, y),
     Tile::Dirt => solid(&DIRT, &EARTH, x, y),
     Tile::GrassTop => solid(&BLADES, &GREEN, x, y),
     Tile::GrassSide => fringed(&GREEN, x, y),
@@ -636,16 +818,40 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
       solid(&MAGMA, &EMBERS, x, y).glowing([0.05, 0.15, 0.22, 0.35][shade as usize])
     }
     Tile::Ice => solid(&CRACKS, &FROZEN, x, y),
-    Tile::WaystoneSide => {
-      let (dx, dy) = ((x as f32 - 7.5).abs(), (y as f32 - 7.5).abs());
-      let diamond = (4.0..5.5).contains(&(dx + dy));
-      let spine = dx < 1.0 && (2.0..14.0).contains(&(y as f32));
-      match diamond || spine {
-        true => rune(),
-        false => waystone(x, y)
+    Tile::WaystoneSide => match shade_of(&RUNES, x, y) {
+      Some(_) => rune(),
+      None => waystone(x, y)
+    },
+    Tile::Grain => solid(&STONE, &GRAIN, x, y),
+    Tile::WaystoneStone => waystone(x, y),
+    Tile::Flame => flame(x, y),
+    Tile::TableTop => {
+      let edge = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
+      let grid = (x == 5 || x == 10 || y == 5 || y == 10) && !edge;
+      match edge || grid {
+        true => Texel::rgb(0.3, 0.2, 0.11),
+        false => paint(Tile::Planks, x, y).scaled(1.08)
       }
     }
-    Tile::Grain => solid(&STONE, &GRAIN, x, y),
+    Tile::TableSide => drawn(&HAMMER, &TOOLS, x, y).unwrap_or_else(|| match y < 2 {
+      true => Texel::rgb(0.3, 0.2, 0.11),
+      false => paint(Tile::Planks, x, y)
+    }),
+    Tile::FurnaceTop => smooth(&GREY, x, y),
+    Tile::FurnaceSide => {
+      let mouth = (3..13).contains(&x) && (7..14).contains(&y);
+      let rim = (2..14).contains(&x) && (6..15).contains(&y);
+      match (mouth, rim) {
+        (true, _) if y >= 11 => {
+          Texel::rgb(0.95, 0.4 + (x % 3) as f32 * 0.1, 0.08).glowing(0.8)
+        }
+        (true, _) => Texel::rgb(0.05, 0.04, 0.04),
+        (false, true) => Texel::rgb(0.22, 0.22, 0.23),
+        _ => cobble([0.5, 0.5, 0.52], x, y)
+      }
+    }
+    Tile::Boat => cutout(&BOAT, &WOOD, x, y),
+    Tile::Torch => model_icon(Block::Torch, x, y),
     Tile::Poppy
     | Tile::Dandelion
     | Tile::Cornflower
@@ -656,12 +862,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     | Tile::PalmSapling
     | Tile::RedMushroom
     | Tile::BrownMushroom => {
-      let block = Block::ALL_MODELS[tile as usize - Tile::Poppy as usize];
-      model::icon(block, x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |bit| {
-        let [r, g, b, _] = paint(bit.tile, x, y).color;
-        let [tint_r, tint_g, tint_b] = bit.color;
-        Texel::rgb(r * tint_r, g * tint_g, b * tint_b)
-      })
+      model_icon(Block::ALL_MODELS[tile as usize - Tile::Poppy as usize], x, y)
     }
     Tile::WaystoneTop => {
       let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
@@ -714,27 +915,31 @@ fn atlas_levels(texel: impl Fn(Tile, u32, u32) -> [f32; 4]) -> Vec<u8> {
     .collect()
 }
 
-pub fn ripple(atlas: &mut Image, frame: u32) {
+pub struct Patch {
+  pub mip: u32,
+  pub corner: UVec2,
+  pub size: u32,
+  pub bytes: Vec<u8>
+}
+
+pub fn ripple(frame: u32) -> Vec<Patch> {
   let index = Tile::Water.index();
   let cell = UVec2::new(index % COLUMNS, index / COLUMNS);
   let base: Vec<[f32; 4]> = (0..PIXELS * PIXELS)
     .map(|index| water(index % PIXELS, index / PIXELS, frame).color)
     .collect();
-  let levels = std::iter::successors(Some((base, PIXELS)), |(level, size)| {
+  std::iter::successors(Some((base, PIXELS)), |(level, size)| {
     (*size > 1).then(|| (halve(level, *size, *size), size / 2))
-  });
-  if let Some(data) = atlas.data.as_mut() {
-    levels.take(MIPS as usize).enumerate().fold(0, |offset, (mip, (level, size))| {
-      let (width, height) = ((COLUMNS * PIXELS) >> mip, (ROWS * PIXELS) >> mip);
-      level.iter().enumerate().for_each(|(texel, color)| {
-        let (x, y) =
-          (cell.x * size + texel as u32 % size, cell.y * size + texel as u32 / size);
-        let at = offset + ((y * width + x) * 4) as usize;
-        data[at..at + 4].copy_from_slice(&color.map(to_srgb))
-      });
-      offset + (width * height * 4) as usize
-    });
-  }
+  })
+  .take(MIPS as usize)
+  .enumerate()
+  .map(|(mip, (level, size))| Patch {
+    mip: mip as u32,
+    corner: cell * size,
+    size,
+    bytes: level.iter().flat_map(|texel| texel.map(to_srgb)).collect()
+  })
+  .collect()
 }
 
 fn image(data: Vec<u8>) -> Image {
@@ -742,7 +947,7 @@ fn image(data: Vec<u8>) -> Image {
     Extent3d { width: COLUMNS * PIXELS, height: ROWS * PIXELS, depth_or_array_layers: 1 },
     TextureDimension::D2,
     TextureFormat::Rgba8UnormSrgb,
-    RenderAssetUsages::default()
+    RenderAssetUsages::RENDER_WORLD
   );
   image.data = Some(data);
   image.texture_descriptor.mip_level_count = MIPS;
@@ -787,20 +992,18 @@ mod tests {
   }
 
   #[test]
-  fn ripples_repaint_only_water() {
-    let still = albedo();
-    let mut rippled = albedo();
-    ripple(&mut rippled, 0);
-    assert!(still.data == rippled.data);
-    ripple(&mut rippled, 5);
-    let changed = still
-      .data
-      .iter()
-      .flatten()
-      .zip(rippled.data.iter().flatten())
-      .filter(|(before, after)| before != after)
-      .count();
-    assert!(changed > 0 && changed < (PIXELS * PIXELS * 4 * 2) as usize)
+  fn first_ripple_matches_the_atlas() {
+    let data = albedo().data.unwrap();
+    ripple(0).into_iter().fold(0, |offset, Patch { mip, corner, size, bytes }| {
+      let (width, height) = ((COLUMNS * PIXELS) >> mip, (ROWS * PIXELS) >> mip);
+      (0..size * size).for_each(|texel| {
+        let (x, y) = (corner.x + texel % size, corner.y + texel / size);
+        let at = offset + ((y * width + x) * 4) as usize;
+        let from = (texel * 4) as usize;
+        assert_eq!(data[at..at + 4], bytes[from..from + 4], "mip {mip} texel {texel}")
+      });
+      offset + (width * height * 4) as usize
+    });
   }
 
   #[test]

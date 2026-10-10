@@ -219,10 +219,16 @@ fn aim(
   mut breaking: Query<&mut Node, With<Breaking>>
 ) {
   let bounds = aim.hit.as_ref().zip(voxels).map(|(hit, voxels)| {
-    model::bounds(hit.block, voxels.seed, hit.at).unwrap_or_else(|| {
-      let corner = hit.at.as_vec3();
-      (corner, corner + Vec3::ONE)
-    })
+    model::bounds(hit.block, voxels.seed, hit.at).map_or_else(
+      || {
+        let corner = hit.at.as_vec3();
+        (corner - EDGE / 2.0, corner + Vec3::ONE + EDGE / 2.0)
+      },
+      |(low, high)| {
+        let rim = Vec3::new(EDGE, 0.0, EDGE);
+        (low - rim + Vec3::Y * (EDGE / 2.0 + 0.004), high + rim + Vec3::Y * EDGE)
+      }
+    )
   });
   outline.iter_mut().for_each(|mut visibility| {
     *visibility = match bounds {
@@ -231,7 +237,6 @@ fn aim(
     }
   });
   if let Some((low, high)) = bounds {
-    let (low, high) = (low - EDGE / 2.0, high + EDGE / 2.0);
     edges.iter_mut().for_each(|(edge, mut transform)| {
       transform.set_if_neq(self::edge(edge.0, low, high));
     })

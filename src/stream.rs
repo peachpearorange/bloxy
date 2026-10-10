@@ -7,10 +7,19 @@ use {crate::{generate,
      bevy::{light::NotShadowCaster,
             platform::collections::HashMap,
             prelude::*,
-            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}}};
+            render::{Render, RenderApp, RenderSystems,
+                     extract_resource::{ExtractResource, ExtractResourcePlugin},
+                     render_asset::RenderAssets,
+                     render_resource::{Extent3d, Origin3d, TexelCopyBufferLayout,
+                                       TexelCopyTextureInfo, TextureAspect},
+                     renderer::RenderQueue,
+                     texture::GpuImage},
+            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
+     std::sync::Arc};
 
 const GENERATING: usize = if cfg!(target_arch = "wasm32") { 2 } else { 12 };
 const MESHING: usize = if cfg!(target_arch = "wasm32") { 3 } else { 12 };
+const STARTS: usize = if cfg!(target_arch = "wasm32") { 1 } else { 12 };
 const KEEP_BEYOND: i32 = 2;
 const GLOW: f32 = 6.0;
 
@@ -60,18 +69,68 @@ pub fn paint(
 
 const RIPPLE_EVERY: f32 = 0.18;
 
+#[derive(Resource, Clone)]
+struct Ripple {
+  atlas: Handle<Image>,
+  frame: u32,
+  patches: Arc<Vec<texture::Patch>>
+}
+
+impl ExtractResource for Ripple {
+  type Source = Ripple;
+
+  fn extract_resource(source: &Ripple) -> Self { source.clone() }
+}
+
 fn ripple(
   time: Res<Time>,
   palette: Res<Palette>,
-  mut images: ResMut<Assets<Image>>,
-  mut shown: Local<u32>
+  ripple: Option<ResMut<Ripple>>,
+  mut commands: Commands
 ) {
   let frame = (time.elapsed_secs() / RIPPLE_EVERY) as u32 % texture::WATER_FRAMES;
-  if frame != *shown
-    && let Some(mut atlas) = images.get_mut(&palette.atlas)
+  match ripple {
+    Some(mut ripple) if ripple.frame != frame => {
+      ripple.frame = frame;
+      ripple.patches = Arc::new(texture::ripple(frame))
+    }
+    Some(_) => (),
+    None => commands.insert_resource(Ripple {
+      atlas: palette.atlas.clone(),
+      frame,
+      patches: Arc::new(texture::ripple(frame))
+    })
+  }
+}
+
+fn upload_ripple(
+  ripple: Option<Res<Ripple>>,
+  images: Res<RenderAssets<GpuImage>>,
+  queue: Res<RenderQueue>,
+  mut shown: Local<Option<u32>>
+) {
+  if let Some(ripple) = ripple
+    && *shown != Some(ripple.frame)
+    && let Some(atlas) = images.get(&ripple.atlas)
   {
-    *shown = frame;
-    texture::ripple(&mut atlas, frame)
+    *shown = Some(ripple.frame);
+    ripple.patches.iter().for_each(|patch| {
+      queue.write_texture(
+        TexelCopyTextureInfo {
+          texture: &atlas.texture,
+          mip_level: patch.mip,
+          origin: Origin3d { x: patch.corner.x, y: patch.corner.y, z: 0 },
+          aspect: TextureAspect::All
+        },
+        &patch.bytes,
+        TexelCopyBufferLayout {
+          offset: 0,
+          bytes_per_row: Some(patch.size * 4),
+          rows_per_image: None
+        },
+        Extent3d { width: patch.size, height: patch.size, depth_or_array_layers: 1 }
+      )
+    })
   }
 }
 
@@ -115,7 +174,7 @@ fn stream(
       })
       .collect();
     missing.sort_by_key(|&key| (horizontal(key, centre), (key.y - centre.y).abs()));
-    let room = GENERATING.saturating_sub(streaming.generating.len());
+    let room = GENERATING.saturating_sub(streaming.generating.len()).min(STARTS);
     missing.iter().take(room).for_each(|&key| {
       streaming
         .generating
@@ -139,22 +198,23 @@ fn stream(
       .filter(|key| in_world(*key) && horizontal(*key, centre) <= reach * reach)
       .collect();
     dirty.sort_by_key(|&key| (horizontal(key, centre), (key.y - centre.y).abs()));
-    let room = MESHING.saturating_sub(streaming.meshing.len());
-    let gathered: Vec<(IVec3, Padded)> = dirty
+    let room = MESHING.saturating_sub(streaming.meshing.len()).min(STARTS);
+    let gathered: Vec<(IVec3, Padded, Vec<IVec3>)> = dirty
       .into_iter()
       .filter(|key| !streaming.meshing.contains_key(key))
       .filter_map(|key| {
         Padded::gather(key, |near| voxels.chunks.get(&near).cloned())
-          .map(|padded| (key, padded))
+          .map(|padded| (key, padded, voxels.torches_near(key)))
       })
       .take(room)
       .collect();
     let started: Vec<IVec3> = gathered
       .into_iter()
-      .map(|(key, padded)| {
-        streaming
-          .meshing
-          .insert(key, pool.spawn(async move { mesh::build(&padded, key, seed) }));
+      .map(|(key, padded, torches)| {
+        streaming.meshing.insert(
+          key,
+          pool.spawn(async move { mesh::build(&padded, key, seed, &torches) })
+        );
         key
       })
       .collect();
@@ -233,5 +293,9 @@ impl Plugin for Stream {
       .init_resource::<Progress>()
       .add_systems(Startup, paint.run_if(plays))
       .add_systems(Update, (stream, ripple).run_if(plays));
+    app
+      .add_plugins(ExtractResourcePlugin::<Ripple>::default())
+      .sub_app_mut(RenderApp)
+      .add_systems(Render, upload_ripple.in_set(RenderSystems::PrepareResources));
   }
 }

@@ -577,7 +577,8 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
               (ground.min(stone.y - 1)..=stone.y + 4).for_each(|y| {
                 let cell = IVec3::new(local.x, y - origin.y, local.z);
                 let block = match y - stone.y {
-                  0 | 1 if dx == 0 && dz == 0 => Block::Waystone,
+                  0 if dx == 0 && dz == 0 => Block::Waystone,
+                  1 if dx == 0 && dz == 0 => Block::WaystoneTop,
                   -1 => Block::Cobblestone,
                   rise if rise < -1 => Block::Stone,
                   _ => Block::Air

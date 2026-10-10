@@ -6,6 +6,7 @@ mod block;
 mod crafting;
 mod editor;
 mod figure;
+mod flow;
 mod generate;
 mod hud;
 mod identity;
@@ -215,6 +216,7 @@ fn main() {
       net::ClientNet,
       authority::Authority,
       save::Saving,
+      flow::Flowing,
       shroomling::Shroomlings
     ))
     .add_systems(Startup, serve);

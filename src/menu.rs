@@ -68,21 +68,31 @@ pub fn closed(menu: Res<Menu>) -> bool { !menu.open }
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Entry {
   Name,
-  Password
+  Password,
+  Search
 }
+
+#[derive(Resource, Default)]
+pub struct Search(pub String);
 
 impl Entry {
   fn longest(self) -> usize {
     match self {
       Entry::Name => crate::account::LONGEST_NAME,
-      Entry::Password => 64
+      Entry::Password => 64,
+      Entry::Search => 32
     }
   }
 
-  fn of(self, credentials: &mut Credentials) -> &mut String {
+  fn of<'a>(
+    self,
+    credentials: &'a mut Credentials,
+    search: &'a mut Search
+  ) -> &'a mut String {
     match self {
       Entry::Name => &mut credentials.name,
-      Entry::Password => &mut credentials.password
+      Entry::Password => &mut credentials.password,
+      Entry::Search => &mut search.0
     }
   }
 }
@@ -110,7 +120,7 @@ pub enum Act {
 pub struct Pressed(pub Act);
 
 #[derive(Resource, Default)]
-struct Focus(Option<Entry>);
+pub struct Focus(pub Option<Entry>);
 
 #[derive(Resource, Default)]
 struct Notice(Option<(String, f32)>);
@@ -188,13 +198,13 @@ fn settings_page(page: &mut ChildSpawnerCommands) {
   ));
 }
 
-fn field(parent: &mut ChildSpawnerCommands, entry: Entry) {
+pub fn field(parent: &mut ChildSpawnerCommands, entry: Entry, width: f32) {
   parent
     .spawn((
       Button,
       Act::Focus(entry),
       Node {
-        width: px(360),
+        width: px(width),
         padding: UiRect::axes(px(10), px(7)),
         border: UiRect::all(px(2)),
         ..default()
@@ -208,11 +218,11 @@ fn field(parent: &mut ChildSpawnerCommands, entry: Entry) {
 fn profile_page(page: &mut ChildSpawnerCommands) {
   page.spawn(words("Name", 15.0, FAINT));
   page.spawn(Node { column_gap: px(10), ..default() }).with_children(|row| {
-    field(row, Entry::Name);
+    field(row, Entry::Name, 360.0);
   });
   page.spawn(words("Password", 15.0, FAINT));
   page.spawn(Node { column_gap: px(10), ..default() }).with_children(|row| {
-    field(row, Entry::Password);
+    field(row, Entry::Password, 360.0);
     button(row, "New password", Act::Invent);
     if local::CAN_COPY {
       button(row, "Copy", Act::Copy)
@@ -252,7 +262,7 @@ fn build(mut commands: Commands, draft: Res<Draft>, palette: Res<Palette>) {
       overlay
         .spawn((
           Node {
-            width: px(900),
+            width: px(1240),
             max_width: percent(96),
             min_height: px(560),
             flex_direction: FlexDirection::Column,
@@ -410,14 +420,15 @@ fn type_text(
   keys: Res<ButtonInput<KeyCode>>,
   menu: Res<Menu>,
   mut focus: ResMut<Focus>,
-  mut identity: ResMut<Identity>
+  mut identity: ResMut<Identity>,
+  mut search: ResMut<Search>
 ) {
   let pasted = local::pasted();
   if let Some(entry) = focus.0
     && menu.open
   {
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-    let mut text = entry.of(&mut identity.fields).clone();
+    let mut text = entry.of(&mut identity.fields, &mut search).clone();
     let mut submit = false;
     typed.read().filter(|key| key.state == ButtonState::Pressed).for_each(
       |key| match &key.logical_key {
@@ -438,10 +449,12 @@ fn type_text(
       .iter()
       .for_each(|paste| text.extend(paste.trim().chars().filter(|c| !c.is_control())));
     let text: String = text.chars().take(entry.longest()).collect();
-    if *entry.of(&mut identity.fields) != text {
-      *entry.of(&mut identity.fields) = text
+    if *entry.of(&mut identity.fields, &mut search) != text {
+      *entry.of(&mut identity.fields, &mut search) = text
     }
-    if submit {
+    if submit && entry == Entry::Search {
+      focus.0 = None
+    } else if submit {
       focus.0 = None;
       identity.submit()
     }
@@ -454,6 +467,7 @@ fn show(
   menu: Res<Menu>,
   settings: Res<Settings>,
   identity: Res<Identity>,
+  search: Res<Search>,
   focus: Res<Focus>,
   notice: Res<Notice>,
   time: Res<Time>,
@@ -500,7 +514,8 @@ fn show(
   typed.iter_mut().for_each(|(typed, mut text)| {
     let value = match typed.0 {
       Entry::Name => identity.fields.name.clone(),
-      Entry::Password => identity.fields.password.clone()
+      Entry::Password => identity.fields.password.clone(),
+      Entry::Search => search.0.clone()
     };
     let cursor = if focus.0 == Some(typed.0) && caret { "|" } else { "" };
     set(&mut text, format!("{value}{cursor}"))
@@ -534,6 +549,7 @@ impl Plugin for Menus {
     app
       .insert_resource(Menu { open: opts().menu.is_some(), tab, since: 0.0 })
       .init_resource::<Focus>()
+      .init_resource::<Search>()
       .init_resource::<Notice>()
       .add_message::<Pressed>()
       .add_systems(

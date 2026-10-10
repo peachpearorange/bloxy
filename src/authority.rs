@@ -1,5 +1,6 @@
 use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
-             block::Block,
+             block::{Block, Fluid},
+             flow::Flows,
              generate,
              island::{FACING_STONE, Island},
              opts::opts,
@@ -224,6 +225,8 @@ fn within_reach(avatar: &Avatar, at: IVec3) -> bool {
 
 fn dig(
   mut digs: MessageReader<FromClient<Dig>>,
+  time: Res<Time>,
+  mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   mut changes: MessageWriter<ToClients<Altered>>
@@ -245,6 +248,7 @@ fn dig(
     match granted {
       true => {
         voxels.set(at, Block::Air);
+        flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
         if perched.is_some() {
           voxels.set(above, Block::Air);
           changes.write(ToClients {
@@ -267,6 +271,8 @@ fn dig(
 
 fn put(
   mut puts: MessageReader<FromClient<Put>>,
+  time: Res<Time>,
+  mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   everyone: Query<&Avatar>,
@@ -282,7 +288,8 @@ fn put(
     });
     let footed =
       block.solid() || (block.modelled() && voxels.ensure(at - IVec3::Y).solid());
-    let granted = !(crowded && block.solid())
+    let granted = block.placeable()
+      && !(crowded && block.solid())
       && footed
       && !present.solid()
       && player_of(players.iter_mut(), client_id).is_some_and(
@@ -291,6 +298,7 @@ fn put(
     match granted {
       true => {
         voxels.set(at, block);
+        flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
         changes
           .write(ToClients { targets: SendTargets::All, message: Altered { at, block } })
       }
@@ -361,12 +369,18 @@ fn shuffle(
 
 fn craft(
   mut crafts: MessageReader<FromClient<Craft>>,
-  mut players: Query<(&Controller, &mut Inventory)>
+  mut voxels: ResMut<Voxels>,
+  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>
 ) {
   crafts.read().for_each(|&FromClient { client_id, message: Craft(index) }| {
-    if let Some(mut inventory) = player_of(players.iter_mut(), client_id)
+    if let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && let Some(recipe) = RECIPES.get(usize::from(index))
-      && let Some(made) = recipe.made(&inventory)
+      && let eye = avatar.at + Vec3::Y * EYE
+      && let stations = {
+        voxels.ensure(eye.floor().as_ivec3());
+        voxels.stations_near(eye, REACH)
+      }
+      && let Some(made) = recipe.made(&inventory, &stations)
     {
       *inventory = made
     }

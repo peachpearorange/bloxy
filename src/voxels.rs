@@ -1,4 +1,4 @@
-use {crate::{block::Block, generate},
+use {crate::{block::Block, generate, mesh::TORCH_REACH, model},
      bevy::{platform::collections::{HashMap, HashSet},
             prelude::*},
      std::sync::Arc};
@@ -62,6 +62,26 @@ pub fn beyond(at: IVec3) -> Option<Block> {
 
 pub type Edits = HashMap<IVec3, HashMap<IVec3, Block>>;
 
+fn pierces(from: Vec3, toward: Vec3, low: Vec3, high: Vec3) -> bool {
+  let (near, far) =
+    (0..3).fold((0.0_f32, f32::INFINITY), |(near, far), axis| {
+      match toward[axis] == 0.0 {
+        true => match (low[axis]..=high[axis]).contains(&from[axis]) {
+          true => (near, far),
+          false => (1.0, 0.0)
+        },
+        false => {
+          let (first, second) = (
+            (low[axis] - from[axis]) / toward[axis],
+            (high[axis] - from[axis]) / toward[axis]
+          );
+          (near.max(first.min(second)), far.min(first.max(second)))
+        }
+      }
+    });
+  near <= far
+}
+
 pub struct Hit {
   pub at: IVec3,
   pub normal: IVec3,
@@ -122,9 +142,10 @@ impl Voxels {
     if in_world(key) {
       self.edits.entry(key).or_default().insert(local, block);
       if let Some(chunk) = self.chunks.get_mut(&key) {
+        let lit = block == Block::Torch || chunk.get(local) == Block::Torch;
         Arc::make_mut(chunk).set(local, block);
         let near_edge = |axis: i32| axis == 0 || axis == SIZE - 1;
-        match local.to_array().into_iter().any(near_edge) {
+        match lit || local.to_array().into_iter().any(near_edge) {
           true => self.touch(key),
           false => {
             self.dirty.insert(key);
@@ -132,6 +153,43 @@ impl Voxels {
         }
       }
     }
+  }
+
+  pub fn torches_near(&self, key: IVec3) -> Vec<IVec3> {
+    let (low, high) = (
+      origin_of(key).as_vec3() - TORCH_REACH,
+      origin_of(key + IVec3::ONE).as_vec3() + TORCH_REACH
+    );
+    (-1..=1)
+      .flat_map(|x| {
+        (-1..=1).flat_map(move |y| (-1..=1).map(move |z| IVec3::new(x, y, z)))
+      })
+      .flat_map(|offset| {
+        let near = key + offset;
+        self.edits.get(&near).into_iter().flatten().filter_map(move |(&local, &block)| {
+          (block == Block::Torch).then_some(origin_of(near) + local)
+        })
+      })
+      .filter(|torch| {
+        let centre = torch.as_vec3() + 0.5;
+        centre.cmpge(low).all() && centre.cmple(high).all()
+      })
+      .collect()
+  }
+
+  pub fn stations_near(&self, at: Vec3, reach: f32) -> Vec<Block> {
+    let centre = at.floor().as_ivec3();
+    let span = reach.ceil() as i32;
+    let mut found: Vec<Block> = (-span..=span)
+      .flat_map(|x| {
+        (-span..=span).flat_map(move |y| (-span..=span).map(move |z| IVec3::new(x, y, z)))
+      })
+      .filter(|offset| offset.as_vec3().length() <= reach)
+      .filter_map(|offset| self.block(centre + offset).filter(|block| block.station()))
+      .collect();
+    found.sort();
+    found.dedup();
+    found
   }
 
   pub fn all_edits(&self) -> Vec<(IVec3, Block)> {
@@ -175,11 +233,14 @@ impl Voxels {
     )
     .take_while(|&(at, _, _, travelled)| travelled <= reach && self.block(at).is_some())
     .find_map(|(at, _, normal, _)| {
-      self.block(at).filter(|block| block.targetable()).map(|block| Hit {
-        at,
-        normal,
-        block
-      })
+      self
+        .block(at)
+        .filter(|block| block.targetable())
+        .filter(|&block| {
+          model::bounds(block, self.seed, at)
+            .is_none_or(|(low, high)| pierces(from, toward, low, high))
+        })
+        .map(|block| Hit { at, normal, block })
     })
   }
 }

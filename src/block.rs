@@ -72,7 +72,22 @@ pub enum Block {
   Limestone,
   LimestoneCobble,
   Slate,
-  SlateCobble
+  SlateCobble,
+  WaystoneTop,
+  Torch,
+  CraftingTable,
+  Furnace,
+  Boat,
+  WaterFlow1,
+  WaterFlow2,
+  WaterFlow3,
+  WaterFlow4,
+  WaterFlow5,
+  WaterFlow6,
+  WaterFlow7,
+  LavaFlow1,
+  LavaFlow2,
+  LavaFlow3
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -139,11 +154,19 @@ pub enum Tile {
   Limestone,
   LimestoneCobble,
   Slate,
-  SlateCobble
+  SlateCobble,
+  WaystoneStone,
+  Flame,
+  Torch,
+  TableTop,
+  TableSide,
+  FurnaceTop,
+  FurnaceSide,
+  Boat
 }
 
 impl Tile {
-  pub const ALL: [Tile; 63] = [
+  pub const ALL: [Tile; 71] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -206,10 +229,52 @@ impl Tile {
     Tile::Limestone,
     Tile::LimestoneCobble,
     Tile::Slate,
-    Tile::SlateCobble
+    Tile::SlateCobble,
+    Tile::WaystoneStone,
+    Tile::Flame,
+    Tile::Torch,
+    Tile::TableTop,
+    Tile::TableSide,
+    Tile::FurnaceTop,
+    Tile::FurnaceSide,
+    Tile::Boat
   ];
 
   pub fn index(self) -> u32 { self as u32 }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fluid {
+  Water,
+  Lava
+}
+
+impl Fluid {
+  pub fn flows(self) -> &'static [Block] {
+    match self {
+      Fluid::Water => &[
+        Block::WaterFlow1,
+        Block::WaterFlow2,
+        Block::WaterFlow3,
+        Block::WaterFlow4,
+        Block::WaterFlow5,
+        Block::WaterFlow6,
+        Block::WaterFlow7
+      ],
+      Fluid::Lava => &[Block::LavaFlow1, Block::LavaFlow2, Block::LavaFlow3]
+    }
+  }
+
+  pub fn reach(self) -> u8 { self.flows().len() as u8 }
+
+  pub fn flowing(self, level: u8) -> Block { self.flows()[usize::from(level.max(1)) - 1] }
+
+  pub fn delay(self) -> f32 {
+    match self {
+      Fluid::Water => 0.25,
+      Fluid::Lava => 1.0
+    }
+  }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -223,7 +288,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 57] = [
+  pub const ALL: [Block; 72] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -280,7 +345,22 @@ impl Block {
     Block::Limestone,
     Block::LimestoneCobble,
     Block::Slate,
-    Block::SlateCobble
+    Block::SlateCobble,
+    Block::WaystoneTop,
+    Block::Torch,
+    Block::CraftingTable,
+    Block::Furnace,
+    Block::Boat,
+    Block::WaterFlow1,
+    Block::WaterFlow2,
+    Block::WaterFlow3,
+    Block::WaterFlow4,
+    Block::WaterFlow5,
+    Block::WaterFlow6,
+    Block::WaterFlow7,
+    Block::LavaFlow1,
+    Block::LavaFlow2,
+    Block::LavaFlow3
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -294,15 +374,38 @@ impl Block {
 
   pub fn rock(self) -> bool { Block::ROCKS.iter().any(|&(stone, _)| stone == self) }
 
-  pub fn item(self) -> bool { !matches!(self, Block::Air | Block::Water | Block::Lava) }
+  pub fn item(self) -> bool {
+    self != Block::Air && !self.fluid() && self != Block::WaystoneTop
+  }
+
+  pub fn placeable(self) -> bool { self.item() && self != Block::Boat }
+
+  pub fn waystone(self) -> bool { matches!(self, Block::Waystone | Block::WaystoneTop) }
+
+  pub fn station(self) -> bool { matches!(self, Block::CraftingTable | Block::Furnace) }
+
+  pub fn liquid(self) -> Option<(Fluid, u8)> {
+    match self {
+      Block::Water => Some((Fluid::Water, 0)),
+      Block::Lava => Some((Fluid::Lava, 0)),
+      flow => [Fluid::Water, Fluid::Lava].into_iter().find_map(|fluid| {
+        fluid
+          .flows()
+          .iter()
+          .position(|&level| level == flow)
+          .map(|index| (fluid, index as u8 + 1))
+      })
+    }
+  }
 
   pub fn look(self) -> Look {
     match self {
       Block::Air => Look::Invisible,
       Block::Glass => Look::Cutout,
       leaves if leaves.leafy() => Look::Cutout,
-      Block::Water => Look::Liquid,
-      model if model.modelled() => Look::Model,
+      fluid if fluid.fluid() => Look::Liquid,
+      model if model.modelled() || model.waystone() => Look::Model,
+      Block::Boat => Look::Invisible,
       Block::Log | Block::BirchLog | Block::SpruceLog | Block::PalmLog => Look::Log,
       _ => Look::Opaque
     }
@@ -328,18 +431,22 @@ impl Block {
     Block::BrownMushroom
   ];
 
-  pub fn modelled(self) -> bool { (Block::Poppy..=Block::BrownMushroom).contains(&self) }
+  pub fn modelled(self) -> bool {
+    (Block::Poppy..=Block::BrownMushroom).contains(&self) || self == Block::Torch
+  }
 
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
 
-  pub fn fluid(self) -> bool { matches!(self, Block::Water | Block::Lava) }
+  pub fn fluid(self) -> bool { self.liquid().is_some() }
 
-  pub fn solid(self) -> bool { self != Block::Air && !self.fluid() && !self.modelled() }
+  pub fn solid(self) -> bool {
+    !matches!(self, Block::Air | Block::Boat) && !self.fluid() && !self.modelled()
+  }
 
   pub fn targetable(self) -> bool { self.solid() || self.modelled() }
 
   pub fn breakable(self) -> bool {
-    self.targetable() && !matches!(self, Block::Bedrock | Block::Waystone)
+    self.targetable() && self != Block::Bedrock && !self.waystone()
   }
 
   pub fn seconds_to_break(self) -> f32 {
@@ -364,6 +471,8 @@ impl Block {
       Block::Basalt | Block::Granite | Block::Diorite => 2.5,
       Block::Limestone | Block::LimestoneCobble => 1.6,
       Block::Lamp => 0.5,
+      Block::CraftingTable => 1.5,
+      Block::Furnace => 2.5,
       Block::DiamondOre | Block::GoldOre => 3.0,
       _ => 2.0
     }
@@ -437,7 +546,22 @@ impl Block {
       Block::Limestone => "Limestone",
       Block::LimestoneCobble => "Limestone Cobblestone",
       Block::Slate => "Slate",
-      Block::SlateCobble => "Slate Cobblestone"
+      Block::SlateCobble => "Slate Cobblestone",
+      Block::WaystoneTop => "Waystone",
+      Block::Torch => "Torch",
+      Block::CraftingTable => "Crafting Table",
+      Block::Furnace => "Furnace",
+      Block::Boat => "Boat",
+      Block::WaterFlow1 => "Flowing Water",
+      Block::WaterFlow2 => "Flowing Water",
+      Block::WaterFlow3 => "Flowing Water",
+      Block::WaterFlow4 => "Flowing Water",
+      Block::WaterFlow5 => "Flowing Water",
+      Block::WaterFlow6 => "Flowing Water",
+      Block::WaterFlow7 => "Flowing Water",
+      Block::LavaFlow1 => "Flowing Lava",
+      Block::LavaFlow2 => "Flowing Lava",
+      Block::LavaFlow3 => "Flowing Lava"
     }
   }
 
@@ -499,7 +623,24 @@ impl Block {
       Block::Limestone => all(Tile::Limestone),
       Block::LimestoneCobble => all(Tile::LimestoneCobble),
       Block::Slate => all(Tile::Slate),
-      Block::SlateCobble => all(Tile::SlateCobble)
+      Block::SlateCobble => all(Tile::SlateCobble),
+      Block::WaystoneTop => {
+        [Tile::WaystoneStone, Tile::WaystoneSide, Tile::WaystoneStone]
+      }
+      Block::Torch => all(Tile::Torch),
+      Block::CraftingTable => [Tile::TableTop, Tile::TableSide, Tile::Planks],
+      Block::Furnace => [Tile::FurnaceTop, Tile::FurnaceSide, Tile::FurnaceTop],
+      Block::Boat => all(Tile::Boat),
+      Block::WaterFlow1 => all(Tile::Water),
+      Block::WaterFlow2 => all(Tile::Water),
+      Block::WaterFlow3 => all(Tile::Water),
+      Block::WaterFlow4 => all(Tile::Water),
+      Block::WaterFlow5 => all(Tile::Water),
+      Block::WaterFlow6 => all(Tile::Water),
+      Block::WaterFlow7 => all(Tile::Water),
+      Block::LavaFlow1 => all(Tile::Lava),
+      Block::LavaFlow2 => all(Tile::Lava),
+      Block::LavaFlow3 => all(Tile::Lava)
     }
   }
 }

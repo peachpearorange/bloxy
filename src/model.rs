@@ -114,8 +114,34 @@ const BROWN_MUSHROOM_BITS: &[Bit] = &[
   skin([3, 5, 3], [13, 6, 13], Tile::BrownCap)
 ];
 
+const FLAME: [f32; 3] = [1.0, 1.0, 1.0];
+
+const TORCH_BITS: &[Bit] = &[
+  skin([7, 0, 7], [9, 9, 9], Tile::LogSide),
+  skin([7, 9, 7], [9, 11, 9], Tile::Flame),
+  bit([7, 11, 7], [9, 12, 9], FLAME)
+];
+
+const WAYSTONE_BITS: &[Bit] = &[
+  skin([1, 0, 1], [15, 3, 15], Tile::WaystoneStone),
+  skin([2, 3, 2], [14, 5, 14], Tile::WaystoneStone),
+  skin([3, 5, 3], [13, 6, 13], Tile::WaystoneStone),
+  skin([4, 6, 4], [12, 16, 12], Tile::WaystoneSide)
+];
+
+const WAYSTONE_TOP_BITS: &[Bit] = &[
+  skin([4, 0, 4], [12, 7, 12], Tile::WaystoneSide),
+  skin([3, 7, 3], [13, 9, 13], Tile::WaystoneStone),
+  skin([2, 9, 2], [14, 10, 14], Tile::WaystoneStone),
+  skin([3, 10, 3], [13, 12, 13], Tile::WaystoneStone),
+  skin([5, 12, 5], [11, 14, 11], Tile::WaystoneTop)
+];
+
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
+    Block::Torch => TORCH_BITS,
+    Block::Waystone => WAYSTONE_BITS,
+    Block::WaystoneTop => WAYSTONE_TOP_BITS,
     Block::Poppy => POPPY_BITS,
     Block::Dandelion => DANDELION_BITS,
     Block::Cornflower => CORNFLOWER_BITS,
@@ -130,13 +156,16 @@ pub fn bits(block: Block) -> &'static [Bit] {
   }
 }
 
-pub fn shift(seed: u32, at: IVec3) -> Vec3 {
+pub fn shift(block: Block, seed: u32, at: IVec3) -> Vec3 {
   let jitter = |salt: u32| (hash(seed ^ salt, at.x, at.y, at.z) % 5) as f32 - 2.0;
-  Vec3::new(jitter(0x51), 0.0, jitter(0x52))
+  match block.modelled() && block != Block::Torch {
+    true => Vec3::new(jitter(0x51), 0.0, jitter(0x52)),
+    false => Vec3::ZERO
+  }
 }
 
 pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
-  let shift = shift(seed, at);
+  let shift = shift(block, seed, at);
   bits(block)
     .iter()
     .map(|bit| (Vec3::from(bit.low.map(f32::from)), Vec3::from(bit.high.map(f32::from))))

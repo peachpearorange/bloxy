@@ -1,12 +1,14 @@
 use {crate::{block::Block,
              hud::icon_rect,
-             menu::{Act, BUTTON, EDGE, FAINT, INK, LIT, Menu, Pressed, Shaded, Tab,
-                    button, words},
+             local,
+             menu::{Act, BUTTON, EDGE, Entry, FAINT, Focus, INK, LIT, Menu, Pressed,
+                    Search, Shaded, Tab, button, field, words},
              player::Pilot,
-             protocol::{Craft, HOTBAR, Inventory, SLOTS, Shuffle, plays},
+             protocol::{Craft, HOTBAR, Inventory, REACH, SLOTS, Shuffle, plays},
              recipe::{self, Recipe},
-             stream::Palette},
-     bevy::prelude::*};
+             stream::Palette,
+             voxels::Voxels},
+     bevy::{prelude::*, window::PrimaryWindow}};
 
 const CELL: f32 = 44.0;
 const GAP: f32 = 4.0;
@@ -34,7 +36,38 @@ struct Catalogue;
 struct Recipes;
 
 #[derive(Component)]
-struct Hint;
+struct Marks;
+
+#[derive(Component)]
+struct Tooltip;
+
+#[derive(Resource, Default)]
+struct Nearby(Vec<Block>);
+
+const MARKS_KEY: &str = "bloxy.bookmarks";
+
+#[derive(Resource)]
+struct Bookmarks(Vec<Block>);
+
+impl Bookmarks {
+  fn recalled() -> Bookmarks {
+    Bookmarks(
+      local::recall(MARKS_KEY)
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+    )
+  }
+
+  fn toggle(&mut self, block: Block) {
+    match self.0.contains(&block) {
+      true => self.0.retain(|&marked| marked != block),
+      false => self.0.push(block)
+    }
+    if let Ok(text) = serde_json::to_string(&self.0) {
+      local::remember(MARKS_KEY, &text)
+    }
+  }
+}
 
 fn icon(block: Block, size: f32, palette: &Palette) -> impl Bundle {
   (
@@ -89,52 +122,83 @@ fn row(
     .with_children(|row| slots.for_each(|index| slot(row, index, palette)));
 }
 
+fn column(width: Option<f32>) -> Node {
+  Node {
+    flex_direction: FlexDirection::Column,
+    row_gap: px(8),
+    width: width.map_or(Val::Auto, px),
+    flex_grow: if width.is_some() { 0.0 } else { 1.0 },
+    flex_shrink: 0.0,
+    ..default()
+  }
+}
+
+fn grid() -> Node {
+  Node { flex_wrap: FlexWrap::Wrap, column_gap: px(GAP), row_gap: px(GAP), ..default() }
+}
+
 pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
   page.spawn(Node { column_gap: px(24), ..default() }).with_children(|columns| {
-    columns
-      .spawn(Node {
+    columns.spawn(column(Some(4.0 * (CELL + GAP)))).with_children(|left| {
+      left.spawn(words("Bookmarks", 15.0, FAINT));
+      left.spawn((Marks, grid()));
+      left.spawn(words(
+        "Press A over an item to bookmark it or take it off.",
+        13.0,
+        FAINT
+      ));
+    });
+    columns.spawn(column(Some(HOTBAR as f32 * (CELL + GAP)))).with_children(|middle| {
+      middle.spawn((Recipes, Node {
         flex_direction: FlexDirection::Column,
         row_gap: px(8),
-        width: px(HOTBAR as f32 * (CELL + GAP)),
-        flex_shrink: 0.0,
+        min_height: px(230),
         ..default()
-      })
-      .with_children(|left| {
-        left.spawn((Recipes, Node {
-          flex_direction: FlexDirection::Column,
-          row_gap: px(8),
-          min_height: px(210),
-          ..default()
-        }));
-        left.spawn(words("Backpack", 15.0, FAINT));
-        row(left, HOTBAR..SLOTS, palette);
-        left.spawn(words("Hotbar", 15.0, FAINT));
-        row(left, 0..HOTBAR, palette);
-      });
-    columns
-      .spawn(Node {
-        flex_direction: FlexDirection::Column,
-        row_gap: px(8),
-        flex_grow: 1.0,
-        ..default()
-      })
-      .with_children(|right| {
-        right.spawn((Hint, words("Items", 15.0, FAINT)));
-        right.spawn((Catalogue, Node {
-          flex_wrap: FlexWrap::Wrap,
-          column_gap: px(GAP),
-          row_gap: px(GAP),
-          ..default()
-        }));
-        right.spawn(words(
-          "Click an item to see what it is made from and what it makes. Items you can \
-           craft now come first, outlined in green. Click two slots to move or swap \
-           stacks. E closes.",
-          14.0,
-          FAINT
-        ));
-      });
+      }));
+      middle.spawn(words("Backpack", 15.0, FAINT));
+      row(middle, HOTBAR..SLOTS, palette);
+      middle.spawn(words("Hotbar", 15.0, FAINT));
+      row(middle, 0..HOTBAR, palette);
+      middle.spawn(words(
+        "Click two slots to move, merge or swap stacks. E closes.",
+        13.0,
+        FAINT
+      ));
+    });
+    columns.spawn(column(None)).with_children(|right| {
+      right
+        .spawn(Node { column_gap: px(10), align_items: AlignItems::Center, ..default() })
+        .with_children(|search| {
+          search.spawn(words("Search", 15.0, FAINT));
+          field(search, Entry::Search, 260.0);
+        });
+      right.spawn((Catalogue, grid()));
+      right.spawn(words(
+        "Click an item for its recipes. Items you can craft here and now come first, \
+         outlined in green. Crafting tables and furnaces count within reach.",
+        13.0,
+        FAINT
+      ));
+    });
   });
+}
+
+fn tooltip(mut commands: Commands) {
+  commands
+    .spawn((
+      Tooltip,
+      Node {
+        position_type: PositionType::Absolute,
+        padding: UiRect::axes(px(8), px(5)),
+        border: UiRect::all(px(2)),
+        ..default()
+      },
+      BorderColor::all(Color::srgb(0.25, 0.15, 0.45)),
+      BackgroundColor(Color::srgba(0.06, 0.03, 0.1, 0.95)),
+      GlobalZIndex(30),
+      Visibility::Hidden
+    ))
+    .with_child(words("", 15.0, INK));
 }
 
 fn carried(pilot: &Option<Res<Pilot>>, inventories: &Query<&Inventory>) -> Inventory {
@@ -191,40 +255,79 @@ fn fill(
   }
 }
 
+fn survey(
+  menu: Res<Menu>,
+  pilot: Option<Res<Pilot>>,
+  voxels: Option<Res<Voxels>>,
+  mut nearby: ResMut<Nearby>
+) {
+  if menu.showing(Tab::Inventory)
+    && let Some(pilot) = pilot
+    && let Some(voxels) = voxels
+  {
+    let found = voxels.stations_near(pilot.eye(), REACH);
+    if nearby.0 != found {
+      nearby.0 = found
+    }
+  }
+}
+
+fn entry(
+  list: &mut ChildSpawnerCommands,
+  (block, craftable, picked): (Block, bool, bool),
+  palette: &Palette
+) {
+  let border = match (picked, craftable) {
+    (true, _) => LIT,
+    (false, true) => CAN,
+    (false, false) => EDGE
+  };
+  list.spawn(tile(Act::Inspect(block), border)).with_child(icon(block, 30.0, palette));
+}
+
 fn catalogue(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
   chosen: Res<Chosen>,
+  nearby: Res<Nearby>,
+  search: Res<Search>,
+  bookmarks: Res<Bookmarks>,
   palette: Res<Palette>,
-  containers: Query<Entity, With<Catalogue>>,
+  lists: Query<Entity, With<Catalogue>>,
+  marks: Query<Entity, With<Marks>>,
   mut commands: Commands,
-  mut shown: Local<Vec<(Block, bool, bool)>>
+  mut shown: Local<(Vec<(Block, bool, bool)>, Vec<(Block, bool, bool)>)>
 ) {
   if menu.showing(Tab::Inventory) {
     let inventory = carried(&pilot, &inventories);
+    let describe = |block: Block| {
+      (block, recipe::craftable(block, &inventory, &nearby.0), chosen.0 == Some(block))
+    };
+    let query = search.0.trim().to_lowercase();
     let mut entries: Vec<(Block, bool, bool)> = Block::ALL
       .into_iter()
-      .filter(|block| block.item())
-      .map(|block| (block, recipe::craftable(block, &inventory), chosen.0 == Some(block)))
+      .filter(|block| block.item() && block.name().to_lowercase().contains(&query))
+      .map(describe)
       .collect();
     entries.sort_by_key(|&(_, craftable, _)| !craftable);
-    if *shown != entries {
-      containers.iter().for_each(|container| {
-        commands.entity(container).despawn_children().with_children(|list| {
-          entries.iter().for_each(|&(block, craftable, picked)| {
-            let border = match (picked, craftable) {
-              (true, _) => LIT,
-              (false, true) => CAN,
-              (false, false) => EDGE
-            };
-            list
-              .spawn(tile(Act::Inspect(block), border))
-              .with_child(icon(block, 30.0, &palette));
-          })
+    let marked: Vec<(Block, bool, bool)> =
+      bookmarks.0.iter().copied().map(describe).collect();
+    if shown.0 != entries {
+      lists.iter().for_each(|list| {
+        commands.entity(list).despawn_children().with_children(|list| {
+          entries.iter().for_each(|&found| entry(list, found, &palette))
         });
       });
-      *shown = entries
+      shown.0 = entries
+    }
+    if shown.1 != marked {
+      marks.iter().for_each(|list| {
+        commands.entity(list).despawn_children().with_children(|list| {
+          marked.iter().for_each(|&found| entry(list, found, &palette))
+        });
+      });
+      shown.1 = marked
     }
   }
 }
@@ -234,6 +337,7 @@ fn card(
   index: usize,
   recipe: &Recipe,
   inventory: &Inventory,
+  nearby: &[Block],
   palette: &Palette
 ) {
   let ingredient = |row: &mut ChildSpawnerCommands, block: Block| {
@@ -241,7 +345,17 @@ fn card(
       .spawn((Button, Act::Inspect(block), Node::default()))
       .with_child(icon(block, 28.0, palette));
   };
-  let missing = recipe.missing(inventory);
+  let missing: Vec<String> = recipe
+    .missing(inventory)
+    .iter()
+    .map(|&(block, short)| format!("{short} {}", block.name()))
+    .chain(
+      recipe
+        .station
+        .filter(|_| !recipe.housed(nearby))
+        .map(|station| format!("a {} within reach", station.name()))
+    )
+    .collect();
   parent
     .spawn(Node { align_items: AlignItems::Center, column_gap: px(6), ..default() })
     .with_children(|row| {
@@ -263,14 +377,16 @@ fn card(
         margin: UiRect::right(px(6)),
         ..default()
       }));
+      if let Some(station) = recipe.station {
+        row.spawn(words("at", 14.0, FAINT));
+        ingredient(row, station);
+      }
       if missing.is_empty() {
         button(row, "Craft", Act::Craft(index as u16))
       }
     });
   if !missing.is_empty() {
-    let list: Vec<String> =
-      missing.iter().map(|&(block, short)| format!("{short} {}", block.name())).collect();
-    parent.spawn(words(format!("Missing {}", list.join(", ")), 13.0, SHORT));
+    parent.spawn(words(format!("Missing {}", missing.join(", ")), 13.0, SHORT));
   }
 }
 
@@ -279,15 +395,16 @@ fn recipes(
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
   chosen: Res<Chosen>,
+  nearby: Res<Nearby>,
   palette: Res<Palette>,
   containers: Query<Entity, With<Recipes>>,
   mut commands: Commands,
-  mut shown: Local<Option<(Option<Block>, Inventory)>>
+  mut shown: Local<Option<(Option<Block>, Inventory, Vec<Block>)>>
 ) {
   if menu.showing(Tab::Inventory) {
-    let state = (chosen.0, carried(&pilot, &inventories));
+    let state = (chosen.0, carried(&pilot, &inventories), nearby.0.clone());
     if shown.as_ref() != Some(&state) {
-      let (chosen, inventory) = &state;
+      let (chosen, inventory, nearby) = &state;
       containers.iter().for_each(|container| {
         commands.entity(container).despawn_children().with_children(
           |panel| match *chosen {
@@ -307,14 +424,14 @@ fn recipes(
                 panel.spawn(words("Not craftable: gather it in the world.", 14.0, INK));
               }
               making.into_iter().for_each(|(index, recipe)| {
-                card(panel, index, recipe, inventory, &palette)
+                card(panel, index, recipe, inventory, nearby, &palette)
               });
               let using: Vec<_> = recipe::using(block).collect();
               if !using.is_empty() {
                 panel.spawn(words("Used in", 15.0, FAINT));
               }
               using.into_iter().for_each(|(index, recipe)| {
-                card(panel, index, recipe, inventory, &palette)
+                card(panel, index, recipe, inventory, nearby, &palette)
               });
             }
           }
@@ -330,25 +447,55 @@ fn hint(
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
   hovered: Query<(&Interaction, &Act)>,
-  mut texts: Query<&mut Text, With<Hint>>
+  keys: Res<ButtonInput<KeyCode>>,
+  focus: Res<Focus>,
+  windows: Query<&Window, With<PrimaryWindow>>,
+  mut bookmarks: ResMut<Bookmarks>,
+  mut tips: Query<(&mut Node, &mut Visibility, &Children), With<Tooltip>>,
+  mut texts: Query<&mut Text>
 ) {
-  if menu.showing(Tab::Inventory) {
-    let inventory = carried(&pilot, &inventories);
-    let line = hovered
-      .iter()
-      .filter(|(interaction, _)| **interaction != Interaction::None)
-      .find_map(|(_, act)| match *act {
-        Act::Inspect(block) => Some(block),
-        Act::Slot(index) => inventory.slots[usize::from(index)].map(|stack| stack.block),
-        _ => None
-      })
-      .map_or("Items".into(), |block| block.name().to_string());
-    texts.iter_mut().for_each(|mut text| {
-      if text.0 != line {
-        text.0 = line.clone()
+  let inventory = carried(&pilot, &inventories);
+  let pointed = hovered
+    .iter()
+    .filter(|(interaction, _)| **interaction != Interaction::None)
+    .find_map(|(_, act)| match *act {
+      Act::Inspect(block) => Some((block, None)),
+      Act::Slot(index) => {
+        inventory.slots[usize::from(index)].map(|stack| (stack.block, Some(stack.count)))
       }
+      _ => None
     })
+    .filter(|_| menu.showing(Tab::Inventory));
+  if let Some((block, _)) = pointed
+    && keys.just_pressed(KeyCode::KeyA)
+    && focus.0.is_none()
+  {
+    bookmarks.toggle(block)
   }
+  let cursor = windows.single().ok().and_then(Window::cursor_position);
+  tips.iter_mut().for_each(|(mut node, mut visibility, children)| {
+    match pointed.zip(cursor) {
+      Some(((block, count), at)) => {
+        node.left = px(at.x + 16.0);
+        node.top = px(at.y + 12.0);
+        visibility.set_if_neq(Visibility::Inherited);
+        let line = match count {
+          Some(count) if count > 1 => format!("{} x{count}", block.name()),
+          _ => block.name().to_string()
+        };
+        children.iter().for_each(|child| {
+          if let Ok(mut text) = texts.get_mut(child)
+            && text.0 != line
+          {
+            text.0 = line.clone()
+          }
+        })
+      }
+      None => {
+        visibility.set_if_neq(Visibility::Hidden);
+      }
+    }
+  })
 }
 
 fn obey(
@@ -389,6 +536,12 @@ impl Plugin for Crafting {
     app
       .init_resource::<Held>()
       .init_resource::<Chosen>()
-      .add_systems(Update, (obey, fill, catalogue, recipes, hint).chain().run_if(plays));
+      .init_resource::<Nearby>()
+      .insert_resource(Bookmarks::recalled())
+      .add_systems(Startup, tooltip.run_if(plays))
+      .add_systems(
+        Update,
+        (obey, survey, fill, catalogue, recipes, hint).chain().run_if(plays)
+      );
   }
 }

@@ -1,4 +1,4 @@
-use {crate::{block::{Block, Look},
+use {crate::{block::{Block, Fluid, Look},
              generate,
              island::SEA,
              model::{self, Bit},
@@ -136,12 +136,14 @@ const OCTAGON: [Vec2; 8] = [
 
 const CORNERS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 
+fn kind(block: Block) -> Option<Fluid> { block.liquid().map(|(fluid, _)| fluid) }
+
 fn shows(block: Block, neighbour: Block) -> bool {
   match (block.look(), neighbour.look()) {
     (Look::Invisible | Look::Model | Look::Log, _) => false,
     (_, Look::Invisible | Look::Model | Look::Log) => true,
     (_, Look::Opaque) => false,
-    (Look::Liquid, Look::Liquid) => false,
+    (Look::Liquid, Look::Liquid) => kind(block) != kind(neighbour),
     (Look::Liquid, Look::Cutout) => true,
     (Look::Cutout, _) => block != neighbour || block.leafy(),
     (Look::Opaque, _) => true
@@ -192,7 +194,31 @@ pub struct Meshes {
   pub liquid: Option<Mesh>
 }
 
-pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
+fn crest(block: Block, above: Block) -> f32 {
+  match block.liquid() {
+    Some((fluid, _)) if kind(above) == Some(fluid) => 1.0,
+    Some((fluid, level)) => {
+      let reach = f32::from(fluid.reach()) + 1.0;
+      WATER_TOP * (reach - f32::from(level)) / reach
+    }
+    None => 1.0
+  }
+}
+
+pub const TORCH_REACH: f32 = 10.0;
+const TORCH_GLOW: LinearRgba = LinearRgba::rgb(1.0, 0.72, 0.42);
+
+fn lit(hue: LinearRgba, sky: f32, torch: f32, shade: f32) -> [f32; 4] {
+  let channel = |hue: f32, warm: f32| hue * sky.max(torch * warm) * shade;
+  [
+    channel(hue.red, TORCH_GLOW.red),
+    channel(hue.green, TORCH_GLOW.green),
+    channel(hue.blue, TORCH_GLOW.blue),
+    1.0
+  ]
+}
+
+pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
   let origin = origin_of(key);
   let surface: Vec<i32> = (0..SPAN * SPAN)
     .map(|index| {
@@ -214,17 +240,38 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
     let deep = ((SEA as f32 - floor) / OCEAN_DEPTH).clamp(0.0, 1.0);
     SHALLOWS.mix(&OPEN_SEA, deep.sqrt())
   };
+  let torchlight = |point: Vec3| {
+    torches
+      .iter()
+      .map(|torch| {
+        let flame = torch.as_vec3() + Vec3::new(0.5, 0.7, 0.5);
+        (1.0 - point.distance(flame) / TORCH_REACH).max(0.0)
+      })
+      .fold(0.0, f32::max)
+      .powf(1.4)
+  };
   let mut solid = Builder::default();
   let mut liquid = Builder::default();
   (0..SIZE * SIZE * SIZE).for_each(|index| {
     let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
     let block = padded.get(local);
     if block != Block::Air {
-      let lowered = block == Block::Water && padded.get(local + IVec3::Y) != Block::Water;
-      FACES.iter().filter(|face| shows(block, padded.get(local + face.normal))).for_each(
-        |face| {
-          let builder = match block.look() {
-            Look::Liquid => &mut liquid,
+      let top = crest(block, padded.get(local + IVec3::Y));
+      let floor = |face: &Face| {
+        let neighbour = padded.get(local + face.normal);
+        match face.normal.y == 0
+          && kind(block).is_some()
+          && kind(block) == kind(neighbour)
+        {
+          true => Some(crest(neighbour, padded.get(local + face.normal + IVec3::Y)))
+            .filter(|&height| height < top - 0.01),
+          false => shows(block, neighbour).then_some(0.0)
+        }
+      };
+      FACES.iter().filter_map(|face| floor(face).map(|floor| (face, floor))).for_each(
+        |(face, floor)| {
+          let builder = match block.liquid() {
+            Some((Fluid::Water, _)) => &mut liquid,
             _ => &mut solid
           };
           let outside = local + face.normal;
@@ -253,21 +300,21 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
           CORNERS.iter().zip(occlusion).zip(daylight).for_each(
             |((&(a, b), shade), daylight)| {
               let corner = (local + face.base + face.across * a + face.up * b).as_vec3();
-              let height = match lowered && corner.y > local.y as f32 + 0.5 {
-                true => corner.y - (1.0 - WATER_TOP),
-                false => corner.y
+              let height = match corner.y > local.y as f32 + 0.5 {
+                true => local.y as f32 + top,
+                false => local.y as f32 + floor
               };
               builder.positions.push([corner.x, height, corner.z]);
               builder.normals.push(face.normal.as_vec3().to_array());
               builder
                 .uvs
                 .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
-              let light = OCCLUSION[shade as usize] * daylight;
-              let hue = match block {
-                Block::Water => tint(corner),
+              let hue = match kind(block) {
+                Some(Fluid::Water) => tint(corner),
                 _ => LinearRgba::WHITE
               };
-              builder.colors.push((hue * light).with_alpha(1.0).to_f32_array());
+              let torch = torchlight(origin.as_vec3() + corner.with_y(height));
+              builder.colors.push(lit(hue, daylight, torch, OCCLUSION[shade as usize]));
             }
           );
           let flipped = occlusion[1] + occlusion[3] > occlusion[0] + occlusion[2];
@@ -278,12 +325,18 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
           builder.indices.extend(order.map(|corner| first + corner))
         }
       );
-      let shift = model::shift(seed, origin + local);
+      let shift = model::shift(block, seed, origin + local);
       let light = sky(local);
+      let torch = torchlight(origin.as_vec3() + local.as_vec3() + 0.5);
       model::bits(block).iter().for_each(|&Bit { low, high, color: [r, g, b], tile }| {
         let (low, high) =
           (Vec3::from(low.map(f32::from)), Vec3::from(high.map(f32::from)));
-        let hue = (LinearRgba::from(Color::srgb(r, g, b)) * light).with_alpha(1.0);
+        let hue = LinearRgba::from_f32_array(lit(
+          LinearRgba::from(Color::srgb(r, g, b)),
+          light,
+          torch,
+          1.0
+        ));
         FACES.iter().for_each(|face| {
           let texels = CORNERS.map(|(a, b)| {
             low + (high - low) * (face.base + face.across * a + face.up * b).as_vec3()
@@ -304,7 +357,7 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
       });
       if block.look() == Look::Log {
         let [top, side, bottom] = block.tiles();
-        let hue = LinearRgba::rgb(light, light, light);
+        let hue = LinearRgba::from_f32_array(lit(LinearRgba::WHITE, light, torch, 1.0));
         let corner = local.as_vec3();
         (0..8).for_each(|edge| {
           let (from, to) = (OCTAGON[edge], OCTAGON[(edge + 1) % 8]);

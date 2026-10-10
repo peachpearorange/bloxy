@@ -350,19 +350,24 @@ fn work(
     *cooldown = (*cooldown - time.delta_secs()).max(0.0);
     let stack =
       inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
-    let waystone = aim.hit.as_ref().is_some_and(|hit| hit.block == Block::Waystone);
+    let used = aim.hit.as_ref().filter(|hit| hit.block.waystone() || hit.block.station());
     if active
       && buttons.just_pressed(MouseButton::Right)
-      && let Some(hit) = aim.hit.as_ref().filter(|_| waystone)
+      && let Some(hit) = used
     {
-      attunes.write(Attune(hit.at));
-      menu.show(Tab::Waystones, time.elapsed_secs())
+      match hit.block.waystone() {
+        true => {
+          attunes.write(Attune(hit.at));
+          menu.show(Tab::Waystones, time.elapsed_secs())
+        }
+        false => menu.show(Tab::Inventory, time.elapsed_secs())
+      }
     } else if active
-      && !waystone
+      && used.is_none()
       && buttons.pressed(MouseButton::Right)
       && (*cooldown <= 0.0 || buttons.just_pressed(MouseButton::Right))
       && let Some(hit) = &aim.hit
-      && let Some(stack) = stack
+      && let Some(stack) = stack.filter(|stack| stack.block.placeable())
     {
       *cooldown = PLACE_EVERY;
       let at = hit.at + hit.normal;
