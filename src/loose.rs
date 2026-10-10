@@ -302,7 +302,7 @@ impl Plugin for Litter {
       .add_systems(Startup, prepare.after(crate::stream::paint).run_if(plays))
       .add_systems(
         Update,
-        (throw.run_if(closed).run_if(resource_exists::<Pilot>), show, spin)
+        (throw.run_if(resource_exists::<Pilot>.and(closed)), show, spin)
           .chain()
           .run_if(plays)
       );
