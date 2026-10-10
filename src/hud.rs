@@ -457,7 +457,7 @@ const ANNOUNCED_FOR: f32 = 3.5;
 fn announce(
   time: Res<Time>,
   mut notices: MessageReader<Notice>,
-  mut texts: Query<(&mut Text, &mut TextColor), With<Announcement>>,
+  mut texts: Query<(&mut Text, &mut TextColor, &mut TextShadow), With<Announcement>>,
   mut since: Local<f32>
 ) {
   let latest = notices.read().last().map(|notice| notice.0.clone());
@@ -466,11 +466,12 @@ fn announce(
     None => *since + time.delta_secs()
   };
   let fade = (ANNOUNCED_FOR - *since).clamp(0.0, 1.0);
-  for (mut text, mut color) in texts.iter_mut() {
+  for (mut text, mut color, mut shadow) in texts.iter_mut() {
     if let Some(line) = &latest {
       text.0 = line.clone()
     }
-    color.0.set_alpha(fade)
+    color.0.set_alpha(fade);
+    shadow.color.set_alpha(fade)
   }
 }
 

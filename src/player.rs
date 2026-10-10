@@ -75,6 +75,9 @@ pub struct Aim {
   pub digging: Option<IVec3>
 }
 
+#[derive(Message)]
+pub struct Poke;
+
 #[derive(Component)]
 pub struct Eye;
 
@@ -184,7 +187,7 @@ pub struct Bulk {
 }
 
 impl Bulk {
-  pub const PERSON: Bulk = Bulk { half: 0.3, tall: 1.8 };
+  pub const PERSON: Bulk = Bulk { half: 0.3, tall: 1.9 };
 
   pub fn body(self, at: Vec3) -> (Vec3, Vec3) {
     (
@@ -497,18 +500,20 @@ fn work(
   inventories: Query<&Inventory>,
   mut voxels: Option<ResMut<Voxels>>,
   mut aim: ResMut<Aim>,
-  (mut digs, mut puts, mut attunes, mut scoops, mut pours): (
+  (mut digs, mut puts, mut attunes, mut scoops, mut pours, mut shuffles): (
     MessageWriter<Dig>,
     MessageWriter<Put>,
     MessageWriter<Attune>,
     MessageWriter<Scoop>,
-    MessageWriter<Pour>
+    MessageWriter<Pour>,
+    MessageWriter<Shuffle>
   ),
   (boats, folk): (Query<&Vessel>, Query<&Folk>),
-  (mut inscription, signs, mut rests): (
+  (mut inscription, signs, mut rests, mut pokes): (
     ResMut<Inscription>,
     Query<&Sign>,
-    MessageWriter<Rest>
+    MessageWriter<Rest>,
+    MessageWriter<Poke>
   ),
   mut cooldown: Local<f32>
 ) {
@@ -554,6 +559,21 @@ fn work(
     *cooldown = (*cooldown - time.delta_secs()).max(0.0);
     let stack =
       inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
+    if active
+      && buttons.just_pressed(MouseButton::Middle)
+      && let Some(hit) = &aim.hit
+      && let Ok(inventory) = inventories.get(pilot.me)
+      && stack.is_none_or(|stack| stack.block != hit.block.held())
+      && let Some(slot) =
+        [hit.block.held(), hit.block.drop()].into_iter().find_map(|wanted| {
+          inventory.slots[..SLOTS]
+            .iter()
+            .position(|stack| stack.is_some_and(|stack| stack.block == wanted))
+        })
+      && slot != selected.0
+    {
+      shuffles.write(Shuffle { from: slot as u8, to: selected.0 as u8 });
+    }
     let used = aim.hit.as_ref().filter(|hit| {
       hit.block.waystone() || hit.block.station() || hit.block.sign() || hit.block.bed()
     });
@@ -561,6 +581,7 @@ fn work(
       && buttons.just_pressed(MouseButton::Right)
       && let Some(hit) = used
     {
+      pokes.write(Poke);
       match hit.block {
         waystone if waystone.waystone() => {
           attunes.write(Attune(hit.at));
@@ -676,6 +697,7 @@ impl Plugin for Piloting {
     local::listen_for_clicks();
     app
       .init_resource::<Selected>()
+      .add_message::<Poke>()
       .init_resource::<Aim>()
       .init_resource::<Gait>()
       .init_resource::<View>()

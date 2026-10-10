@@ -9,7 +9,7 @@ pub const BACKPACK: usize = 27;
 pub const SLOTS: usize = HOTBAR + BACKPACK;
 pub const CURSOR: usize = SLOTS;
 pub const REACH: f32 = 5.0;
-pub const EYE: f32 = 1.7;
+pub const EYE: f32 = 1.8;
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Role {

@@ -4,7 +4,7 @@ use {crate::{authority::{Controller, player_of},
              folk::struck,
              menu::{Act, BUTTON, EDGE, FAINT, INK, Menu, Pressed, Shaded, Tab, words},
              noise::hash,
-             player::{Pilot, captured},
+             player::{Pilot, Poke, captured},
              protocol::*,
              stream::Palette,
              voxels::Voxels},
@@ -107,7 +107,8 @@ fn hail(
   pilot: Res<Pilot>,
   voxels: Option<Res<Voxels>>,
   folk: Query<(Entity, &Folk)>,
-  mut dealing: ResMut<Dealing>
+  mut dealing: ResMut<Dealing>,
+  mut pokes: MessageWriter<Poke>
 ) {
   if let Some(voxels) = voxels
     && captured(&cursor, &menu)
@@ -127,6 +128,7 @@ fn hail(
       .min_by(|a, b| a.1.total_cmp(&b.1))
     {
       dealing.0 = Some(trader);
+      pokes.write(Poke);
       menu.show(Tab::Trade, time.elapsed_secs())
     }
   }

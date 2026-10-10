@@ -7,7 +7,7 @@ use {bevy::{asset::RenderAssetUsages,
 
 pub const WIDE: u32 = 64;
 pub const TALL: u32 = 32;
-pub const PX: f32 = 0.0575;
+pub const PX: f32 = 0.06;
 
 pub const PALETTE: [[u8; 3]; 32] = [
   [20, 18, 24],

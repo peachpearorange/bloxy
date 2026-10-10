@@ -187,7 +187,9 @@ fn row(
         for _ in 0..steps as u32 {
           let surface = float(&voxels, pilot.at);
           let afloat = surface.is_some();
-          riding.yaw += (held(KeyCode::KeyA) - held(KeyCode::KeyD)) * TURN * STEP;
+          let turn = (held(KeyCode::KeyA) - held(KeyCode::KeyD)) * TURN * STEP;
+          riding.yaw += turn;
+          pilot.yaw += turn;
           let push = held(KeyCode::KeyW) - held(KeyCode::KeyS) * 0.5;
           let drag = if afloat { DRAG } else { 8.0 };
           riding.speed +=

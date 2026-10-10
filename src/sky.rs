@@ -138,6 +138,16 @@ fn light(
 #[derive(Resource, Default)]
 struct Flames(HashMap<IVec3, Entity>);
 
+pub fn torchlight() -> PointLight {
+  PointLight {
+    intensity: TORCH_LUMENS * 2f32.powf(daylight(opts().hour).ev100 - NIGHT_EXPOSURE),
+    range: 20.0,
+    color: TORCH_TINT,
+    shadow_maps_enabled: false,
+    ..default()
+  }
+}
+
 fn kindle(
   pilot: Res<Pilot>,
   voxels: Option<Res<Voxels>>,
@@ -163,8 +173,7 @@ fn kindle(
       }
       kept
     });
-    let intensity =
-      TORCH_LUMENS * 2f32.powf(daylight(opts().hour).ev100 - NIGHT_EXPOSURE);
+    let intensity = torchlight().intensity;
     for &torch in near.iter() {
       match flames.0.get(&torch).and_then(|&entity| lights.get_mut(entity).ok()) {
         Some(mut light) => {
@@ -175,13 +184,7 @@ fn kindle(
         None => {
           let entity = commands
             .spawn((
-              PointLight {
-                intensity,
-                range: 20.0,
-                color: TORCH_TINT,
-                shadow_maps_enabled: false,
-                ..default()
-              },
+              torchlight(),
               Transform::from_translation(torch.as_vec3() + Vec3::new(0.5, 0.8, 0.5))
             ))
             .with_child((

@@ -953,7 +953,7 @@ pub fn timber(sign: Block) -> Palette {
 fn flame(x: u32, y: u32) -> Texel {
   let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
   let heat = (1.0 - (dx * dx + dy * dy).sqrt() / 9.0).clamp(0.0, 1.0);
-  Texel::rgb(1.0, 0.55 + heat * 0.3, 0.15 + heat * 0.25).glowing(0.08 + heat * 0.04)
+  Texel::rgb(1.0, 0.55 + heat * 0.3, 0.15 + heat * 0.25).glowing(0.7 + heat * 0.5)
 }
 
 fn rune() -> Texel { Texel::rgb(0.85, 0.97, 1.0).glowing(0.9) }

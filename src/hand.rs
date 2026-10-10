@@ -2,7 +2,7 @@ use {crate::{block::Block,
              figure::{Clad, Kit, clothe},
              loose::{FLAT, Looks, SIZE, cubic},
              menu::Menu,
-             player::{Aim, Eye, Gait, Pilot, Selected, View},
+             player::{Aim, Eye, Gait, Pilot, Poke, Selected, View},
              protocol::{Inventory, plays},
              skin::{PX, Skin},
              stream::Palette},
@@ -10,14 +10,17 @@ use {crate::{block::Block,
      std::f32::consts::PI};
 
 const SWING: f32 = 0.28;
+const POKE: f32 = 0.3;
 const REST: Vec3 = Vec3::new(0.42, -0.4, -0.34);
 
 const GRIP: Vec3 = Vec3::new(0.3, -0.3, -0.5);
+const HELD_LARGER: f32 = 1.6;
 const ROD_LENGTH: f32 = 1.3;
 
 #[derive(Component)]
 struct Hand {
-  swung: f32
+  swung: f32,
+  poked: f32
 }
 
 #[derive(Component)]
@@ -54,8 +57,8 @@ fn hold(
             let turned = match fist {
               true => {
                 let arm = Quat::from_euler(EulerRot::YXZ, 0.12, 1.95, -0.12);
-                let shaft = Vec3::new(0.05, 0.5, -0.86).normalize();
-                let face = Vec3::new(0.35, 0.9, 0.26).reject_from(shaft).normalize();
+                let shaft = Vec3::new(-0.25, 0.85, -0.45).normalize();
+                let face = Vec3::new(0.25, 0.45, 0.85).reject_from(shaft).normalize();
                 let diagonal = Vec3::new(1.0, 1.0, 0.0).normalize();
                 let held = Mat3::from_cols(shaft, face, shaft.cross(face))
                   * Mat3::from_cols(diagonal, Vec3::Z, diagonal.cross(Vec3::Z))
@@ -68,14 +71,25 @@ fn hold(
               .with_rotation(turned)
           }
         };
+        if fist {
+          transform.translation = hand + (transform.translation - hand) * HELD_LARGER;
+          transform.scale = Vec3::splat(HELD_LARGER)
+        }
         *visibility = Visibility::Inherited;
         commands.entity(entity).insert((
           Mesh3d(looks.mesh(block, &mut meshes)),
           MeshMaterial3d(palette.solid.clone()),
           NotShadowCaster
         ));
+        match block == Block::Torch {
+          true => commands.entity(entity).insert(crate::sky::torchlight()),
+          false => commands.entity(entity).remove::<PointLight>()
+        };
       }
-      None => *visibility = Visibility::Hidden
+      None => {
+        *visibility = Visibility::Hidden;
+        commands.entity(entity).remove::<PointLight>();
+      }
     }
   }
 }
@@ -150,7 +164,7 @@ fn raise(
     let clad = clothe(skin, &mut images, &mut materials);
     commands
       .spawn((
-        Hand { swung: SWING },
+        Hand { swung: SWING, poked: POKE },
         Mesh3d(kit.arm.clone()),
         MeshMaterial3d(clad.material.clone()),
         clad,
@@ -193,8 +207,10 @@ fn swing(
   inventories: Query<&Inventory>,
   mut hands: Query<(&mut Hand, &mut Transform, &mut Visibility), Without<Rod>>,
   mut rods: Query<(&mut Transform, &mut Visibility), With<Rod>>,
-  mut grips: Query<(&mut Grip, &ChildOf)>
+  mut grips: Query<(&mut Grip, &ChildOf)>,
+  mut pokes: MessageReader<Poke>
 ) {
+  let poking = pokes.read().count() > 0;
   for (mut grip, _) in
     grips.iter_mut().filter(|(_, parent)| hands.contains(parent.parent()))
   {
@@ -215,11 +231,15 @@ fn swing(
       false => Visibility::Hidden
     });
     hand.swung += time.delta_secs();
-    if (pressed || aim.digging.is_some()) && hand.swung >= SWING {
+    hand.poked += time.delta_secs();
+    if poking {
+      hand.poked = 0.0;
+      hand.swung = SWING
+    } else if (pressed || aim.digging.is_some()) && hand.swung >= SWING {
       hand.swung = 0.0
     }
-    let progress = (hand.swung / SWING).min(1.0);
-    let arc = (progress * PI).sin();
+    let arc = ((hand.swung / SWING).min(1.0) * PI).sin();
+    let thrust = ((hand.poked / POKE).min(1.0) * PI).sin();
     let sway = gait.sway() * 0.6;
     for (mut rod, mut visibility) in rods.iter_mut() {
       *visibility =
@@ -230,13 +250,18 @@ fn swing(
       .with_rotation(Quat::from_euler(EulerRot::YXZ, 0.12, 0.55 + arc * 0.5, 0.0))
     }
     *transform = Transform::from_translation(
-      REST + Vec3::new(-sway.x - arc * 0.08, sway.y * 0.5 - arc * 0.05, -arc * 0.12)
+      REST
+        + Vec3::new(
+          -sway.x - arc * 0.08 - thrust * 0.1,
+          sway.y * 0.5 - arc * 0.05 + thrust * 0.08,
+          -arc * 0.12 - thrust * 0.22
+        )
     )
     .with_scale(Vec3::splat(0.6))
     .with_rotation(Quat::from_euler(
       EulerRot::YXZ,
-      0.12 + arc * 0.3,
-      1.95 - arc * 0.9,
+      0.12 + arc * 0.3 + thrust * 0.15,
+      1.95 - arc * 0.9 - thrust * 0.25,
       -0.12
     ))
   }
