@@ -83,12 +83,12 @@ fn apply(
   mut eyes: Query<(&mut Projection, &mut DistanceFog), With<Eye>>
 ) {
   if settings.is_changed() {
-    eyes.iter_mut().for_each(|(mut projection, mut fog)| {
+    for (mut projection, mut fog) in eyes.iter_mut() {
       if let Projection::Perspective(perspective) = projection.as_mut() {
         perspective.fov = settings.fov.to_radians()
       }
       fog.falloff = settings.fog()
-    });
+    }
     if opts().shot.is_none()
       && let Ok(text) = serde_json::to_string(&*settings)
     {

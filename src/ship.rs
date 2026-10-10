@@ -161,7 +161,7 @@ fn launch(
       }
     ))
     .id();
-  band.seats().iter().enumerate().for_each(|(index, &seat)| {
+  for (index, &seat) in band.seats().iter().enumerate() {
     commands.spawn((
       Replicated,
       Folk {
@@ -175,7 +175,7 @@ fn launch(
       Health(band.health()),
       Crew { ship, seat }
     ));
-  })
+  }
 }
 
 fn passage(seed: u32, tides: &mut Tides, from: Vec2) -> Option<(Vec2, f32)> {
@@ -269,7 +269,7 @@ fn sail(
   mut commands: Commands
 ) {
   let (dt, seed) = (time.delta_secs().min(0.1), voxels.seed);
-  ships.iter_mut().for_each(|(entity, mut ship, mut voyage)| {
+  for (entity, mut ship, mut voyage) in ships.iter_mut() {
     let Ship { band, at, mut yaw, mut aim } = *ship;
     voyage.age += dt;
     let nearest = players
@@ -288,15 +288,15 @@ fn sail(
     let shoal = !deep(seed, bow(yaw, 1.5));
     if homing && (shoal || voyage.age > 150.0) {
       voyage.beached = true;
-      crew.iter_mut().filter(|(_, _, seat)| seat.ship == entity).for_each(
-        |(sailor, mut folk, _)| {
-          folk.aboard = false;
-          commands
-            .entity(sailor)
-            .remove::<Crew>()
-            .insert(Raider::overboard(entity, ahead(yaw)));
-        }
-      )
+      for (sailor, mut folk, _) in
+        crew.iter_mut().filter(|(_, _, seat)| seat.ship == entity)
+      {
+        folk.aboard = false;
+        commands
+          .entity(sailor)
+          .remove::<Crew>()
+          .insert(Raider::overboard(entity, ahead(yaw)));
+      }
     }
     let desired = match (band.hostile(), voyage.leaving) {
       (true, false) => toward(voyage.landing - at.xz()),
@@ -343,20 +343,19 @@ fn sail(
     match voyage.age > 30.0 && distance > VANISH {
       true => {
         commands.entity(entity).despawn();
-        crew
-          .iter()
-          .filter(|(_, _, seat)| seat.ship == entity)
-          .for_each(|(sailor, ..)| commands.entity(sailor).despawn())
+        for (sailor, ..) in crew.iter().filter(|(_, _, seat)| seat.ship == entity) {
+          commands.entity(sailor).despawn()
+        }
       }
       false => {
         ship.set_if_neq(Ship { band, at: moved, yaw: yaw.rem_euclid(TAU), aim });
       }
     }
-  })
+  }
 }
 
 fn ferry(ships: Query<&Ship>, mut crew: Query<(&mut Folk, &Crew)>) {
-  crew.iter_mut().for_each(|(mut folk, crew)| {
+  for (mut folk, crew) in crew.iter_mut() {
     if let Ok(ship) = ships.get(crew.ship) {
       let placed = Folk {
         at: ship.at + Quat::from_rotation_y(ship.yaw) * crew.seat,
@@ -365,7 +364,7 @@ fn ferry(ships: Query<&Ship>, mut crew: Query<(&mut Folk, &Crew)>) {
       };
       folk.set_if_neq(placed);
     }
-  })
+  }
 }
 
 fn fly(
@@ -377,7 +376,7 @@ fn fly(
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
-  balls.iter_mut().for_each(|(entity, mut ball, mut flight)| {
+  for (entity, mut ball, mut flight) in balls.iter_mut() {
     flight.age += dt;
     flight.velocity.y -= BALL_GRAVITY * dt;
     let at = ball.0 + flight.velocity * dt;
@@ -389,7 +388,7 @@ fn fly(
       .any(|(_, avatar, ..)| (avatar.at + Vec3::Y * 0.9).distance(at) < 1.0);
     match landed || hit || flight.age > 6.0 {
       true => {
-        players.iter_mut().for_each(|(controller, avatar, mut health, mut vigour)| {
+        for (controller, avatar, mut health, mut vigour) in players.iter_mut() {
           let away = avatar.at + Vec3::Y * 0.9 - at;
           let distance = away.length();
           if distance < BLAST {
@@ -403,12 +402,12 @@ fn fly(
               )
             });
           }
-        });
+        }
         commands.entity(entity).despawn()
       }
       false => ball.0 = at
     }
-  })
+  }
 }
 
 const SKULL: [&str; 16] = [
@@ -569,7 +568,7 @@ fn rig(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  ships.iter().for_each(|(entity, ship)| {
+  for (entity, ship) in ships.iter() {
     let band = ship.band;
     let (length, beam) = (band.length(), band.beam());
     let mast = match band {
@@ -631,9 +630,9 @@ fn rig(
     if band == Band::Viking {
       let paints =
         [[0.7, 0.15, 0.12], [0.85, 0.7, 0.2], [0.18, 0.3, 0.6], [0.9, 0.88, 0.8]];
-      (0..((length * 2.0 - 2.0) / 1.1) as i32).for_each(|index| {
+      for index in 0..((length * 2.0 - 2.0) / 1.1) as i32 {
         let z = -length + 1.2 + index as f32 * 1.1;
-        [-1.0, 1.0].into_iter().for_each(|side: f32| {
+        for side in [-1.0, 1.0].into_iter() {
           part(
             Vec3::new(0.06, 0.62, 0.62),
             paints[(index as usize + usize::from(side > 0.0)) % 4],
@@ -641,8 +640,8 @@ fn rig(
             Vec3::new(side * (beam + 0.16), DECK + 0.2, z),
             entity
           )
-        })
-      });
+        }
+      }
       part(
         Vec3::new(0.42, 0.08, 0.2),
         [0.95, 0.85, 0.2],
@@ -674,7 +673,7 @@ fn rig(
       Transform::from_translation(ship.at).with_rotation(Quat::from_rotation_y(ship.yaw)),
       Visibility::default()
     ));
-  })
+  }
 }
 
 fn bob(
@@ -683,7 +682,7 @@ fn bob(
   mut cannons: Query<&mut Transform, (With<Cannon>, Without<Shown>)>
 ) {
   let (dt, now) = (time.delta_secs(), time.elapsed_secs());
-  ships.iter_mut().for_each(|(ship, mut shown, mut transform, children)| {
+  for (ship, mut shown, mut transform, children) in ships.iter_mut() {
     shown.at = shown.at.lerp(ship.at, (dt * 8.0).min(1.0));
     shown.yaw += wrap(ship.yaw - shown.yaw) * (dt * 6.0).min(1.0);
     let phase = now + shown.phase;
@@ -694,12 +693,12 @@ fn bob(
             * Quat::from_rotation_z((phase * 1.1).sin() * 0.035)
             * Quat::from_rotation_x((phase * 0.8).sin() * 0.02)
         );
-    children.iter().for_each(|child| {
+    for child in children.iter() {
       if let Ok(mut cannon) = cannons.get_mut(child) {
         cannon.rotation = Quat::from_rotation_y(ship.aim.clamp(-1.2, 1.2))
       }
-    })
-  })
+    }
+  }
 }
 
 #[derive(Component)]
@@ -715,24 +714,26 @@ fn fire(
   mut commands: Commands
 ) {
   let blend = (time.delta_secs() * 20.0).min(1.0);
-  balls.iter_mut().for_each(|(entity, ball, transform)| match transform {
-    Some(mut transform) => {
-      transform.translation = transform.translation.lerp(ball.0, blend)
+  for (entity, ball, transform) in balls.iter_mut() {
+    match transform {
+      Some(mut transform) => {
+        transform.translation = transform.translation.lerp(ball.0, blend)
+      }
+      None => {
+        commands.entity(entity).insert((
+          Mesh3d(rigging.ball.clone()),
+          MeshMaterial3d(shapes.paint(
+            &mut materials,
+            &mut images,
+            [0.05, 0.05, 0.06],
+            Grain::Plain
+          )),
+          Transform::from_translation(ball.0),
+          Visibility::default()
+        ));
+      }
     }
-    None => {
-      commands.entity(entity).insert((
-        Mesh3d(rigging.ball.clone()),
-        MeshMaterial3d(shapes.paint(
-          &mut materials,
-          &mut images,
-          [0.05, 0.05, 0.06],
-          Grain::Plain
-        )),
-        Transform::from_translation(ball.0),
-        Visibility::default()
-      ));
-    }
-  })
+  }
 }
 
 fn burst(
@@ -772,7 +773,7 @@ fn fade(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  blasts.iter_mut().for_each(|(entity, mut blast, mut transform, material)| {
+  for (entity, mut blast, mut transform, material) in blasts.iter_mut() {
     blast.0 += time.delta_secs();
     let progress = blast.0 / 0.45;
     transform.scale = Vec3::splat(2.0 + progress * 12.0);
@@ -783,7 +784,7 @@ fn fade(
       materials.remove(&material.0);
       commands.entity(entity).despawn()
     }
-  })
+  }
 }
 
 pub struct Ships;

@@ -86,14 +86,14 @@ pub fn assemble(
       layers.clone(),
       Transform::from_xyz(0.0, 24.0 * PX, 0.0)
     ));
-    [
+    for (x, phase, mesh, pivot) in [
       (6.0, 0.0, kit.arm.clone(), 24.0),
       (-6.0, PI, kit.arm.clone(), 24.0),
       (2.0, PI, kit.leg.clone(), 12.0),
       (-2.0, 0.0, kit.leg.clone(), 12.0)
     ]
     .into_iter()
-    .for_each(|(x, phase, mesh, pivot)| {
+    {
       let mut limb = figure.spawn((
         Limb { phase },
         Mesh3d(mesh),
@@ -104,7 +104,7 @@ pub fn assemble(
       if x == 6.0 && pivot == 24.0 {
         limb.with_child((grip(), layers.clone()));
       }
-    });
+    }
   });
 }
 
@@ -116,22 +116,22 @@ fn dress(
   mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
-  arrivals
+  for (entity, player, avatar, skin) in arrivals
     .iter()
     .filter(|(entity, ..)| pilot.as_ref().is_some_and(|pilot| pilot.me != *entity))
-    .for_each(|(entity, player, avatar, skin)| {
-      let clad = clothe(skin, &mut images, &mut materials);
-      let mut figure = commands.entity(entity);
-      figure.insert((
-        Figure { shown: avatar.at, stride: 0.0 },
-        Transform::from_translation(avatar.at),
-        Visibility::default()
-      ));
-      assemble(&mut figure, &kit, &clad, RenderLayers::default());
-      figure.insert(clad);
-      let tag = commands.spawn(plate(player.name.clone(), Color::WHITE, avatar.at)).id();
-      commands.entity(entity).insert(Tag(tag));
-    })
+  {
+    let clad = clothe(skin, &mut images, &mut materials);
+    let mut figure = commands.entity(entity);
+    figure.insert((
+      Figure { shown: avatar.at, stride: 0.0 },
+      Transform::from_translation(avatar.at),
+      Visibility::default()
+    ));
+    assemble(&mut figure, &kit, &clad, RenderLayers::default());
+    figure.insert(clad);
+    let tag = commands.spawn(plate(player.name.clone(), Color::WHITE, avatar.at)).id();
+    commands.entity(entity).insert(Tag(tag));
+  }
 }
 
 fn reskin(
@@ -139,12 +139,12 @@ fn reskin(
   mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
-  figures.iter().for_each(|(skin, clad)| {
+  for (skin, clad) in figures.iter() {
     if let Some(mut image) = images.get_mut(&clad.image) {
       image.data = Some(skin.pixels(false))
     }
     materials.get_mut(&clad.material);
-  })
+  }
 }
 
 fn mirror(
@@ -165,7 +165,9 @@ fn mirror(
       View::First => Visibility::Hidden
     };
     if skin.is_changed() || mirrors.is_empty() {
-      mirrors.iter().for_each(|(old, _)| commands.entity(old).despawn());
+      for (old, _) in mirrors.iter() {
+        commands.entity(old).despawn()
+      }
       let clad = clothe(&skin, &mut images, &mut materials);
       let mut figure = commands.spawn((
         Mirror,
@@ -176,9 +178,9 @@ fn mirror(
       assemble(&mut figure, &kit, &clad, RenderLayers::default());
       figure.insert(clad);
     }
-    mirrors.iter_mut().for_each(|(_, mut visibility)| {
+    for (_, mut visibility) in mirrors.iter_mut() {
       visibility.set_if_neq(shown);
-    })
+    }
   }
 }
 
@@ -197,46 +199,44 @@ fn animate(
   mut grips: Query<&mut Grip>
 ) {
   let dt = time.delta_secs();
-  figures.iter_mut().for_each(
-    |(avatar, mirrored, mut figure, mut transform, children)| {
-      let avatar = match mirrored {
-        true => pilot.as_ref().map_or_else(Avatar::default, |pilot| pilot.avatar()),
-        false => avatar.copied().unwrap_or_default()
-      };
-      let before = figure.shown;
-      let follow = if mirrored { 1.0 } else { (dt * 12.0).min(1.0) };
-      figure.shown = before.lerp(avatar.at, follow);
-      let pace = (figure.shown - before).xz().length() / dt.max(1e-4);
-      figure.stride += pace * dt * 2.2;
-      let swing = (figure.stride.sin() * (pace / 4.3).min(1.0)) * 0.7;
-      *transform = Transform::from_translation(figure.shown)
-        .with_rotation(Quat::from_rotation_y(avatar.yaw));
-      children.iter().for_each(|child| {
-        if let Ok(mut head) = heads.get_mut(child) {
-          head.rotation = Quat::from_rotation_x(avatar.pitch)
+  for (avatar, mirrored, mut figure, mut transform, children) in figures.iter_mut() {
+    let avatar = match mirrored {
+      true => pilot.as_ref().map_or_else(Avatar::default, |pilot| pilot.avatar()),
+      false => avatar.copied().unwrap_or_default()
+    };
+    let before = figure.shown;
+    let follow = if mirrored { 1.0 } else { (dt * 12.0).min(1.0) };
+    figure.shown = before.lerp(avatar.at, follow);
+    let pace = (figure.shown - before).xz().length() / dt.max(1e-4);
+    figure.stride += pace * dt * 2.2;
+    let swing = (figure.stride.sin() * (pace / 4.3).min(1.0)) * 0.7;
+    *transform = Transform::from_translation(figure.shown)
+      .with_rotation(Quat::from_rotation_y(avatar.yaw));
+    for child in children.iter() {
+      if let Ok(mut head) = heads.get_mut(child) {
+        head.rotation = Quat::from_rotation_x(avatar.pitch)
+      }
+      if let Ok((limb, mut limb_transform, held)) = limbs.get_mut(child) {
+        let raised = held.is_some() && avatar.held.is_some();
+        limb_transform.rotation = Quat::from_rotation_x(
+          swing * (limb.phase).cos() * if raised { 0.4 } else { 1.0 }
+            + if raised { 0.35 } else { 0.0 }
+        );
+        for &grip in held.into_iter().flatten() {
+          if let Ok(mut grip) = grips.get_mut(grip) {
+            grip.set_if_neq(Grip(avatar.held));
+          }
         }
-        if let Ok((limb, mut limb_transform, held)) = limbs.get_mut(child) {
-          let raised = held.is_some() && avatar.held.is_some();
-          limb_transform.rotation = Quat::from_rotation_x(
-            swing * (limb.phase).cos() * if raised { 0.4 } else { 1.0 }
-              + if raised { 0.35 } else { 0.0 }
-          );
-          held.into_iter().flatten().for_each(|&grip| {
-            if let Ok(mut grip) = grips.get_mut(grip) {
-              grip.set_if_neq(Grip(avatar.held));
-            }
-          })
-        }
-      })
+      }
     }
-  )
+  }
 }
 
 fn label(
   figures: Query<(&Figure, &Player, &Tag), Without<Me>>,
   mut plates: Query<&mut Plate>
 ) {
-  figures.iter().for_each(|(figure, player, tag)| {
+  for (figure, player, tag) in figures.iter() {
     if let Ok(mut plate) = plates.get_mut(tag.0) {
       plate.at = figure.shown + Vec3::Y * 2.05;
       if plate.text != player.name {
@@ -246,7 +246,7 @@ fn label(
         plate.color = hue(player.hue)
       }
     }
-  })
+  }
 }
 
 fn untag(gone: On<Remove, Tag>, tags: Query<&Tag>, mut commands: Commands) {

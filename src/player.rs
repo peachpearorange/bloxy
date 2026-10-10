@@ -291,7 +291,7 @@ fn fly(
     let banked = (*spare + time.delta_secs()).min(0.25);
     let steps = (banked / STEP).floor();
     *spare = banked - steps * STEP;
-    (0..steps as u32).for_each(|_| {
+    for _ in 0..steps as u32 {
       let swimming = voxels
         .block((pilot.at + Vec3::Y * 0.6).floor().as_ivec3())
         .is_some_and(Block::fluid);
@@ -342,7 +342,7 @@ fn fly(
       pilot.velocity = velocity;
       pilot.grounded = landed;
       pilot.walled = walled
-    })
+    }
   }
 }
 
@@ -416,15 +416,17 @@ fn follow(
       .with_rotation(pilot.facing())
     }
   };
-  eyes.iter_mut().for_each(|mut eye| *eye = placed)
+  for mut eye in eyes.iter_mut() {
+    *eye = placed
+  }
 }
 
 fn reel(mut knocks: MessageReader<Knock>, mut pilot: ResMut<Pilot>) {
-  knocks.read().for_each(|&Knock(push)| {
+  for &Knock(push) in knocks.read() {
     pilot.velocity = pilot.velocity.with_y(0.0) + push;
     pilot.grounded = false;
     pilot.staggered = STAGGER
-  })
+  }
 }
 
 fn grasp(
@@ -621,7 +623,9 @@ fn work(
         puts.write(Put { at, block });
         if *role == Role::Guest {
           voxels.set(at, block);
-          laid.into_iter().for_each(|(_, head)| voxels.set(at + facing, head))
+          for (_, head) in laid.into_iter() {
+            voxels.set(at + facing, head)
+          }
         }
         if stack.block.sign() && voxels.block(at - IVec3::Y).is_some_and(Block::solid) {
           inscription.begin(at, "");
@@ -640,12 +644,14 @@ fn apply_changes(
   if let Some(mut voxels) = voxels
     && *role == Role::Guest
   {
-    changes.read().for_each(|change| voxels.set(change.at, change.block))
+    for change in changes.read() {
+      voxels.set(change.at, change.block)
+    }
   }
 }
 
 fn arrive(mut commands: Commands, mut welcomes: MessageReader<Welcome>) {
-  welcomes.read().for_each(|welcome| {
+  for welcome in welcomes.read() {
     let mut voxels = Voxels::new(welcome.seed);
     voxels.kept = std::sync::Arc::new(
       welcome
@@ -656,9 +662,11 @@ fn arrive(mut commands: Commands, mut welcomes: MessageReader<Welcome>) {
         })
         .collect()
     );
-    welcome.edits.iter().for_each(|&(at, block)| voxels.set(at, block));
+    for &(at, block) in welcome.edits.iter() {
+      voxels.set(at, block)
+    }
     commands.insert_resource(voxels)
-  })
+  }
 }
 
 pub struct Piloting;

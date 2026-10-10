@@ -183,7 +183,7 @@ fn enchant(
       }
       kept
     });
-    near.iter().for_each(|island| {
+    for island in near.iter() {
       glimmers.0.entry(island.cell).or_insert_with(|| {
         commands
           .spawn((
@@ -194,7 +194,7 @@ fn enchant(
           ))
           .id()
       });
-    })
+    }
   }
 }
 

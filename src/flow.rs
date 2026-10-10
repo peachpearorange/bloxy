@@ -14,9 +14,9 @@ pub struct Flows(Vec<(f32, IVec3)>);
 
 impl Flows {
   pub fn stir(&mut self, at: IVec3, when: f32) {
-    std::iter::once(at)
-      .chain(AROUND.map(|side| at + side))
-      .for_each(|cell| self.0.push((when, cell)))
+    for cell in std::iter::once(at).chain(AROUND.map(|side| at + side)) {
+      self.0.push((when, cell))
+    }
   }
 }
 
@@ -89,7 +89,7 @@ fn flow(
       next(&mut voxels, at).map(|block| (at, before, block))
     })
     .collect();
-  altered.into_iter().for_each(|(at, before, block)| {
+  for (at, before, block) in altered.into_iter() {
     voxels.set(at, block);
     if before.modelled() && !before.fluid() {
       crate::loose::fall(&mut commands, before.drop(), at)
@@ -101,7 +101,7 @@ fn flow(
       .any(|block| block.liquid().is_some_and(|(fluid, _)| fluid == Fluid::Lava));
     let fluid = if lava { Fluid::Lava } else { Fluid::Water };
     flows.stir(at, now + fluid.delay())
-  })
+  }
 }
 
 pub struct Flowing;
@@ -119,7 +119,7 @@ mod tests {
   use super::*;
 
   fn settle(voxels: &mut Voxels, around: IVec3, rounds: usize) {
-    (0..rounds).for_each(|_| {
+    for _ in 0..rounds {
       let span = 9;
       let changes: Vec<(IVec3, Block)> = (-span..=span)
         .flat_map(|x| {
@@ -130,17 +130,21 @@ mod tests {
           next(voxels, around + offset).map(|block| (around + offset, block))
         })
         .collect();
-      changes.into_iter().for_each(|(at, block)| voxels.set(at, block))
-    })
+      for (at, block) in changes.into_iter() {
+        voxels.set(at, block)
+      }
+    }
   }
 
   #[test]
   fn water_falls_spreads_and_dries() {
     let mut voxels = Voxels::new(1);
     let spring = IVec3::new(4000, 220, 4000);
-    (-8..=8).for_each(|x| {
-      (-8..=8).for_each(|z| voxels.set(spring + IVec3::new(x, -3, z), Block::Stone))
-    });
+    for x in -8..=8 {
+      for z in -8..=8 {
+        voxels.set(spring + IVec3::new(x, -3, z), Block::Stone)
+      }
+    }
     voxels.set(spring, Block::Water);
     settle(&mut voxels, spring, 12);
     assert_eq!(voxels.ensure(spring - IVec3::Y), Block::WaterFlow1);

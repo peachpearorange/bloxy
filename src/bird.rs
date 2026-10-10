@@ -201,7 +201,7 @@ fn muster(
   mut commands: Commands
 ) {
   let seed = voxels.seed;
-  players
+  for island in players
     .iter()
     .flat_map(|avatar| {
       Island::near(seed, avatar.at)
@@ -211,29 +211,29 @@ fn muster(
     .collect::<Vec<_>>()
     .into_iter()
     .filter(|island| flocks.0.insert(island.cell))
-    .for_each(|island| {
-      let key =
-        hash(seed ^ 0xB1D5, island.cell.x, 0x17, 0) ^ hash(seed, 0, island.cell.y, 0x29);
-      let counts: &[(Breed, u32)] = match (island.kind, island.wood) {
-        (_, Wood::Palm) => &[(Breed::Parrot, 4), (Breed::Gull, 3)],
-        (Kind::Meadow, _) => &[(Breed::Swan, 3), (Breed::Gull, 3)],
-        (Kind::Woods, _) => &[(Breed::Raven, 3), (Breed::Swan, 2), (Breed::Gull, 1)],
-        (Kind::Peak, _) => &[(Breed::Raven, 4), (Breed::Gull, 2)],
-        (Kind::Frost, _) => &[(Breed::Raven, 3), (Breed::Gull, 2)],
-        (Kind::Dunes, _) => &[(Breed::Gull, 5)],
-        (Kind::Volcano | Kind::Mushroom, _) => &[(Breed::Raven, 2), (Breed::Gull, 1)]
-      };
-      counts
-        .iter()
-        .flat_map(|&(breed, count)| (0..count).map(move |index| (breed, index)))
-        .enumerate()
-        .for_each(|(index, (breed, _))| {
-          let luck = key ^ (index as u32 + 1).wrapping_mul(0x9E37_79B9);
-          let mut flight = Flight::new(breed, island.centre, island.radius, luck);
-          let at = landing(&mut voxels, &mut flight, breed);
-          commands.spawn(hatch(&voxels, breed, at, flight));
-        })
-    })
+  {
+    let key =
+      hash(seed ^ 0xB1D5, island.cell.x, 0x17, 0) ^ hash(seed, 0, island.cell.y, 0x29);
+    let counts: &[(Breed, u32)] = match (island.kind, island.wood) {
+      (_, Wood::Palm) => &[(Breed::Parrot, 4), (Breed::Gull, 3)],
+      (Kind::Meadow, _) => &[(Breed::Swan, 3), (Breed::Gull, 3)],
+      (Kind::Woods, _) => &[(Breed::Raven, 3), (Breed::Swan, 2), (Breed::Gull, 1)],
+      (Kind::Peak, _) => &[(Breed::Raven, 4), (Breed::Gull, 2)],
+      (Kind::Frost, _) => &[(Breed::Raven, 3), (Breed::Gull, 2)],
+      (Kind::Dunes, _) => &[(Breed::Gull, 5)],
+      (Kind::Volcano | Kind::Mushroom, _) => &[(Breed::Raven, 2), (Breed::Gull, 1)]
+    };
+    for (index, (breed, _)) in counts
+      .iter()
+      .flat_map(|&(breed, count)| (0..count).map(move |index| (breed, index)))
+      .enumerate()
+    {
+      let luck = key ^ (index as u32 + 1).wrapping_mul(0x9E37_79B9);
+      let mut flight = Flight::new(breed, island.centre, island.radius, luck);
+      let at = landing(&mut voxels, &mut flight, breed);
+      commands.spawn(hatch(&voxels, breed, at, flight));
+    }
+  }
 }
 
 fn fly(
@@ -245,99 +245,97 @@ fn fly(
   let dt = time.delta_secs().min(0.1);
   let watched =
     |at: Vec3| players.iter().any(|avatar| avatar.at.xz().distance(at.xz()) < SLEEP);
-  birds.iter_mut().filter(|(bird, _)| watched(bird.at)).for_each(
-    |(mut bird, mut flight)| {
-      let Bird { breed, mut at, mut yaw, .. } = *bird;
-      flight.timer -= dt;
-      flight.plucked -= dt;
-      let startled = players.iter().any(|avatar| avatar.at.distance(at) < STARTLE);
-      let ground = (at - Vec3::Y * 0.4).floor().as_ivec3();
-      let swimming =
-        voxels.ensure(ground).fluid() || voxels.ensure(ground + IVec3::Y).fluid();
-      let stance = match flight.mood {
-        Mood::Ground if flight.timer <= 0.0 || startled => {
-          let (floor, _) = perch(&mut voxels, at.xz(), at.y + 1.0);
-          flight.mood = Mood::Aloft;
-          flight.timer = 15.0 + flight.dice() * 30.0;
-          flight.altitude = floor.max(SEA as f32) + 10.0 + flight.dice() * 18.0;
-          flight.angle = toward(flight.home - at.xz()) + PI;
-          flight.velocity = ahead(yaw) * 2.0 + Vec3::Y * 4.0;
-          Stance::Fly
+  for (mut bird, mut flight) in birds.iter_mut().filter(|(bird, _)| watched(bird.at)) {
+    let Bird { breed, mut at, mut yaw, .. } = *bird;
+    flight.timer -= dt;
+    flight.plucked -= dt;
+    let startled = players.iter().any(|avatar| avatar.at.distance(at) < STARTLE);
+    let ground = (at - Vec3::Y * 0.4).floor().as_ivec3();
+    let swimming =
+      voxels.ensure(ground).fluid() || voxels.ensure(ground + IVec3::Y).fluid();
+    let stance = match flight.mood {
+      Mood::Ground if flight.timer <= 0.0 || startled => {
+        let (floor, _) = perch(&mut voxels, at.xz(), at.y + 1.0);
+        flight.mood = Mood::Aloft;
+        flight.timer = 15.0 + flight.dice() * 30.0;
+        flight.altitude = floor.max(SEA as f32) + 10.0 + flight.dice() * 18.0;
+        flight.angle = toward(flight.home - at.xz()) + PI;
+        flight.velocity = ahead(yaw) * 2.0 + Vec3::Y * 4.0;
+        Stance::Fly
+      }
+      Mood::Ground => {
+        let pace = match (swimming, flight.dice() < dt * 0.4) {
+          (_, true) => {
+            yaw += (flight.dice() - 0.5) * PI;
+            0.0
+          }
+          (true, _) => 0.5,
+          _ => 0.35
+        };
+        let resting = (flight.timer * 0.7).sin() > 0.3;
+        let step = if resting { 0.0 } else { pace };
+        let next = at + ahead(yaw) * step * dt;
+        let (floor, wet) = perch(&mut voxels, next.xz(), at.y + 1.0);
+        let suits = breed.waterborne().is_none_or(|water| water == wet);
+        let straying = next.xz().distance(flight.home) > flight.radius * 1.4;
+        match suits && (floor - at.y).abs() < 1.1 && !straying {
+          true => at = next.with_y(floor),
+          false => yaw += PI * 0.5
         }
-        Mood::Ground => {
-          let pace = match (swimming, flight.dice() < dt * 0.4) {
-            (_, true) => {
-              yaw += (flight.dice() - 0.5) * PI;
-              0.0
-            }
-            (true, _) => 0.5,
-            _ => 0.35
-          };
-          let resting = (flight.timer * 0.7).sin() > 0.3;
-          let step = if resting { 0.0 } else { pace };
-          let next = at + ahead(yaw) * step * dt;
-          let (floor, wet) = perch(&mut voxels, next.xz(), at.y + 1.0);
-          let suits = breed.waterborne().is_none_or(|water| water == wet);
-          let straying = next.xz().distance(flight.home) > flight.radius * 1.4;
-          match suits && (floor - at.y).abs() < 1.1 && !straying {
-            true => at = next.with_y(floor),
-            false => yaw += PI * 0.5
-          }
-          match (wet, step > 0.0) {
-            (true, _) => Stance::Swim,
-            (false, true) => Stance::Walk,
-            _ => Stance::Rest
-          }
+        match (wet, step > 0.0) {
+          (true, _) => Stance::Swim,
+          (false, true) => Stance::Walk,
+          _ => Stance::Rest
         }
-        Mood::Aloft | Mood::Descend => {
-          if flight.mood == Mood::Aloft && flight.timer <= 0.0 {
-            flight.mood = Mood::Descend;
-            flight.target = landing(&mut voxels, &mut flight, breed)
-          }
-          let speed = breed.speed();
-          flight.angle += speed / flight.radius.max(12.0) * dt;
-          let circling =
-            flight.home + Vec2::from_angle(flight.angle) * flight.radius.max(12.0);
-          let goal = match flight.mood {
-            Mood::Descend => flight.target,
-            _ => circling.extend(flight.altitude).xzy()
+      }
+      Mood::Aloft | Mood::Descend => {
+        if flight.mood == Mood::Aloft && flight.timer <= 0.0 {
+          flight.mood = Mood::Descend;
+          flight.target = landing(&mut voxels, &mut flight, breed)
+        }
+        let speed = breed.speed();
+        flight.angle += speed / flight.radius.max(12.0) * dt;
+        let circling =
+          flight.home + Vec2::from_angle(flight.angle) * flight.radius.max(12.0);
+        let goal = match flight.mood {
+          Mood::Descend => flight.target,
+          _ => circling.extend(flight.altitude).xzy()
+        };
+        let offset = goal - at;
+        let wish = offset.normalize_or_zero()
+          * match flight.mood {
+            Mood::Descend => speed.min(offset.length() * 1.5 + 1.0),
+            _ => speed
           };
-          let offset = goal - at;
-          let wish = offset.normalize_or_zero()
-            * match flight.mood {
-              Mood::Descend => speed.min(offset.length() * 1.5 + 1.0),
-              _ => speed
-            };
-          let below = at.floor().as_ivec3() - IVec3::Y * 2;
-          let lift = match voxels.ensure(at.floor().as_ivec3()).solid()
-            || voxels.ensure(below).solid() && flight.mood == Mood::Aloft
-          {
-            true => Vec3::Y * 6.0,
-            false => Vec3::ZERO
-          };
-          flight.velocity = flight.velocity.lerp(wish + lift, (dt * 1.8).min(1.0));
-          at += flight.velocity * dt;
-          if flight.velocity.xz().length() > 0.3 {
-            yaw = toward(flight.velocity.xz())
+        let below = at.floor().as_ivec3() - IVec3::Y * 2;
+        let lift = match voxels.ensure(at.floor().as_ivec3()).solid()
+          || voxels.ensure(below).solid() && flight.mood == Mood::Aloft
+        {
+          true => Vec3::Y * 6.0,
+          false => Vec3::ZERO
+        };
+        flight.velocity = flight.velocity.lerp(wish + lift, (dt * 1.8).min(1.0));
+        at += flight.velocity * dt;
+        if flight.velocity.xz().length() > 0.3 {
+          yaw = toward(flight.velocity.xz())
+        }
+        match flight.mood == Mood::Descend && offset.length() < 0.4 {
+          true => {
+            at = flight.target;
+            flight.mood = Mood::Ground;
+            flight.velocity = Vec3::ZERO;
+            flight.timer = 12.0 + flight.dice() * 30.0;
+            Stance::Rest
           }
-          match flight.mood == Mood::Descend && offset.length() < 0.4 {
-            true => {
-              at = flight.target;
-              flight.mood = Mood::Ground;
-              flight.velocity = Vec3::ZERO;
-              flight.timer = 12.0 + flight.dice() * 30.0;
-              Stance::Rest
-            }
-            false => match flight.velocity.y < -0.5 || (flight.angle * 1.7).sin() > 0.6 {
-              true => Stance::Glide,
-              false => Stance::Fly
-            }
+          false => match flight.velocity.y < -0.5 || (flight.angle * 1.7).sin() > 0.6 {
+            true => Stance::Glide,
+            false => Stance::Fly
           }
         }
-      };
-      bird.set_if_neq(Bird { breed, at, yaw: yaw.rem_euclid(TAU), stance });
-    }
-  )
+      }
+    };
+    bird.set_if_neq(Bird { breed, at, yaw: yaw.rem_euclid(TAU), stance });
+  }
 }
 
 fn pluck(
@@ -346,7 +344,7 @@ fn pluck(
   mut birds: Query<(&Bird, &mut Flight, &mut Health)>,
   mut commands: Commands
 ) {
-  strikes.read().for_each(|&FromClient { client_id, message: Strike(target) }| {
+  for &FromClient { client_id, message: Strike(target) } in strikes.read() {
     if let Ok((bird, mut flight, mut health)) = birds.get_mut(target)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(bird.at) <= REACH + 1.5
@@ -354,9 +352,9 @@ fn pluck(
       if flight.plucked <= 0.0 {
         flight.plucked = PLUCK_AGAIN;
         let feathers = 1 + (flight.dice() * 2.0) as u32;
-        (0..feathers).for_each(|_| {
+        for _ in 0..feathers {
           inventory.add(Block::Feather);
-        })
+        }
       }
       flight.timer = 0.0;
       health.0 = health.0.saturating_sub(PUNCH);
@@ -366,7 +364,7 @@ fn pluck(
         commands.entity(target).despawn()
       }
     }
-  })
+  }
 }
 
 pub fn struck(bird: &Bird, from: Vec3, toward: Vec3) -> Option<f32> {
@@ -554,7 +552,7 @@ fn dress(
   mut images: ResMut<Assets<Image>>,
   mut commands: Commands
 ) {
-  arrivals.iter().for_each(|(entity, bird)| {
+  for (entity, bird) in arrivals.iter() {
     commands.entity(entity).insert((
       Shown { at: bird.at, yaw: bird.yaw, pitch: 0.0, flap: 0.0, stride: 0.0 },
       Transform::from_translation(bird.at),
@@ -569,7 +567,7 @@ fn dress(
       &mut images,
       &mut commands
     );
-  })
+  }
 }
 
 fn animate(
@@ -579,7 +577,7 @@ fn animate(
   mut joints: Query<(&Joint, &Rest, &mut Transform), Without<Shown>>
 ) {
   let (dt, now) = (time.delta_secs().max(1e-4), time.elapsed_secs());
-  birds.iter_mut().for_each(|(entity, bird, mut shown, mut transform)| {
+  for (entity, bird, mut shown, mut transform) in birds.iter_mut() {
     let before = shown.at;
     shown.at = before.lerp(bird.at, (dt * 10.0).min(1.0));
     let turn = (bird.yaw - shown.yaw + PI).rem_euclid(TAU) - PI;
@@ -606,7 +604,7 @@ fn animate(
       )
       .with_scale(Vec3::splat(bird.breed.size()));
     let (stance, flap, stride) = (bird.stance, shown.flap, shown.stride);
-    family.iter_descendants(entity).for_each(|child| {
+    for child in family.iter_descendants(entity) {
       if let Ok((joint, rest, mut transform)) = joints.get_mut(child) {
         transform.rotation = match (*joint, stance) {
           (Joint::Wing(side), Stance::Fly) => {
@@ -633,8 +631,8 @@ fn animate(
         };
         transform.translation = rest.0
       }
-    })
-  })
+    }
+  }
 }
 
 pub struct Birds;

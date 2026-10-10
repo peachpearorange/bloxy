@@ -169,7 +169,7 @@ fn stage(mut commands: Commands, draft: Res<Draft>, kit: Res<Kit>) {
     layers.clone(),
     Transform::default()
   ));
-  PIECES.into_iter().for_each(|(part, at, lift)| {
+  for (part, at, lift) in PIECES.into_iter() {
     let mesh = match part {
       Part::Head => kit.head.clone(),
       Part::Body => kit.body.clone(),
@@ -184,7 +184,7 @@ fn stage(mut commands: Commands, draft: Res<Draft>, kit: Res<Kit>) {
       Transform::from_translation(at * PX),
       Visibility::default()
     ));
-  });
+  }
 }
 
 pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
@@ -203,7 +203,7 @@ pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
           left.spawn(words("Colours", 15.0, FAINT));
           left.spawn(Node { flex_wrap: FlexWrap::Wrap, width: px(380), ..default() }).with_children(
             |palette| {
-              PALETTE.iter().enumerate().for_each(|(index, &[r, g, b])| {
+              for (index, &[r, g, b]) in PALETTE.iter().enumerate() {
                 palette.spawn((
                   Button,
                   Act::Swatch(index as u8),
@@ -211,7 +211,7 @@ pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
                   BorderColor::all(BUTTON),
                   BackgroundColor(Color::srgb_u8(r, g, b))
                 ));
-              })
+              }
             }
           );
           left.spawn(Node { column_gap: px(8), row_gap: px(6), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(
@@ -359,24 +359,28 @@ fn obey(
   mut commands: Commands,
   mut paints: MessageWriter<Paint>
 ) {
-  pressed.read().for_each(|&Pressed(act)| match act {
-    Act::Swatch(colour) => draft.colour = colour,
-    Act::Randomize => {
-      draft.skin = Skin::fresh(random());
-      draft.touched = true
+  for &Pressed(act) in pressed.read() {
+    match act {
+      Act::Swatch(colour) => draft.colour = colour,
+      Act::Randomize => {
+        draft.skin = Skin::fresh(random());
+        draft.touched = true
+      }
+      Act::Revert => draft.touched = false,
+      Act::Unhide => {
+        for piece in pieces.iter() {
+          commands
+            .entity(piece)
+            .remove::<Ghostly>()
+            .insert(MeshMaterial3d(draft.material.clone()));
+        }
+      }
+      Act::Wear => {
+        paints.write(Paint(draft.skin.clone()));
+      }
+      _ => ()
     }
-    Act::Revert => draft.touched = false,
-    Act::Unhide => pieces.iter().for_each(|piece| {
-      commands
-        .entity(piece)
-        .remove::<Ghostly>()
-        .insert(MeshMaterial3d(draft.material.clone()));
-    }),
-    Act::Wear => {
-      paints.write(Paint(draft.skin.clone()));
-    }
-    _ => ()
-  })
+  }
 }
 
 fn show(
@@ -403,21 +407,21 @@ fn show(
   let turned = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);
   let placed = Transform::from_translation(PIVOT + turned * Vec3::NEG_Z * orbit.distance)
     .looking_at(PIVOT, Vec3::Y);
-  viewers.iter_mut().for_each(|(mut camera, mut transform)| {
+  for (mut camera, mut transform) in viewers.iter_mut() {
     if camera.is_active != visible {
       camera.is_active = visible
     }
     transform.set_if_neq(placed);
-  });
-  lamps.iter_mut().for_each(|mut lamp| {
+  }
+  for mut lamp in lamps.iter_mut() {
     lamp.set_if_neq(
       Transform::from_translation(
         placed.translation + placed.right() * 2.5 + Vec3::Y * 3.0
       )
       .looking_at(PIVOT, Vec3::Y)
     );
-  });
-  swatches.iter_mut().for_each(|(act, mut border)| {
+  }
+  for (act, mut border) in swatches.iter_mut() {
     if let Act::Swatch(colour) = *act {
       let lit = BorderColor::all(match colour == draft.colour {
         true => Color::WHITE,
@@ -427,13 +431,13 @@ fn show(
         *border = lit
       }
     }
-  });
+  }
   let note = if draft.touched { "Unsaved: press Wear to put it on." } else { "" };
-  unsaved.iter_mut().for_each(|mut text| {
+  for mut text in unsaved.iter_mut() {
     if text.0 != note {
       text.0 = note.into()
     }
-  })
+  }
 }
 
 pub struct Editing;

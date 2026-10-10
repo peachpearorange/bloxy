@@ -104,25 +104,25 @@ fn scale(
   windows: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
   mut scale: ResMut<UiScale>
 ) {
-  windows.iter().for_each(|window| {
+  for window in windows.iter() {
     let fitted = ((window.height() / 720.0) * 4.0).floor().max(4.0) / 4.0;
     if scale.0 != fitted {
       scale.0 = fitted
     }
-  })
+  }
 }
 
 fn tuck(
   menu: Res<Menu>,
   mut bars: Query<&mut Visibility, Or<(With<Hotbar>, With<Status>)>>
 ) {
-  bars.iter_mut().for_each(|mut visibility| {
+  for mut visibility in bars.iter_mut() {
     visibility.set_if_neq(if menu.open {
       Visibility::Hidden
     } else {
       Visibility::Inherited
     });
-  })
+  }
 }
 
 fn build(
@@ -155,7 +155,7 @@ fn build(
       row
         .spawn(Node { width: px(SLOT * HOTBAR as f32), column_gap: px(2), ..default() })
         .with_children(|hearts| {
-          (0..Health::FULL / 2).for_each(|index| {
+          for index in 0..Health::FULL / 2 {
             hearts.spawn((
               Heart(index),
               ImageNode {
@@ -164,7 +164,7 @@ fn build(
               },
               Node { width: px(22), height: px(22), ..default() }
             ));
-          })
+          }
         });
     });
   commands
@@ -206,7 +206,7 @@ fn build(
     }))
     .with_children(|row| {
       row.spawn((Node::default(), BackgroundColor(STRIP))).with_children(|bar| {
-        (0..HOTBAR).for_each(|index| {
+        for index in 0..HOTBAR {
           bar
             .spawn((
               Slot(index),
@@ -240,7 +240,7 @@ fn build(
                 }
               ));
             });
-        })
+        }
       });
     });
   commands
@@ -278,14 +278,14 @@ fn build(
   });
   commands.spawn((Outline, Transform::default(), Visibility::Hidden)).with_children(
     |outline| {
-      (0..12).for_each(|index| {
+      for index in 0..12 {
         outline.spawn((
           Edge(index),
           Mesh3d(bar.clone()),
           MeshMaterial3d(ink.clone()),
           Transform::default()
         ));
-      })
+      }
     }
   );
 }
@@ -307,13 +307,13 @@ fn refresh(
 ) {
   let inventory =
     pilot.and_then(|pilot| inventories.get(pilot.me).ok().cloned()).unwrap_or_default();
-  slots.iter_mut().for_each(|(slot, mut border)| {
+  for (slot, mut border) in slots.iter_mut() {
     border.set_if_neq(BorderColor::all(match slot.0 == selected.0 {
       true => PICKED,
       false => Color::NONE
     }));
-  });
-  icons.iter_mut().for_each(|(icon, mut image, mut visibility)| {
+  }
+  for (icon, mut image, mut visibility) in icons.iter_mut() {
     match inventory.slots[icon.0] {
       Some(stack) => {
         image.rect = Some(icon_rect(stack.block));
@@ -321,15 +321,15 @@ fn refresh(
       }
       None => *visibility = Visibility::Hidden
     }
-  });
-  counts.iter_mut().for_each(|(count, mut text)| {
+  }
+  for (count, mut text) in counts.iter_mut() {
     let shown = inventory.slots[count.0]
       .filter(|stack| stack.count > 1)
       .map_or(String::new(), |stack| stack.count.to_string());
     if text.0 != shown {
       text.0 = shown
     }
-  })
+  }
 }
 
 fn edge(index: usize, low: Vec3, high: Vec3) -> Transform {
@@ -361,16 +361,16 @@ fn aim(
       }
     )
   });
-  outline.iter_mut().for_each(|mut visibility| {
+  for mut visibility in outline.iter_mut() {
     *visibility = match bounds {
       Some(_) => Visibility::Inherited,
       None => Visibility::Hidden
     }
-  });
+  }
   if let Some((low, high)) = bounds {
-    edges.iter_mut().for_each(|(edge, mut transform)| {
+    for (edge, mut transform) in edges.iter_mut() {
       transform.set_if_neq(self::edge(edge.0, low, high));
-    })
+    }
   }
 }
 
@@ -410,11 +410,11 @@ fn status(
     "{link}  |  {} players  |  {place}{looking}  |  {fps:.0} fps{loading}",
     players.iter().count()
   );
-  texts.iter_mut().for_each(|mut text| {
+  for mut text in texts.iter_mut() {
     if text.0 != line {
       text.0 = line.clone()
     }
-  })
+  }
 }
 
 fn vitals(
@@ -435,7 +435,7 @@ fn vitals(
   *was = health;
   *redness = (*redness - time.delta_secs()).max(0.0);
   let points = health.unwrap_or(Health::FULL);
-  hearts.iter_mut().for_each(|(heart, mut image)| {
+  for (heart, mut image) in hearts.iter_mut() {
     let frame = match points.saturating_sub(heart.0 * 2) {
       0 => 2,
       1 => 1,
@@ -446,10 +446,10 @@ fn vitals(
     if image.rect != rect {
       image.rect = rect
     }
-  });
-  flash
-    .iter_mut()
-    .for_each(|mut background| background.0 = Color::srgba(0.8, 0.0, 0.0, *redness))
+  }
+  for mut background in flash.iter_mut() {
+    background.0 = Color::srgba(0.8, 0.0, 0.0, *redness)
+  }
 }
 
 const ANNOUNCED_FOR: f32 = 3.5;
@@ -466,12 +466,12 @@ fn announce(
     None => *since + time.delta_secs()
   };
   let fade = (ANNOUNCED_FOR - *since).clamp(0.0, 1.0);
-  texts.iter_mut().for_each(|(mut text, mut color)| {
+  for (mut text, mut color) in texts.iter_mut() {
     if let Some(line) = &latest {
       text.0 = line.clone()
     }
     color.0.set_alpha(fade)
-  })
+  }
 }
 
 pub struct Hud;

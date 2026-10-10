@@ -100,22 +100,24 @@ fn hear(
   pilot: Option<Res<Pilot>>,
   time: Res<Time>
 ) {
-  verdicts.read().for_each(|verdict| match verdict {
-    Verdict::Accepted { name } => {
-      identity.sent.name = name.clone();
-      identity.fields.name = name.clone();
-      identity.standing = Standing::Accepted;
-      if let Ok(text) = serde_json::to_string(&identity.sent) {
-        local::remember(KEY, &text)
+  for verdict in verdicts.read() {
+    match verdict {
+      Verdict::Accepted { name } => {
+        identity.sent.name = name.clone();
+        identity.fields.name = name.clone();
+        identity.standing = Standing::Accepted;
+        if let Ok(text) = serde_json::to_string(&identity.sent) {
+          local::remember(KEY, &text)
+        }
+      }
+      Verdict::Refused { reason } => {
+        identity.standing = Standing::Refused(reason.clone());
+        if pilot.is_none() {
+          menu.show(Tab::Profile, time.elapsed_secs())
+        }
       }
     }
-    Verdict::Refused { reason } => {
-      identity.standing = Standing::Refused(reason.clone());
-      if pilot.is_none() {
-        menu.show(Tab::Profile, time.elapsed_secs())
-      }
-    }
-  })
+  }
 }
 
 pub struct Identifying;

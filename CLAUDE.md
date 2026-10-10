@@ -89,6 +89,7 @@ Code structure should mirror the thinking behind it: translate the user's concep
 - Prefer let chains over nested `if let`/`if` or `.and_then()`.
 - Prefer `Option` methods over matching on `Option` (not so for most other enums).
 - Prefer `find`, `find_map`, `any`, `fold` over loops with break (socket read loops are the exception).
+- Use `for` loops for side effects, never `for_each`.
 - Eagerly destructure: `let &Thing { field } = thing()`.
 - Domain model with named instances, newtypes and associated consts.
 - No more function-calls-function indirection than needed.

@@ -67,7 +67,7 @@ fn enclose(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  eyes.iter().for_each(|eye| {
+  for eye in eyes.iter() {
     let material = materials.add(StandardMaterial {
       unlit: true,
       cull_mode: Some(Face::Front),
@@ -83,7 +83,7 @@ fn enclose(
       Visibility::Hidden,
       ChildOf(eye)
     ));
-  })
+  }
 }
 
 fn submerge(
@@ -97,28 +97,28 @@ fn submerge(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  eyes.iter_mut().for_each(|(entity, place, mut fog, submerged)| {
+  for (entity, place, mut fog, submerged) in eyes.iter_mut() {
     let eye = place.translation();
     let under = voxels.as_deref().is_some_and(|voxels| underwater(voxels, eye));
-    abysses.iter_mut().for_each(|(_, mut visibility)| {
+    for (_, mut visibility) in abysses.iter_mut() {
       visibility.set_if_neq(if under {
         Visibility::Inherited
       } else {
         Visibility::Hidden
       });
-    });
+    }
     match (under, submerged) {
       (true, submerged) => {
         let dim = 1.0 - daylight(opts().hour).dark * 0.85;
         let murk = MURK * dim;
         fog.color = Color::srgb(murk.x, murk.y, murk.z);
-        abysses.iter().for_each(|(abyss, _)| {
+        for (abyss, _) in abysses.iter() {
           if let Some(mut material) = materials.get_mut(&abyss.0)
             && material.base_color != fog.color
           {
             material.base_color = fog.color
           }
-        });
+        }
         fog.falloff = FogFalloff::Linear { start: 0.5, end: SEEN_UNDERWATER };
         let state = Submerged {
           tint: Vec4::new(0.55, 0.85, 0.95, 1.0),
@@ -138,7 +138,7 @@ fn submerge(
       }
       (false, None) => ()
     }
-  })
+  }
 }
 
 pub struct Waters;

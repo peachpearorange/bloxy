@@ -156,8 +156,8 @@ fn crumble(
         .filter(|block| !block.fluid() && !block.sign())
         .map(|block| (at, block, voxels))
     });
-  shells.iter_mut().for_each(
-    |(mut shell, mut transform, mut visibility)| match &digging {
+  for (mut shell, mut transform, mut visibility) in shells.iter_mut() {
+    match &digging {
       Some((at, block, voxels)) => {
         if shell.shape.as_ref().is_none_or(|(was, made, _)| was != at || made != block) {
           let torches = voxels.torches_near(chunk_of(*at));
@@ -176,7 +176,7 @@ fn crumble(
         visibility.set_if_neq(Visibility::Hidden);
       }
     }
-  )
+  }
 }
 
 pub struct Crumbles;

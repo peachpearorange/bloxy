@@ -52,9 +52,9 @@ pub fn planked(slabs: &[(Vec3, Vec3)], tint: [f32; 3]) -> Mesh {
       if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
       {
-        uvs
-          .iter_mut()
-          .for_each(|uv| *uv = uv_corner(Tile::Planks, Vec2::from(*uv)).to_array())
+        for uv in uvs.iter_mut() {
+          *uv = uv_corner(Tile::Planks, Vec2::from(*uv)).to_array()
+        }
       }
       mesh
     })
@@ -99,7 +99,7 @@ fn moor(
   mut boats: Query<(Entity, &Vessel, Option<&mut Transform>)>
 ) {
   let blend = (time.delta_secs() * 12.0).min(1.0);
-  boats.iter_mut().for_each(|(entity, vessel, transform)| {
+  for (entity, vessel, transform) in boats.iter_mut() {
     let ridden = pilot.as_ref().and_then(|pilot| {
       pilot
         .riding
@@ -124,7 +124,7 @@ fn moor(
         ));
       }
     }
-  })
+  }
 }
 
 fn embark(pilot: Option<ResMut<Pilot>>, boats: Query<(Entity, &Vessel)>) {
@@ -184,7 +184,7 @@ fn row(
         let banked = (*spare + time.delta_secs()).min(0.25);
         let steps = (banked / STEP).floor();
         *spare = banked - steps * STEP;
-        (0..steps as u32).for_each(|_| {
+        for _ in 0..steps as u32 {
           let surface = float(&voxels, pilot.at);
           let afloat = surface.is_some();
           riding.yaw += (held(KeyCode::KeyA) - held(KeyCode::KeyD)) * TURN * STEP;
@@ -207,7 +207,7 @@ fn row(
             moved
           });
           pilot.at = at
-        });
+        }
         pilot.riding = Some(riding);
         *since += time.delta_secs();
         if *since >= STEER_EVERY {
@@ -294,7 +294,7 @@ fn serve(
   mut players: Query<(&Controller, (Entity, &Avatar, &mut Inventory))>,
   mut boats: Query<(Entity, &mut Vessel)>
 ) {
-  launches.read().for_each(|&FromClient { client_id, message: Launch(cell) }| {
+  for &FromClient { client_id, message: Launch(cell) } in launches.read() {
     if voxels.ensure(cell).liquid().is_some_and(|(fluid, _)| fluid == Fluid::Water)
       && let Some((_, avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, cell)
@@ -306,8 +306,8 @@ fn serve(
         rider: None
       }));
     }
-  });
-  boardings.read().for_each(|&FromClient { client_id, message: Board(boat) }| {
+  }
+  for &FromClient { client_id, message: Board(boat) } in boardings.read() {
     if let Some((player, avatar, _)) = player_of(players.iter_mut(), client_id)
       && boats.iter().all(|(_, vessel)| vessel.rider != Some(player))
       && let Ok((_, mut vessel)) = boats.get_mut(boat)
@@ -316,8 +316,8 @@ fn serve(
     {
       vessel.rider = Some(player)
     }
-  });
-  wrecks.read().for_each(|&FromClient { client_id, message: Wreck(boat) }| {
+  }
+  for &FromClient { client_id, message: Wreck(boat) } in wrecks.read() {
     if let Some((_, avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && let Ok((_, vessel)) = boats.get(boat)
       && vessel.rider.is_none()
@@ -326,36 +326,37 @@ fn serve(
     {
       commands.entity(boat).despawn()
     }
-  });
-  leaves.read().for_each(|&FromClient { client_id, .. }| {
+  }
+  for &FromClient { client_id, .. } in leaves.read() {
     if let Some((player, ..)) = player_of(players.iter_mut(), client_id) {
-      boats
-        .iter_mut()
-        .filter(|(_, vessel)| vessel.rider == Some(player))
-        .for_each(|(_, mut vessel)| vessel.rider = None)
+      for (_, mut vessel) in
+        boats.iter_mut().filter(|(_, vessel)| vessel.rider == Some(player))
+      {
+        vessel.rider = None
+      }
     }
-  });
-  steers.read().for_each(|&FromClient { client_id, message: Steer { at, yaw } }| {
+  }
+  for &FromClient { client_id, message: Steer { at, yaw } } in steers.read() {
     if let Some((player, ..)) = player_of(players.iter_mut(), client_id)
       && at.is_finite()
       && yaw.is_finite()
     {
-      boats.iter_mut().filter(|(_, vessel)| vessel.rider == Some(player)).for_each(
-        |(_, mut vessel)| {
-          let moved = Vessel { at, yaw, ..*vessel };
-          vessel.set_if_neq(moved);
-        }
-      )
+      for (_, mut vessel) in
+        boats.iter_mut().filter(|(_, vessel)| vessel.rider == Some(player))
+      {
+        let moved = Vessel { at, yaw, ..*vessel };
+        vessel.set_if_neq(moved);
+      }
     }
-  });
+  }
 }
 
 fn unseat(players: Query<(), With<Controller>>, mut boats: Query<&mut Vessel>) {
-  boats.iter_mut().for_each(|mut vessel| {
+  for mut vessel in boats.iter_mut() {
     if vessel.rider.is_some_and(|rider| players.get(rider).is_err()) {
       vessel.rider = None
     }
-  })
+  }
 }
 
 pub struct Boats;

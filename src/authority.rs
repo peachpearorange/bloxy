@@ -51,10 +51,9 @@ fn starter(creative: bool) -> Inventory {
   ];
   let mut inventory = Inventory::default();
   if creative {
-    kit
-      .iter()
-      .zip(&mut inventory.slots)
-      .for_each(|(&block, slot)| *slot = Some(Stack { block, count: block.stack() }))
+    for (&block, slot) in kit.iter().zip(&mut inventory.slots) {
+      *slot = Some(Stack { block, count: block.stack() })
+    }
   }
   inventory
 }
@@ -127,16 +126,16 @@ fn found_world(mut commands: Commands) {
     true => (Vec::new(), Vec::new()),
     false => (edits, shroomlings)
   };
-  signs.into_iter().for_each(|sign| {
+  for sign in signs.into_iter() {
     commands.spawn((Replicated, sign));
-  });
-  boats.into_iter().for_each(|(at, yaw)| {
+  }
+  for (at, yaw) in boats.into_iter() {
     commands.spawn((Replicated, Vessel { at, yaw, rider: None }));
-  });
+  }
   let colonies = shroomlings.iter().map(|&(home, _)| home).collect();
-  shroomlings.into_iter().enumerate().for_each(|(index, (home, hopper))| {
+  for (index, (home, hopper)) in shroomlings.into_iter().enumerate() {
     shroomling::lodge(&mut commands, home, hopper, index as u32 * 0x9E37 + 1)
-  });
+  }
   commands.insert_resource(shroomling::Colonies(colonies));
   let mut voxels = Voxels::new(seed);
   voxels.kept = match migrating {
@@ -151,7 +150,9 @@ fn found_world(mut commands: Commands) {
         .collect()
     )
   };
-  edits.iter().for_each(|&(at, block)| voxels.set(at, block));
+  for &(at, block) in edits.iter() {
+    voxels.set(at, block)
+  }
   voxels.ensure(generate::spawn_point(seed).floor().as_ivec3());
   commands.insert_resource(voxels);
   commands.insert_resource(accounts)
@@ -184,7 +185,7 @@ fn sign_in(
     .iter()
     .map(|(entity, controller, ..)| (controller.client, controller.account, entity))
     .collect();
-  hellos.read().for_each(|FromClient { client_id, message: Hello { name, password } }| {
+  for FromClient { client_id, message: Hello { name, password } } in hellos.read() {
     let client = *client_id;
     let current = online
       .iter()
@@ -238,7 +239,7 @@ fn sign_in(
         Err(reason) => Verdict::Refused { reason }
       }
     });
-  })
+  }
 }
 
 fn paint(
@@ -246,14 +247,13 @@ fn paint(
   mut commands: Commands,
   players: Query<(Entity, &Controller)>
 ) {
-  paints.read().filter(|paint| paint.message.0.valid()).for_each(|paint| {
-    players
-      .iter()
-      .filter(|(_, controller)| controller.client == paint.client_id)
-      .for_each(|(entity, _)| {
-        commands.entity(entity).insert(paint.message.0.clone());
-      })
-  })
+  for paint in paints.read().filter(|paint| paint.message.0.valid()) {
+    for (entity, _) in
+      players.iter().filter(|(_, controller)| controller.client == paint.client_id)
+    {
+      commands.entity(entity).insert(paint.message.0.clone());
+    }
+  }
 }
 
 fn tint(
@@ -261,15 +261,14 @@ fn tint(
   mut accounts: ResMut<Accounts>,
   mut players: Query<(&Controller, &mut Player)>
 ) {
-  tints.read().filter(|tint| usize::from(tint.message.0) < HUES.len()).for_each(|tint| {
-    players
-      .iter_mut()
-      .filter(|(controller, _)| controller.client == tint.client_id)
-      .for_each(|(controller, mut player)| {
-        accounts.0[controller.account].hue = Some(tint.message.0);
-        player.hue = tint.message.0
-      })
-  })
+  for tint in tints.read().filter(|tint| usize::from(tint.message.0) < HUES.len()) {
+    for (controller, mut player) in
+      players.iter_mut().filter(|(controller, _)| controller.client == tint.client_id)
+    {
+      accounts.0[controller.account].hue = Some(tint.message.0);
+      player.hue = tint.message.0
+    }
+  }
 }
 
 fn chat(
@@ -277,7 +276,7 @@ fn chat(
   players: Query<(&Controller, &Player)>,
   mut said: MessageWriter<ToClients<Said>>
 ) {
-  sayings.read().for_each(|FromClient { client_id, message: Say(text) }| {
+  for FromClient { client_id, message: Say(text) } in sayings.read() {
     let text: String =
       text.chars().filter(|c| !c.is_control()).take(LONGEST_SAYING).collect();
     if let Some((_, player)) =
@@ -294,7 +293,7 @@ fn chat(
         }
       });
     }
-  })
+  }
 }
 
 fn farewell(
@@ -303,13 +302,13 @@ fn farewell(
   mut accounts: ResMut<Accounts>,
   players: Query<(Entity, &Controller, Kept)>
 ) {
-  players
+  for (entity, controller, kept) in players
     .iter()
     .filter(|(_, controller, _)| controller.client == ClientId::Client(left.entity))
-    .for_each(|(entity, controller, kept)| {
-      accounts.0[controller.account].keep(kept);
-      commands.entity(entity).despawn()
-    })
+  {
+    accounts.0[controller.account].keep(kept);
+    commands.entity(entity).despawn()
+  }
 }
 
 pub fn player_of<'a, T>(
@@ -326,13 +325,13 @@ fn follow(
   mut moves: MessageReader<FromClient<Moved>>,
   mut players: Query<(&Controller, &mut Avatar)>
 ) {
-  moves.read().for_each(|moved| {
+  for moved in moves.read() {
     if let Some(mut avatar) = player_of(players.iter_mut(), moved.client_id)
       && moved.message.0.at.is_finite()
     {
       avatar.set_if_neq(moved.message.0);
     }
-  })
+  }
 }
 
 pub fn within_reach(avatar: &Avatar, at: IVec3) -> bool {
@@ -374,7 +373,7 @@ fn dig(
   mut changes: MessageWriter<ToClients<Altered>>,
   mut commands: Commands
 ) {
-  digs.read().for_each(|&FromClient { client_id, message: Dig { at } }| {
+  for &FromClient { client_id, message: Dig { at } } in digs.read() {
     let block = voxels.ensure(at);
     let above = at + IVec3::Y;
     let perched = Some(voxels.ensure(above))
@@ -391,18 +390,18 @@ fn dig(
     });
     match granted {
       true => {
-        std::iter::once(block.drop())
-          .chain(perched.map(Block::drop))
-          .for_each(|dropped| crate::loose::fall(&mut commands, dropped, at));
+        for dropped in std::iter::once(block.drop()).chain(perched.map(Block::drop)) {
+          crate::loose::fall(&mut commands, dropped, at)
+        }
         voxels.set(at, Block::Air);
         flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
-        partner.into_iter().for_each(|cell| {
+        for cell in partner.into_iter() {
           voxels.set(cell, Block::Air);
           changes.write(ToClients {
             targets: SendTargets::All,
             message: Altered { at: cell, block: Block::Air }
           });
-        });
+        }
         if perched.is_some() {
           voxels.set(above, Block::Air);
           changes.write(ToClients {
@@ -420,7 +419,7 @@ fn dig(
         message: Altered { at, block }
       })
     };
-  })
+  }
 }
 
 fn put(
@@ -434,7 +433,7 @@ fn put(
   mut changes: MessageWriter<ToClients<Altered>>,
   mut commands: Commands
 ) {
-  puts.read().for_each(|&FromClient { client_id, message: Put { at, block } }| {
+  for &FromClient { client_id, message: Put { at, block } } in puts.read() {
     let present = voxels.ensure(at);
     let cell = (at.as_vec3(), at.as_vec3() + Vec3::ONE);
     let crowded = everyone.iter().any(|avatar| {
@@ -470,13 +469,13 @@ fn put(
       && inventory.take(block.held())
     {
       voxels.set(at, block);
-      head.into_iter().for_each(|(cell, pillow)| {
+      for (cell, pillow) in head.into_iter() {
         voxels.set(cell, pillow);
         changes.write(ToClients {
           targets: SendTargets::All,
           message: Altered { at: cell, block: pillow }
         });
-      });
+      }
       flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
       if block.sign() {
         commands.spawn((Replicated, Sign {
@@ -493,14 +492,14 @@ fn put(
         targets: SendTargets::Single(client_id),
         message: Altered { at, block: present }
       });
-      head.into_iter().for_each(|(cell, _)| {
+      for (cell, _) in head.into_iter() {
         changes.write(ToClients {
           targets: SendTargets::Single(client_id),
           message: Altered { at: cell, block: voxels.ensure(cell) }
         });
-      })
+      }
     }
-  })
+  }
 }
 
 fn attune(
@@ -508,7 +507,7 @@ fn attune(
   voxels: Res<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Visited))>
 ) {
-  touches.read().for_each(|&FromClient { client_id, message: Attune(at) }| {
+  for &FromClient { client_id, message: Attune(at) } in touches.read() {
     if let Some((avatar, mut visited)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
       && let Some(island) = Island::near(voxels.seed, at.as_vec3())
@@ -518,7 +517,7 @@ fn attune(
     {
       visited.0.push(island.cell)
     }
-  })
+  }
 }
 
 fn travel(
@@ -527,7 +526,7 @@ fn travel(
   mut players: Query<(&Controller, (&mut Avatar, &Visited))>,
   mut teleports: MessageWriter<ToClients<Teleport>>
 ) {
-  travels.read().for_each(|&FromClient { client_id, message: Travel(cell) }| {
+  for &FromClient { client_id, message: Travel(cell) } in travels.read() {
     let seed = voxels.seed;
     if let Some((mut avatar, visited)) = player_of(players.iter_mut(), client_id)
       && visited.0.contains(&cell)
@@ -547,25 +546,25 @@ fn travel(
         message: Teleport(moved)
       });
     }
-  })
+  }
 }
 
 fn shuffle(
   mut shuffles: MessageReader<FromClient<Shuffle>>,
   mut players: Query<(&Controller, &mut Inventory)>
 ) {
-  shuffles.read().for_each(|&FromClient { client_id, message: Shuffle { from, to } }| {
+  for &FromClient { client_id, message: Shuffle { from, to } } in shuffles.read() {
     if let Some(mut inventory) = player_of(players.iter_mut(), client_id) {
       inventory.shuffle(from.into(), to.into())
     }
-  })
+  }
 }
 
 fn pick(
   mut picks: MessageReader<FromClient<Picked>>,
   mut players: Query<(&Controller, &mut Inventory)>
 ) {
-  picks.read().for_each(|&FromClient { client_id, message: Picked(pick) }| {
+  for &FromClient { client_id, message: Picked(pick) } in picks.read() {
     if let Some(mut inventory) = player_of(players.iter_mut(), client_id) {
       match pick {
         Pick::Half(slot) => inventory.halve(slot.into()),
@@ -573,7 +572,7 @@ fn pick(
         Pick::Stow => inventory.stow()
       }
     }
-  })
+  }
 }
 
 fn craft(
@@ -581,7 +580,7 @@ fn craft(
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>
 ) {
-  crafts.read().for_each(|&FromClient { client_id, message: Craft(index) }| {
+  for &FromClient { client_id, message: Craft(index) } in crafts.read() {
     if let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && let Some(recipe) = RECIPES.get(usize::from(index))
       && let eye = avatar.at + Vec3::Y * EYE
@@ -593,7 +592,7 @@ fn craft(
     {
       *inventory = made
     }
-  })
+  }
 }
 
 fn scoop(
@@ -605,7 +604,7 @@ fn scoop(
   (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>
 ) {
-  scoops.read().for_each(|&FromClient { client_id, message: Scoop(at) }| {
+  for &FromClient { client_id, message: Scoop(at) } in scoops.read() {
     if let Some(account) = account_of(&players, client_id)
       && guarded(&claims, &mut notices, client_id, account, at)
       && let Some((fluid, 0)) = voxels.ensure(at).liquid()
@@ -633,7 +632,7 @@ fn scoop(
         message: Altered { at, block: Block::Air }
       });
     }
-  })
+  }
 }
 
 fn pour(
@@ -645,7 +644,7 @@ fn pour(
   (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>
 ) {
-  pours.read().for_each(|&FromClient { client_id, message: Pour { at, fluid } }| {
+  for &FromClient { client_id, message: Pour { at, fluid } } in pours.read() {
     let present = voxels.ensure(at);
     let open = present == Block::Air
       || present.modelled()
@@ -665,20 +664,20 @@ fn pour(
         message: Altered { at, block: fluid.source() }
       });
     }
-  })
+  }
 }
 
 fn mark(
   mut marks: MessageReader<FromClient<Mark>>,
   mut players: Query<(&Controller, &mut Bookmarks)>
 ) {
-  marks.read().for_each(|&FromClient { client_id, message: Mark(block) }| {
+  for &FromClient { client_id, message: Mark(block) } in marks.read() {
     if let Some(mut bookmarks) = player_of(players.iter_mut(), client_id)
       && block.item()
     {
       bookmarks.toggle(block)
     }
-  })
+  }
 }
 
 fn rest(
@@ -687,7 +686,7 @@ fn rest(
   mut players: Query<(&Controller, (&Avatar, &mut Bedside))>,
   mut notices: MessageWriter<ToClients<Notice>>
 ) {
-  rests.read().for_each(|&FromClient { client_id, message: Rest(at) }| {
+  for &FromClient { client_id, message: Rest(at) } in rests.read() {
     if voxels.ensure(at).bed()
       && let Some((avatar, mut bedside)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
@@ -698,7 +697,7 @@ fn rest(
         message: Notice("Spawn point set at your bed".into())
       });
     }
-  })
+  }
 }
 
 pub struct Authority;

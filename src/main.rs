@@ -117,17 +117,16 @@ fn snapshot(
     }
     *warmed = warmed.map(|frames| frames + 1).or(settled.then_some(0));
     let drawing = warmed.is_some();
-    cameras
-      .iter_mut()
-      .filter(|(_, camera)| camera.viewport.is_none() != drawing)
-      .for_each(|(entity, mut camera)| {
-        camera.viewport =
-          (!drawing).then(|| Viewport { physical_size: UVec2::ONE, ..default() });
-        match drawing {
-          true => commands.entity(entity).remove::<RenderLayers>(),
-          false => commands.entity(entity).insert(RenderLayers::layer(UNSEEN))
-        };
-      });
+    for (entity, mut camera) in
+      cameras.iter_mut().filter(|(_, camera)| camera.viewport.is_none() != drawing)
+    {
+      camera.viewport =
+        (!drawing).then(|| Viewport { physical_size: UVec2::ONE, ..default() });
+      match drawing {
+        true => commands.entity(entity).remove::<RenderLayers>(),
+        false => commands.entity(entity).insert(RenderLayers::layer(UNSEEN))
+      };
+    }
     let compiled = compiling.0.load(std::sync::atomic::Ordering::Relaxed) == 0;
     let ready = warmed.is_some_and(|frames| {
       (frames >= WARM_UP_FRAMES && compiled) || frames >= WARM_UP_LIMIT
@@ -154,14 +153,16 @@ fn press(
   mut buttons: ResMut<ButtonInput<MouseButton>>,
   mut overdue: Local<Vec<Result<KeyCode, MouseButton>>>
 ) {
-  overdue.drain(..).for_each(|key| match key {
-    Ok(key) => keys.release(key),
-    Err(button) => buttons.release(button)
-  });
+  for key in overdue.drain(..) {
+    match key {
+      Ok(key) => keys.release(key),
+      Err(button) => buttons.release(button)
+    }
+  }
   let (now, before) = (time.elapsed_secs(), time.elapsed_secs() - time.delta_secs());
   let taps = opts().press.iter().map(|&(at, ref name)| (at, at + 0.15, name));
   let holds = opts().hold.iter().map(|&(from, to, ref name)| (from, to, name));
-  taps.chain(holds).for_each(|(from, to, name)| {
+  for (from, to, name) in taps.chain(holds) {
     let (start, stop) = (before < from && from <= now, before < to && to <= now);
     let key = match name.as_str() {
       "LMB" => Err(MouseButton::Left),
@@ -202,7 +203,7 @@ fn press(
       (Err(button), _, true) => buttons.release(button),
       _ => ()
     }
-  })
+  }
 }
 
 fn serve(mut commands: Commands) {

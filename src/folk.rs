@@ -126,9 +126,9 @@ fn raid(
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
-  raiders.iter_mut().for_each(|(entity, mut folk, mut raider)| {
+  for (entity, mut folk, mut raider) in raiders.iter_mut() {
     let Folk { band, mut at, mut yaw, .. } = *folk;
-    [
+    for offset in [
       IVec3::ZERO,
       IVec3::X * 2,
       IVec3::X * -2,
@@ -137,9 +137,9 @@ fn raid(
       IVec3::Y * -2
     ]
     .into_iter()
-    .for_each(|offset| {
+    {
       voxels.ensure(at.floor().as_ivec3() + offset);
-    });
+    }
     let swimming =
       voxels.block((at + Vec3::Y * 1.2).floor().as_ivec3()).is_some_and(Block::fluid);
     let target = players
@@ -215,7 +215,7 @@ fn raid(
         folk.set_if_neq(moved);
       }
     }
-  })
+  }
 }
 
 fn strike(
@@ -226,7 +226,7 @@ fn strike(
   mut commands: Commands
 ) {
   let now = time.elapsed_secs();
-  strikes.read().for_each(|&FromClient { client_id, message: Strike(target) }| {
+  for &FromClient { client_id, message: Strike(target) } in strikes.read() {
     if let Some((avatar, mut vigour)) = player_of(players.iter_mut(), client_id)
       && now - vigour.swung >= STRIKE_EVERY
       && let Ok((folk, mut health, raider)) = folk.get_mut(target)
@@ -244,12 +244,12 @@ fn strike(
         commands.entity(target).despawn()
       }
     }
-  })
+  }
 }
 
 fn mend(time: Res<Time>, mut players: Query<(&mut Health, &mut Vigour)>) {
   let dt = time.delta_secs();
-  players.iter_mut().for_each(|(mut health, mut vigour)| {
+  for (mut health, mut vigour) in players.iter_mut() {
     vigour.calm += dt;
     vigour.mending += dt;
     if vigour.calm > MEND_AFTER && vigour.mending >= MEND_EVERY && health.0 < Health::FULL
@@ -257,7 +257,7 @@ fn mend(time: Res<Time>, mut players: Query<(&mut Health, &mut Vigour)>) {
       vigour.mending = 0.0;
       health.0 += 1
     }
-  })
+  }
 }
 
 fn perish(
@@ -273,46 +273,45 @@ fn perish(
   mut boats: Query<&mut Vessel>,
   mut teleports: MessageWriter<ToClients<Teleport>>
 ) {
-  players.iter_mut().filter(|(_, _, health, ..)| health.0 == 0).for_each(
-    |(entity, controller, mut health, mut avatar, mut vigour, bedside)| {
-      health.0 = Health::FULL;
-      *vigour = Vigour::default();
-      boats
-        .iter_mut()
-        .filter(|vessel| vessel.rider == Some(entity))
-        .for_each(|mut vessel| vessel.rider = None);
-      let bed = bedside
-        .0
-        .filter(|&at| voxels.ensure(at).bed())
-        .map(|at| at.as_vec3() + Vec3::new(0.5, 0.05, 0.5));
-      let revived = Avatar {
-        at: bed.unwrap_or(generate::spawn_point(voxels.seed)),
-        yaw: FACING_STONE,
-        pitch: 0.0,
-        held: avatar.held
-      };
-      *avatar = revived;
-      teleports.write(ToClients {
-        targets: SendTargets::Single(controller.client),
-        message: Teleport(revived)
-      });
+  for (entity, controller, mut health, mut avatar, mut vigour, bedside) in
+    players.iter_mut().filter(|(_, _, health, ..)| health.0 == 0)
+  {
+    health.0 = Health::FULL;
+    *vigour = Vigour::default();
+    for mut vessel in boats.iter_mut().filter(|vessel| vessel.rider == Some(entity)) {
+      vessel.rider = None
     }
-  )
+    let bed = bedside
+      .0
+      .filter(|&at| voxels.ensure(at).bed())
+      .map(|at| at.as_vec3() + Vec3::new(0.5, 0.05, 0.5));
+    let revived = Avatar {
+      at: bed.unwrap_or(generate::spawn_point(voxels.seed)),
+      yaw: FACING_STONE,
+      pitch: 0.0,
+      held: avatar.held
+    };
+    *avatar = revived;
+    teleports.write(ToClients {
+      targets: SendTargets::Single(controller.client),
+      message: Teleport(revived)
+    });
+  }
 }
 
 fn repaint(skin: &mut Skin, paint: impl Fn(Part, Face, u32, u32, u8) -> u8) {
-  Part::ALL.iter().for_each(|&part| {
-    part.faces().into_iter().for_each(|(face, rect)| {
-      (rect.min.y..rect.max.y).for_each(|y| {
-        (rect.min.x..rect.max.x).for_each(|x| {
+  for &part in Part::ALL.iter() {
+    for (face, rect) in part.faces().into_iter() {
+      for y in rect.min.y..rect.max.y {
+        for x in rect.min.x..rect.max.x {
           let texel = UVec2::new(x, y);
           let painted =
             paint(part, face, y - rect.min.y, x - rect.min.x, skin.get(texel));
           skin.set(texel, painted)
-        })
-      })
-    })
-  })
+        }
+      }
+    }
+  }
 }
 
 fn outfit(band: Band, luck: u32) -> Skin {
@@ -442,18 +441,18 @@ fn dress(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  arrivals.iter().for_each(|(entity, folk)| {
+  for (entity, folk) in arrivals.iter() {
     let clad = clothe(&outfit(folk.band, folk.luck), &mut images, &mut materials);
     let material = MeshMaterial3d(clad.material.clone());
     let mut gear = |parent: Entity, gear: Gear, commands: &mut Commands| {
-      gear.into_iter().for_each(|(centre, size, color)| {
+      for (centre, size, color) in gear.into_iter() {
         commands.spawn((
           Mesh3d(shapes.cuboid(&mut meshes, size)),
           MeshMaterial3d(shapes.paint(&mut materials, &mut images, color, Grain::Plain)),
           Transform::from_translation(centre),
           ChildOf(parent)
         ));
-      })
+      }
     };
     commands.entity(entity).insert((
       Shown {
@@ -486,14 +485,14 @@ fn dress(
       ))
       .id();
     gear(head, hat(folk.band, folk.luck), &mut commands);
-    [
+    for (x, phase, mesh, pivot, arm) in [
       (6.0, 0.0, kit.arm.clone(), 24.0, true),
       (-6.0, PI, kit.arm.clone(), 24.0, true),
       (2.0, PI, kit.leg.clone(), 12.0, false),
       (-2.0, 0.0, kit.leg.clone(), 12.0, false)
     ]
     .into_iter()
-    .for_each(|(x, phase, mesh, pivot, arm)| {
+    {
       let rest = Vec3::new(x, pivot, 0.0) * PX;
       let limb = commands
         .spawn((
@@ -510,9 +509,9 @@ fn dress(
         (true, false) => gear(limb, shield(folk.band, folk.luck), &mut commands),
         _ => ()
       }
-    });
+    }
     commands.entity(entity).insert(clad);
-  })
+  }
 }
 
 fn animate(
@@ -523,7 +522,7 @@ fn animate(
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
   let (dt, now) = (time.delta_secs(), time.elapsed_secs());
-  folk.iter_mut().for_each(|(entity, folk, health, clad, mut shown, mut transform)| {
+  for (entity, folk, health, clad, mut shown, mut transform) in folk.iter_mut() {
     let before = shown.at;
     shown.at = before.lerp(folk.at, (dt * 12.0).min(1.0));
     let turn = (folk.yaw - shown.yaw + PI).rem_euclid(TAU) - PI;
@@ -558,7 +557,7 @@ fn animate(
     };
     *transform = Transform::from_translation(shown.at)
       .with_rotation(Quat::from_rotation_y(shown.yaw));
-    family.iter_descendants(entity).for_each(|child| {
+    for child in family.iter_descendants(entity) {
       if let Ok((joint, rest, mut transform)) = joints.get_mut(child) {
         transform.translation = rest.0;
         transform.rotation = match *joint {
@@ -577,8 +576,8 @@ fn animate(
           _ => Quat::IDENTITY
         }
       }
-    })
-  })
+    }
+  }
 }
 
 fn fight(

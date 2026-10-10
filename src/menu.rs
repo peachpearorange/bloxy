@@ -199,7 +199,7 @@ pub fn button(parent: &mut ChildSpawnerCommands, label: &str, act: Act) {
 }
 
 fn settings_page(page: &mut ChildSpawnerCommands) {
-  Knob::ALL.into_iter().for_each(|knob| {
+  for knob in Knob::ALL.into_iter() {
     page
       .spawn(Node { align_items: AlignItems::Center, column_gap: px(6), ..default() })
       .with_children(|row| {
@@ -217,7 +217,7 @@ fn settings_page(page: &mut ChildSpawnerCommands) {
           button(row, "+", Act::Turn(knob, 1))
         }
       });
-  });
+  }
   page.spawn(words(
     "Tab or Esc opens and closes this menu, E the inventory. Click the world to look \
      around.",
@@ -264,7 +264,7 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
   });
   page.spawn(words("Colour (your name, chat and claims show in it)", 15.0, FAINT));
   page.spawn(Node { column_gap: px(4), ..default() }).with_children(|row| {
-    (0..HUES.len() as u8).for_each(|index| {
+    for index in 0..HUES.len() as u8 {
       row.spawn((
         Button,
         Act::Hue(index),
@@ -272,7 +272,7 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
         BorderColor::all(EDGE),
         BackgroundColor(hue(index))
       ));
-    })
+    }
   });
   page.spawn((Remark, words("", 16.0, LIT)));
   page.spawn(words(
@@ -287,7 +287,9 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
 
 fn sign_page(page: &mut ChildSpawnerCommands) {
   page.spawn(words("Write on the sign", 17.0, INK));
-  (0..sign::LINES as u8).for_each(|line| field(page, Entry::Line(line), px(320)));
+  for line in 0..sign::LINES as u8 {
+    field(page, Entry::Line(line), px(320))
+  }
   page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
     button(row, "Done", Act::Resume);
   });
@@ -342,14 +344,13 @@ fn build(
                 margin: UiRect::right(px(10)),
                 ..default()
               }));
-              Tab::ALL
-                .into_iter()
-                .filter(|tab| tab.listed())
-                .for_each(|tab| button(header, tab.label(), Act::Open(tab)));
+              for tab in Tab::ALL.into_iter().filter(|tab| tab.listed()) {
+                button(header, tab.label(), Act::Open(tab))
+              }
               header.spawn(Node { flex_grow: 1.0, ..default() });
               button(header, "Resume", Act::Resume);
             });
-          Tab::ALL.into_iter().for_each(|tab| {
+          for tab in Tab::ALL.into_iter() {
             panel
               .spawn((Page(tab), Node {
                 flex_direction: FlexDirection::Column,
@@ -369,7 +370,7 @@ fn build(
                 Tab::Trade => trade::page(page),
                 Tab::Map => chart::page(page, &chart)
               });
-          })
+          }
         });
     });
 }
@@ -430,7 +431,7 @@ fn click(
   >,
   mut pressed: MessageWriter<Pressed>
 ) {
-  buttons.iter_mut().for_each(|(interaction, &act, shaded, mut background)| {
+  for (interaction, &act, shaded, mut background) in buttons.iter_mut() {
     if shaded.is_some() {
       background.0 = match interaction {
         Interaction::Hovered | Interaction::Pressed => HOVERED,
@@ -440,7 +441,7 @@ fn click(
     if *interaction == Interaction::Pressed {
       pressed.write(Pressed(act));
     }
-  })
+  }
 }
 
 fn resume(
@@ -465,11 +466,11 @@ fn hues(
   if menu.showing(Tab::Profile)
     && let Some(player) = pilot.and_then(|pilot| players.get(pilot.me).ok())
   {
-    swatches.iter_mut().for_each(|(act, mut border)| {
+    for (act, mut border) in swatches.iter_mut() {
       if let &Act::Hue(index) = act {
         border.set_if_neq(BorderColor::all(if index == player.hue { LIT } else { EDGE }));
       }
-    })
+    }
   }
 }
 
@@ -485,32 +486,34 @@ fn obey(
   mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>
 ) {
   let now = time.elapsed_secs();
-  pressed.read().for_each(|&Pressed(act)| match act {
-    Act::Resume => resume(&mut menu, &mut focus, &mut cursor),
-    Act::Open(tab) => {
-      menu.tab = tab;
-      focus.0 = None
+  for &Pressed(act) in pressed.read() {
+    match act {
+      Act::Resume => resume(&mut menu, &mut focus, &mut cursor),
+      Act::Open(tab) => {
+        menu.tab = tab;
+        focus.0 = None
+      }
+      Act::Turn(knob, by) => settings.turn(knob, by),
+      Act::Focus(entry) => focus.0 = Some(entry),
+      Act::Invent => {
+        identity.fields.password = Credentials::invented_password();
+        notice.0 = Some(("New password made: press Save to keep it.".into(), now))
+      }
+      Act::Copy => {
+        local::copy(&identity.fields.password);
+        notice.0 = Some(("Password copied to the clipboard.".into(), now))
+      }
+      Act::Submit => {
+        focus.0 = None;
+        notice.0 = None;
+        identity.submit()
+      }
+      Act::Hue(index) => {
+        tints.write(Tint(index));
+      }
+      _ => ()
     }
-    Act::Turn(knob, by) => settings.turn(knob, by),
-    Act::Focus(entry) => focus.0 = Some(entry),
-    Act::Invent => {
-      identity.fields.password = Credentials::invented_password();
-      notice.0 = Some(("New password made: press Save to keep it.".into(), now))
-    }
-    Act::Copy => {
-      local::copy(&identity.fields.password);
-      notice.0 = Some(("Password copied to the clipboard.".into(), now))
-    }
-    Act::Submit => {
-      focus.0 = None;
-      notice.0 = None;
-      identity.submit()
-    }
-    Act::Hue(index) => {
-      tints.write(Tint(index));
-    }
-    _ => ()
-  })
+  }
 }
 
 fn type_text(
@@ -533,8 +536,8 @@ fn type_text(
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let mut text = entry.of(&mut identity.fields, &mut search, &mut inscription).clone();
     let mut submit = false;
-    typed.read().filter(|key| key.state == ButtonState::Pressed).for_each(
-      |key| match &key.logical_key {
+    for key in typed.read().filter(|key| key.state == ButtonState::Pressed) {
+      match &key.logical_key {
         Key::Backspace => {
           text.pop();
         }
@@ -547,10 +550,10 @@ fn type_text(
           }
         }
       }
-    );
-    pasted
-      .iter()
-      .for_each(|paste| text.extend(paste.trim().chars().filter(|c| !c.is_control())));
+    }
+    for paste in pasted.iter() {
+      text.extend(paste.trim().chars().filter(|c| !c.is_control()))
+    }
     let text: String = text.chars().take(entry.longest()).collect();
     if *entry.of(&mut identity.fields, &mut search, &mut inscription) != text {
       *entry.of(&mut identity.fields, &mut search, &mut inscription) = text
@@ -588,19 +591,19 @@ fn show(
   mut standing: Query<&mut Text, (With<Remark>, Without<Reading>, Without<Typed>)>
 ) {
   let shown = |visible: bool| if visible { Display::Flex } else { Display::None };
-  overlay.iter_mut().for_each(|mut node| {
+  for mut node in overlay.iter_mut() {
     let display = shown(menu.open);
     if node.display != display {
       node.display = display
     }
-  });
-  pages.iter_mut().for_each(|(page, mut node)| {
+  }
+  for (page, mut node) in pages.iter_mut() {
     let display = shown(page.0 == menu.tab);
     if node.display != display {
       node.display = display
     }
-  });
-  tabs.iter_mut().for_each(|(act, mut border)| {
+  }
+  for (act, mut border) in tabs.iter_mut() {
     let lit = match *act {
       Act::Open(tab) => tab == menu.tab,
       Act::Focus(entry) => focus.0 == Some(entry),
@@ -610,17 +613,17 @@ fn show(
     if matches!(act, Act::Open(_) | Act::Focus(_)) && *border != colour {
       *border = colour
     }
-  });
+  }
   let set = |text: &mut Text, value: String| {
     if text.0 != value {
       text.0 = value
     }
   };
-  readings
-    .iter_mut()
-    .for_each(|(reading, mut text)| set(&mut text, settings.reading(reading.0)));
+  for (reading, mut text) in readings.iter_mut() {
+    set(&mut text, settings.reading(reading.0))
+  }
   let caret = (time.elapsed_secs() * 2.0) as u32 % 2 == 0;
-  typed.iter_mut().for_each(|(typed, mut text)| {
+  for (typed, mut text) in typed.iter_mut() {
     let value = match typed.0 {
       Entry::Name => identity.fields.name.clone(),
       Entry::Password => identity.fields.password.clone(),
@@ -629,7 +632,7 @@ fn show(
     };
     let cursor = if focus.0 == Some(typed.0) && caret { "|" } else { "" };
     set(&mut text, format!("{value}{cursor}"))
-  });
+  }
   let changed = identity.fields != identity.sent;
   let line = notice
     .0
@@ -642,7 +645,9 @@ fn show(
       (Standing::Accepted, _) => format!("Signed in as {}.", identity.sent.name),
       (Standing::Refused(reason), _) => reason.clone()
     });
-  standing.iter_mut().for_each(|mut text| set(&mut text, line.clone()))
+  for mut text in standing.iter_mut() {
+    set(&mut text, line.clone())
+  }
 }
 
 pub struct Menus;

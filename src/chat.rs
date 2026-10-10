@@ -74,14 +74,11 @@ fn hear(
   logs: Query<(Entity, Option<&Children>), With<Log>>,
   mut commands: Commands
 ) {
-  said.read().for_each(|Said { name, hue: index, text }| {
-    logs.iter().for_each(|(log, lines)| {
-      lines
-        .into_iter()
-        .flatten()
-        .rev()
-        .skip(KEPT - 1)
-        .for_each(|&line| commands.entity(line).despawn());
+  for Said { name, hue: index, text } in said.read() {
+    for (log, lines) in logs.iter() {
+      for &line in lines.into_iter().flatten().rev().skip(KEPT - 1) {
+        commands.entity(line).despawn()
+      }
       commands.entity(log).with_children(|log| {
         log
           .spawn((
@@ -106,8 +103,8 @@ fn hear(
               });
           });
       });
-    })
-  })
+    }
+  }
 }
 
 fn talk(
@@ -129,27 +126,29 @@ fn talk(
         draft.0.clear()
       }
     }
-    true => typed.read().filter(|key| key.state == ButtonState::Pressed).for_each(|key| {
-      match &key.logical_key {
-        Key::Backspace => {
-          draft.0.pop();
-        }
-        Key::Enter => {
-          if !draft.0.trim().is_empty() {
-            says.write(Say(draft.0.clone()));
+    true => {
+      for key in typed.read().filter(|key| key.state == ButtonState::Pressed) {
+        match &key.logical_key {
+          Key::Backspace => {
+            draft.0.pop();
           }
-          menu.chatting = false
-        }
-        Key::Escape => menu.chatting = false,
-        _ => {
-          if let Some(chars) = &key.text
-            && draft.0.chars().count() < LONGEST_SAYING
-          {
-            draft.0.extend(chars.chars().filter(|c| !c.is_control()))
+          Key::Enter => {
+            if !draft.0.trim().is_empty() {
+              says.write(Say(draft.0.clone()));
+            }
+            menu.chatting = false
+          }
+          Key::Escape => menu.chatting = false,
+          _ => {
+            if let Some(chars) = &key.text
+              && draft.0.chars().count() < LONGEST_SAYING
+            {
+              draft.0.extend(chars.chars().filter(|c| !c.is_control()))
+            }
           }
         }
       }
-    })
+    }
   }
 }
 
@@ -163,9 +162,9 @@ fn show(
   mut texts: Query<&mut Text>
 ) {
   let now = time.elapsed_secs();
-  logs.iter().for_each(|children| {
+  for children in logs.iter() {
     let count = children.len();
-    children.iter().enumerate().for_each(|(index, child)| {
+    for (index, child) in children.iter().enumerate() {
       if let Ok((line, mut visibility)) = lines.get_mut(child) {
         let shown = !menu.open
           && (menu.chatting || (count - index <= RECENT && now - line.heard < SHOWN_FOR));
@@ -175,23 +174,23 @@ fn show(
           Visibility::Hidden
         });
       }
-    })
-  });
+    }
+  }
   let caret = if (now * 2.0) as u32 % 2 == 0 { "|" } else { "" };
-  typing.iter_mut().for_each(|(mut visibility, children)| {
+  for (mut visibility, children) in typing.iter_mut() {
     visibility.set_if_neq(match menu.chatting {
       true => Visibility::Inherited,
       false => Visibility::Hidden
     });
-    children.iter().for_each(|child| {
+    for child in children.iter() {
       if let Ok(mut text) = texts.get_mut(child) {
         let line = format!("> {}{caret}", draft.0);
         if text.0 != line {
           text.0 = line
         }
       }
-    })
-  })
+    }
+  }
 }
 
 pub struct Chat;

@@ -63,7 +63,7 @@ fn trade(
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   folk: Query<&Folk>
 ) {
-  trades.read().for_each(|&FromClient { client_id, message: Trade { trader, offer } }| {
+  for &FromClient { client_id, message: Trade { trader, offer } } in trades.read() {
     if let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && let Ok(folk) = folk.get(trader)
       && folk.band == Band::Trader
@@ -73,7 +73,7 @@ fn trade(
     {
       *inventory = after
     }
-  })
+  }
 }
 
 #[derive(Resource, Default)]
@@ -204,22 +204,20 @@ fn haggle(
       Some(_) => "A trader. Take a look at my wares!",
       None => "The trader has sailed on."
     };
-    greeting.iter_mut().for_each(|mut text| {
+    for mut text in greeting.iter_mut() {
       if text.0 != line {
         text.0 = line.into()
       }
-    });
+    }
     if shown.as_ref() != Some(&key) {
       *shown = Some(key);
-      bargains.iter().for_each(|list| {
+      for list in bargains.iter() {
         commands.entity(list).despawn_related::<Children>().with_children(|list| {
-          deals
-            .iter()
-            .zip(&haves)
-            .enumerate()
-            .for_each(|(index, (&offer, &have))| row(list, index, offer, have, &palette))
+          for (index, (&offer, &have)) in deals.iter().zip(&haves).enumerate() {
+            row(list, index, offer, have, &palette)
+          }
         });
-      })
+      }
     }
   } else {
     *shown = None
@@ -231,13 +229,13 @@ fn obey(
   dealing: Res<Dealing>,
   mut trades: MessageWriter<Trade>
 ) {
-  pressed.read().for_each(|&Pressed(act)| {
+  for &Pressed(act) in pressed.read() {
     if let Act::Trade(offer) = act
       && let Some(trader) = dealing.0
     {
       trades.write(Trade { trader, offer });
     }
-  })
+  }
 }
 
 pub struct Trading;
@@ -266,9 +264,9 @@ mod tests {
     let deal = deals[0];
     let mut inventory = Inventory::default();
     assert!(barter(&inventory, deal).is_none());
-    (0..deal.give.1).for_each(|_| {
+    for _ in 0..deal.give.1 {
       inventory.add(deal.give.0);
-    });
+    }
     let after = barter(&inventory, deal).expect("affordable");
     assert_eq!(after.count(deal.give.0), 0);
     assert_eq!(after.count(deal.get.0), u32::from(deal.get.1));

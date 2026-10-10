@@ -158,12 +158,9 @@ impl Voxels {
   pub fn solid(&self, at: IVec3) -> bool { self.block(at).is_none_or(Block::solid) }
 
   pub fn insert(&mut self, key: IVec3, mut chunk: Chunk) {
-    self
-      .edits
-      .get(&key)
-      .into_iter()
-      .flatten()
-      .for_each(|(&local, &block)| chunk.set(local, block));
+    for (&local, &block) in self.edits.get(&key).into_iter().flatten() {
+      chunk.set(local, block)
+    }
     self.chunks.insert(key, Arc::new(chunk));
     self.touch(key)
   }
@@ -177,13 +174,11 @@ impl Voxels {
   }
 
   fn touch(&mut self, key: IVec3) {
-    (-1..=1)
-      .flat_map(|x| {
-        (-1..=1).flat_map(move |y| (-1..=1).map(move |z| IVec3::new(x, y, z)))
-      })
-      .for_each(|offset| {
-        self.dirty.insert(key + offset);
-      })
+    for offset in (-1..=1).flat_map(|x| {
+      (-1..=1).flat_map(move |y| (-1..=1).map(move |z| IVec3::new(x, y, z)))
+    }) {
+      self.dirty.insert(key + offset);
+    }
   }
 
   pub fn set(&mut self, at: IVec3, block: Block) {
@@ -243,9 +238,9 @@ impl Voxels {
   }
 
   pub fn snapshot(&mut self, column: IVec2) -> Vec<Block> {
-    (0..LAYERS).for_each(|layer| {
+    for layer in 0..LAYERS {
       self.ensure(origin_of(column.extend(layer).xzy()));
-    });
+    }
     (0..COLUMN as i32)
       .map(|index| {
         let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);

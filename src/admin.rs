@@ -69,10 +69,10 @@ fn open(mut commands: Commands) {
     Ok(listener) => {
       let (requests, desk) = mpsc::channel();
       std::thread::spawn(move || {
-        listener.incoming().flatten().for_each(|stream| {
+        for stream in listener.incoming().flatten() {
           let requests = requests.clone();
           std::thread::spawn(move || attend(stream, requests));
-        })
+        }
       });
       info!("admin commands on 127.0.0.1:{port}");
       commands.insert_resource(Desk(Mutex::new(desk)))
@@ -274,7 +274,7 @@ fn image(
     .collect();
   let claimed: Vec<IVec2> =
     world.query::<&Claim>().iter(world).map(|claim| claim.column).collect();
-  (0..side * side).for_each(|index| {
+  for index in 0..side * side {
     let at =
       IVec2::new(centre.x - radius + index % side, centre.y - radius + index / side);
     let local = at.rem_euclid(IVec2::splat(SIZE));
@@ -282,23 +282,24 @@ fn image(
     if edge && claimed.contains(&at.div_euclid(IVec2::splat(SIZE))) {
       pixels[index as usize] = [250, 220, 60]
     }
-  });
+  }
   let mut mark = |at: Vec2, colour: [u8; 3]| {
     let pixel = at.floor().as_ivec2() - centre + radius;
-    (-1..=1).for_each(|dy| {
-      (-1..=1).for_each(|dx| {
+    for dy in -1..=1 {
+      for dx in -1..=1 {
         let spot = pixel + IVec2::new(dx, dy);
         if spot.cmpge(IVec2::ZERO).all() && spot.cmplt(IVec2::splat(side)).all() {
           pixels[(spot.y * side + spot.x) as usize] = colour
         }
-      })
-    })
+      }
+    }
   };
-  mobs(world).iter().for_each(|(_, _, at)| mark(at.xz(), [230, 40, 40]));
-  world
-    .query::<&Avatar>()
-    .iter(world)
-    .for_each(|avatar| mark(avatar.at.xz(), [255, 255, 255]));
+  for (_, _, at) in mobs(world).iter() {
+    mark(at.xz(), [230, 40, 40])
+  }
+  for avatar in world.query::<&Avatar>().iter(world) {
+    mark(avatar.at.xz(), [255, 255, 255])
+  }
   let output = std::fs::File::create(file)
     .map_err(|blame| format!("cannot write {file}: {blame}"))?;
   let mut encoder =
@@ -353,15 +354,15 @@ fn run(world: &mut World, line: &str) -> Result<String, String> {
           Err(format!("{volume} blocks is more than {MOST_FILLED}"))
         }
         volume => {
-          (low.y..=high.y).for_each(|y| {
-            (low.z..=high.z).for_each(|z| {
-              (low.x..=high.x).for_each(|x| {
+          for y in low.y..=high.y {
+            for z in low.z..=high.z {
+              for x in low.x..=high.x {
                 let at = IVec3::new(x, y, z);
                 world.resource_mut::<Voxels>().ensure(at);
                 place(world, at, block)
-              })
-            })
-          });
+              }
+            }
+          }
           Ok(format!("filled {volume} blocks with {block:?}"))
         }
       }
@@ -460,7 +461,7 @@ fn run(world: &mut World, line: &str) -> Result<String, String> {
       let home = Island::near(seed, at)
         .first()
         .map_or(at.xz().floor().as_ivec2() / 128, |island| island.cell);
-      (0..count).for_each(|index| {
+      for index in 0..count {
         let luck = crate::noise::hash(0xAD31, at.x as i32, index as i32, at.z as i32);
         let spot =
           at + Vec3::new((index % 5) as f32 * 0.7, 0.0, (index / 5) as f32 * 0.7);
@@ -483,7 +484,7 @@ fn run(world: &mut World, line: &str) -> Result<String, String> {
             world.flush()
           }
         }
-      });
+      }
       Ok(format!("spawned {count} {}", rest[0]))
     }
     Some("kill") => {
@@ -511,9 +512,9 @@ fn run(world: &mut World, line: &str) -> Result<String, String> {
               .collect()
           }
         };
-      doomed.iter().for_each(|&entity| {
+      for &entity in doomed.iter() {
         world.despawn(entity);
-      });
+      }
       Ok(format!("removed {} mobs", doomed.len()))
     }
     Some("claims") => {
@@ -549,11 +550,11 @@ fn obey(world: &mut World) {
     .get_resource::<Desk>()
     .and_then(|desk| desk.0.lock().ok().map(|desk| desk.try_iter().collect()))
     .unwrap_or_default();
-  requests.into_iter().for_each(|Request { line, reply }| {
+  for Request { line, reply } in requests.into_iter() {
     info!("admin: {line}");
     let answer = run(world, &line).unwrap_or_else(|blame| format!("error: {blame}"));
     let _ = reply.send(answer);
-  })
+  }
 }
 
 pub struct Admin;

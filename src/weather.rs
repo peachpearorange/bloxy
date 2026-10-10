@@ -106,7 +106,7 @@ fn forecast(mut commands: Commands) {
 }
 
 fn turn(time: Res<Time>, mut weathers: Query<(&mut Weather, &mut Spell)>) {
-  weathers.iter_mut().for_each(|(mut weather, mut spell)| {
+  for (mut weather, mut spell) in weathers.iter_mut() {
     spell.left -= time.delta_secs();
     if spell.left <= 0.0 && opts().weather.is_none() {
       let luck = hash(0x5C1E5, weather.spell as i32, 0, 0);
@@ -114,7 +114,7 @@ fn turn(time: Res<Time>, mut weathers: Query<(&mut Weather, &mut Spell)>) {
       spell.left = 90.0 + unit(luck, 2, 0, 0) * 150.0;
       *weather = Weather { sky, spell: weather.spell + 1 }
     }
-  })
+  }
 }
 
 #[derive(Resource)]
@@ -187,7 +187,7 @@ fn gather(
     }),
     segment: meshes.add(Cuboid::new(0.5, 0.5, 1.0))
   };
-  (0..DROPS).for_each(|index| {
+  for index in 0..DROPS {
     commands.spawn((
       Drop { floor: f32::INFINITY, phase: index as f32 * 0.37, snow: false },
       Mesh3d(gear.streak.clone()),
@@ -196,7 +196,7 @@ fn gather(
       Transform::default(),
       Visibility::Hidden
     ));
-  });
+  }
   commands.insert_resource(gear);
 }
 
@@ -274,9 +274,9 @@ fn drift(
   climate.cover = ease(climate.cover, sky.cover(), rate);
   climate.wet = ease(climate.wet, sky.wet(), rate * 2.0);
   climate.sun = ease(climate.sun, sky.sun(), rate);
-  skies.iter_mut().for_each(|mut transform| {
+  for mut transform in skies.iter_mut() {
     transform.translation = pilot.at.with_y(CLOUD_HEIGHT + CLOUD_THICK / 2.0).floor()
-  });
+  }
   let day = daylight(opts().hour);
   let lit = day.lux / RAW_SUNLIGHT;
   let [r, g, b, _] = day.tint.to_linear().to_f32_array();
@@ -330,45 +330,44 @@ fn fall(
       || pilot.at.y > 120.0
   });
   let shown = (DROPS as f32 * climate.wet) as usize;
-  drops.iter_mut().enumerate().for_each(
-    |(index, (mut drop, mut transform, mut visibility, mut mesh, mut material))| {
-      let wanted = index < shown && voxels.is_some();
-      *visibility = if wanted { Visibility::Visible } else { Visibility::Hidden };
-      if drop.snow != snowing {
-        drop.snow = snowing;
-        mesh.0 = if snowing { gear.flake.clone() } else { gear.streak.clone() };
-        material.0 = if snowing { gear.snow.clone() } else { gear.rain.clone() };
-      }
-      if let Some(voxels) = voxels.as_deref()
-        && wanted
-      {
-        let speed = if snowing { SNOW_FALL } else { RAIN_FALL };
-        let at = transform.translation;
-        let away = (at.xz() - eye.xz()).abs().max_element();
-        let at = match at.y < drop.floor || away > SHOWER {
-          true => {
-            let spot = eye.xz()
-              + Vec2::new(climate.dice() * 2.0 - 1.0, climate.dice() * 2.0 - 1.0)
-                * SHOWER;
-            drop.floor = column_floor(voxels, spot.x, spot.y, eye.y);
-            let height = eye.y.max(drop.floor) + 2.0 + climate.dice() * 16.0;
-            Vec3::new(spot.x, height, spot.y)
-          }
-          false => {
-            let sway = match snowing {
-              true => {
-                Vec3::new((now * 1.3 + drop.phase).sin(), 0.0, (now + drop.phase).cos())
-                  * 0.5
-              }
-              false => Vec3::new(0.8, 0.0, 0.3)
-            };
-            at + (sway - Vec3::Y * speed) * dt
-          }
-        };
-        transform.translation = at
-      }
+  for (index, (mut drop, mut transform, mut visibility, mut mesh, mut material)) in
+    drops.iter_mut().enumerate()
+  {
+    let wanted = index < shown && voxels.is_some();
+    *visibility = if wanted { Visibility::Visible } else { Visibility::Hidden };
+    if drop.snow != snowing {
+      drop.snow = snowing;
+      mesh.0 = if snowing { gear.flake.clone() } else { gear.streak.clone() };
+      material.0 = if snowing { gear.snow.clone() } else { gear.rain.clone() };
     }
-  )
+    if let Some(voxels) = voxels.as_deref()
+      && wanted
+    {
+      let speed = if snowing { SNOW_FALL } else { RAIN_FALL };
+      let at = transform.translation;
+      let away = (at.xz() - eye.xz()).abs().max_element();
+      let at = match at.y < drop.floor || away > SHOWER {
+        true => {
+          let spot = eye.xz()
+            + Vec2::new(climate.dice() * 2.0 - 1.0, climate.dice() * 2.0 - 1.0) * SHOWER;
+          drop.floor = column_floor(voxels, spot.x, spot.y, eye.y);
+          let height = eye.y.max(drop.floor) + 2.0 + climate.dice() * 16.0;
+          Vec3::new(spot.x, height, spot.y)
+        }
+        false => {
+          let sway = match snowing {
+            true => {
+              Vec3::new((now * 1.3 + drop.phase).sin(), 0.0, (now + drop.phase).cos())
+                * 0.5
+            }
+            false => Vec3::new(0.8, 0.0, 0.3)
+          };
+          at + (sway - Vec3::Y * speed) * dt
+        }
+      };
+      transform.translation = at
+    }
+  }
 }
 
 fn darken(
@@ -408,7 +407,7 @@ fn darken(
         Vec3::new(spot.x, CLOUD_HEIGHT + (ground - CLOUD_HEIGHT) * along, spot.y)
       })
       .collect();
-    points.windows(2).for_each(|pair| {
+    for pair in points.windows(2) {
       let (from, to) = (pair[0], pair[1]);
       commands.spawn((
         Bolt { left: 0.3 },
@@ -419,21 +418,21 @@ fn darken(
           .looking_at(to, Vec3::X)
           .with_scale(Vec3::new(1.0, 1.0, from.distance(to)))
       ));
-    })
+    }
   }
-  bolts.iter_mut().for_each(|(entity, mut bolt)| {
+  for (entity, mut bolt) in bolts.iter_mut() {
     bolt.left -= dt;
     if bolt.left <= 0.0 {
       commands.entity(entity).despawn()
     }
-  });
+  }
   let day = daylight(opts().hour);
   let flash = FLASH * 2f32.powf(day.ev100 - 7.2);
-  suns
-    .iter_mut()
-    .for_each(|mut sun| sun.illuminance = day.lux * climate.sun + climate.flash * flash);
+  for mut sun in suns.iter_mut() {
+    sun.illuminance = day.lux * climate.sun + climate.flash * flash
+  }
   let wet = climate.wet;
-  fogs.iter_mut().for_each(|mut fog| {
+  for mut fog in fogs.iter_mut() {
     let haze = day.haze * (1.0 - wet * 0.35);
     fog.color = Color::srgb(haze.x, haze.y, haze.z);
     fog.falloff = match settings.fog() {
@@ -443,7 +442,7 @@ fn darken(
       },
       other => other
     }
-  })
+  }
 }
 
 pub struct Weathering;

@@ -110,7 +110,11 @@ fn row(
       row_gap: px(GAP),
       ..default()
     })
-    .with_children(|row| slots.for_each(|index| slot(row, index, palette)));
+    .with_children(|row| {
+      for index in slots {
+        slot(row, index, palette)
+      }
+    });
 }
 
 fn column(width: Option<f32>, grow: f32) -> Node {
@@ -246,7 +250,7 @@ fn fill(
   }
   *was = showing;
   if showing {
-    icons.iter_mut().for_each(|(icon, mut image, mut visibility)| {
+    for (icon, mut image, mut visibility) in icons.iter_mut() {
       match inventory.slots[icon.0] {
         Some(stack) => {
           let rect = Some(icon_rect(stack.block));
@@ -259,15 +263,15 @@ fn fill(
           visibility.set_if_neq(Visibility::Hidden);
         }
       }
-    });
-    counts.iter_mut().for_each(|(count, mut text)| {
+    }
+    for (count, mut text) in counts.iter_mut() {
       let shown = inventory.slots[count.0]
         .filter(|stack| stack.count > 1)
         .map_or(String::new(), |stack| stack.count.to_string());
       if text.0 != shown {
         text.0 = shown
       }
-    })
+    }
   }
 }
 
@@ -334,19 +338,23 @@ fn catalogue(
       .flat_map(|bookmarks| bookmarks.0.iter().copied().map(describe))
       .collect();
     if shown.0 != entries {
-      lists.iter().for_each(|list| {
+      for list in lists.iter() {
         commands.entity(list).despawn_children().with_children(|list| {
-          entries.iter().for_each(|&found| entry(list, found, &palette))
+          for &found in entries.iter() {
+            entry(list, found, &palette)
+          }
         });
-      });
+      }
       shown.0 = entries
     }
     if shown.1 != marked {
-      marks.iter().for_each(|list| {
+      for list in marks.iter() {
         commands.entity(list).despawn_children().with_children(|list| {
-          marked.iter().for_each(|&found| entry(list, found, &palette))
+          for &found in marked.iter() {
+            entry(list, found, &palette)
+          }
         });
-      });
+      }
       shown.1 = marked
     }
   }
@@ -379,7 +387,7 @@ fn card(
   parent
     .spawn(Node { align_items: AlignItems::Center, column_gap: px(6), ..default() })
     .with_children(|row| {
-      recipe.inputs.iter().for_each(|&(block, need)| {
+      for &(block, need) in recipe.inputs.iter() {
         let have = inventory.count(block);
         ingredient(row, block);
         row.spawn((
@@ -389,7 +397,7 @@ fn card(
           }),
           Node { margin: UiRect::right(px(6)), ..default() }
         ));
-      });
+      }
       row.spawn(words("->", 16.0, FAINT));
       let (output, count) = recipe.output;
       ingredient(row, output);
@@ -425,7 +433,7 @@ fn recipes(
     let state = (chosen.0, carried(&pilot, &inventories), nearby.0.clone());
     if shown.as_ref() != Some(&state) {
       let (chosen, inventory, nearby) = &state;
-      containers.iter().for_each(|container| {
+      for container in containers.iter() {
         commands.entity(container).despawn_children().with_children(
           |panel| match *chosen {
             None => {
@@ -443,20 +451,20 @@ fn recipes(
               if making.is_empty() {
                 panel.spawn(words("Not craftable: gather it in the world.", 14.0, INK));
               }
-              making.into_iter().for_each(|(index, recipe)| {
+              for (index, recipe) in making.into_iter() {
                 card(panel, index, recipe, inventory, nearby, &palette)
-              });
+              }
               let using: Vec<_> = recipe::using(block).collect();
               if !using.is_empty() {
                 panel.spawn(words("Used in", 15.0, FAINT));
               }
-              using.into_iter().for_each(|(index, recipe)| {
+              for (index, recipe) in using.into_iter() {
                 card(panel, index, recipe, inventory, nearby, &palette)
-              });
+              }
             }
           }
         );
-      });
+      }
       *shown = Some(state)
     }
   }
@@ -468,11 +476,11 @@ fn rewind(
   mut panes: Query<&mut ScrollPosition>
 ) {
   if chosen.is_changed() {
-    containers.iter().for_each(|parent| {
+    for parent in containers.iter() {
       if let Ok(mut position) = panes.get_mut(parent.parent()) {
         position.0 = Vec2::ZERO
       }
-    })
+    }
   }
 }
 
@@ -485,10 +493,9 @@ fn scroll(
     MouseScrollUnit::Pixel => wheel.delta.y
   };
   if lines != 0.0 {
-    panes
-      .iter_mut()
-      .filter(|(cursor, _)| cursor.cursor_over())
-      .for_each(|(_, mut position)| position.0.y = (position.0.y - lines).max(0.0))
+    for (_, mut position) in panes.iter_mut().filter(|(cursor, _)| cursor.cursor_over()) {
+      position.0.y = (position.0.y - lines).max(0.0)
+    }
   }
 }
 
@@ -525,7 +532,7 @@ fn hint(
   }
   let cursor =
     windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
-  tips.iter_mut().for_each(|(mut node, mut visibility, children)| {
+  for (mut node, mut visibility, children) in tips.iter_mut() {
     match pointed.zip(cursor) {
       Some(((block, count), at)) => {
         node.left = px(at.x + 16.0);
@@ -535,19 +542,19 @@ fn hint(
           Some(count) if count > 1 => format!("{} x{count}", block.name()),
           _ => block.name().to_string()
         };
-        children.iter().for_each(|child| {
+        for child in children.iter() {
           if let Ok(mut text) = texts.get_mut(child)
             && text.0 != line
           {
             text.0 = line.clone()
           }
-        })
+        }
       }
       None => {
         visibility.set_if_neq(Visibility::Hidden);
       }
     }
-  })
+  }
 }
 
 fn carry(
@@ -564,13 +571,13 @@ fn carry(
     .filter(|_| menu.showing(Tab::Inventory));
   let cursor =
     windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
-  carried.iter_mut().for_each(|(mut node, mut visibility, children)| {
+  for (mut node, mut visibility, children) in carried.iter_mut() {
     match stack.zip(cursor) {
       Some((stack, at)) => {
         node.left = px(at.x - 20.0);
         node.top = px(at.y - 20.0);
         visibility.set_if_neq(Visibility::Inherited);
-        children.iter().for_each(|child| {
+        for child in children.iter() {
           if let Ok(mut image) = images.get_mut(child)
             && image.rect != Some(icon_rect(stack.block))
           {
@@ -583,13 +590,13 @@ fn carry(
               text.0 = shown
             }
           }
-        })
+        }
       }
       None => {
         visibility.set_if_neq(Visibility::Hidden);
       }
     }
-  })
+  }
 }
 
 fn obey(
@@ -616,18 +623,20 @@ fn obey(
   {
     picks.write(Picked(if holding { Pick::One(index) } else { Pick::Half(index) }));
   }
-  pressed.read().for_each(|&Pressed(act)| match act {
-    Act::Slot(index) => {
-      let (from, to) =
-        if holding { (CURSOR as u8, index) } else { (index, CURSOR as u8) };
-      shuffles.write(Shuffle { from, to });
+  for &Pressed(act) in pressed.read() {
+    match act {
+      Act::Slot(index) => {
+        let (from, to) =
+          if holding { (CURSOR as u8, index) } else { (index, CURSOR as u8) };
+        shuffles.write(Shuffle { from, to });
+      }
+      Act::Inspect(block) => chosen.0 = Some(block),
+      Act::Craft(index) => {
+        crafts.write(Craft(index));
+      }
+      _ => ()
     }
-    Act::Inspect(block) => chosen.0 = Some(block),
-    Act::Craft(index) => {
-      crafts.write(Craft(index));
-    }
-    _ => ()
-  })
+  }
 }
 
 pub struct Crafting;

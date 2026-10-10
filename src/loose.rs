@@ -60,7 +60,7 @@ fn toss(
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   mut commands: Commands
 ) {
-  tosses.read().for_each(|&FromClient { client_id, message: Toss { slot, all } }| {
+  for &FromClient { client_id, message: Toss { slot, all } } in tosses.read() {
     if let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && let Some(stack) = inventory.slots.get(usize::from(slot)).copied().flatten()
     {
@@ -79,7 +79,7 @@ fn toss(
         TOSSED_WAIT
       )
     }
-  })
+  }
 }
 
 fn tumble(
@@ -89,15 +89,16 @@ fn tumble(
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
-  loose.iter_mut().for_each(|(entity, mut loose, mut tumble)| {
+  for (entity, mut loose, mut tumble) in loose.iter_mut() {
     tumble.age += dt;
     tumble.wait -= dt;
     let at = loose.at;
-    [IVec3::ZERO, IVec3::NEG_Y, IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z]
-      .into_iter()
-      .for_each(|offset| {
-        voxels.ensure(at.floor().as_ivec3() + offset);
-      });
+    for offset in
+      [IVec3::ZERO, IVec3::NEG_Y, IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z]
+        .into_iter()
+    {
+      voxels.ensure(at.floor().as_ivec3() + offset);
+    }
     let floating = voxels
       .block((at + Vec3::Y * SIZE * 0.5).floor().as_ivec3())
       .is_some_and(Block::fluid);
@@ -124,7 +125,7 @@ fn tumble(
         }
       }
     }
-  })
+  }
 }
 
 fn gather(
@@ -132,22 +133,21 @@ fn gather(
   mut loose: Query<(Entity, &mut Loose, &Tumble)>,
   mut commands: Commands
 ) {
-  loose.iter_mut().filter(|(_, _, tumble)| tumble.wait <= 0.0).for_each(
-    |(entity, mut loose, _)| {
-      if let Some((_, mut inventory)) = players
-        .iter_mut()
-        .find(|(avatar, _)| (avatar.at + Vec3::Y * 0.9).distance(loose.at) < GATHER)
-      {
-        let kept =
-          (0..loose.count).filter(|_| !inventory.add(loose.block)).count() as u16;
-        match kept {
-          0 => commands.entity(entity).despawn(),
-          kept if kept != loose.count => loose.count = kept,
-          _ => ()
-        }
+  for (entity, mut loose, _) in
+    loose.iter_mut().filter(|(_, _, tumble)| tumble.wait <= 0.0)
+  {
+    if let Some((_, mut inventory)) = players
+      .iter_mut()
+      .find(|(avatar, _)| (avatar.at + Vec3::Y * 0.9).distance(loose.at) < GATHER)
+    {
+      let kept = (0..loose.count).filter(|_| !inventory.add(loose.block)).count() as u16;
+      match kept {
+        0 => commands.entity(entity).despawn(),
+        kept if kept != loose.count => loose.count = kept,
+        _ => ()
       }
     }
-  )
+  }
 }
 
 fn throw(
@@ -310,7 +310,7 @@ fn show(
   mut meshes: ResMut<Assets<Mesh>>,
   mut commands: Commands
 ) {
-  arrivals.iter().for_each(|(entity, loose)| {
+  for (entity, loose) in arrivals.iter() {
     let block = loose.block;
     let yaw = Quat::from_rotation_y((entity.to_bits() % 997) as f32 * 2.399);
     let turned = match cubic(block) {
@@ -324,12 +324,12 @@ fn show(
       Transform::from_translation(loose.at).with_rotation(turned),
       Visibility::default()
     ));
-  })
+  }
 }
 
 fn settle(time: Res<Time>, mut shown: Query<(&Loose, &mut Shown, &mut Transform)>) {
   let dt = time.delta_secs();
-  shown.iter_mut().for_each(|(loose, mut shown, mut transform)| {
+  for (loose, mut shown, mut transform) in shown.iter_mut() {
     shown.at = shown.at.lerp(loose.at, (dt * 15.0).min(1.0));
     let lift = match cubic(loose.block) {
       true => 0.0,
@@ -337,7 +337,7 @@ fn settle(time: Res<Time>, mut shown: Query<(&Loose, &mut Shown, &mut Transform)
     };
     *transform =
       Transform::from_translation(shown.at + Vec3::Y * lift).with_rotation(shown.turned)
-  })
+  }
 }
 
 pub struct Litter;

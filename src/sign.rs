@@ -53,26 +53,26 @@ fn inscribe(
   players: Query<(&Controller, &Avatar)>,
   mut signs: Query<&mut Sign>
 ) {
-  inscriptions.read().for_each(
-    |FromClient { client_id, message: Inscribe { at, text } }| {
-      if let Some(avatar) = player_of(players.iter(), *client_id)
-        && within_reach(avatar, *at)
-        && let Some(mut sign) = signs.iter_mut().find(|sign| sign.at == *at)
-      {
-        let text = tidy(text);
-        if sign.text != text {
-          sign.text = text
-        }
+  for FromClient { client_id, message: Inscribe { at, text } } in inscriptions.read() {
+    if let Some(avatar) = player_of(players.iter(), *client_id)
+      && within_reach(avatar, *at)
+      && let Some(mut sign) = signs.iter_mut().find(|sign| sign.at == *at)
+    {
+      let text = tidy(text);
+      if sign.text != text {
+        sign.text = text
       }
     }
-  )
+  }
 }
 
 fn topple(voxels: Res<Voxels>, signs: Query<(Entity, &Sign)>, mut commands: Commands) {
-  signs
+  for (entity, _) in signs
     .iter()
     .filter(|(_, sign)| voxels.block(sign.at).is_some_and(|block| !block.sign()))
-    .for_each(|(entity, _)| commands.entity(entity).despawn())
+  {
+    commands.entity(entity).despawn()
+  }
 }
 
 const GLYPHS: [(char, &str); 55] = [
@@ -265,7 +265,7 @@ fn letter(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  signs.iter().for_each(|(entity, sign, lettered)| {
+  for (entity, sign, lettered) in signs.iter() {
     let placed =
       Transform::from_translation(sign.at.as_vec3() + Vec3::new(0.5, 0.0, 0.5))
         .with_rotation(Quat::from_rotation_y(sign.yaw));
@@ -296,7 +296,7 @@ fn letter(
           sign.spawn((Mesh3d(carpentry.board.clone()), material));
         });
     }
-  })
+  }
 }
 
 fn seal(

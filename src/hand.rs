@@ -40,7 +40,7 @@ fn hold(
   mut meshes: ResMut<Assets<Mesh>>,
   mut commands: Commands
 ) {
-  grips.iter_mut().for_each(|(entity, grip, fist, mut transform, mut visibility)| {
+  for (entity, grip, fist, mut transform, mut visibility) in grips.iter_mut() {
     match grip.0 {
       Some(block) => {
         let hand = Vec3::new(0.0, -12.0 * PX, -1.0 * PX);
@@ -77,7 +77,7 @@ fn hold(
       }
       None => *visibility = Visibility::Hidden
     }
-  })
+  }
 }
 
 #[derive(Component)]
@@ -92,7 +92,7 @@ fn carve(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  eyes.iter().for_each(|eye| {
+  for eye in eyes.iter() {
     let wood = materials.add(StandardMaterial {
       base_color: Color::srgb(0.55, 0.38, 0.2),
       perceptual_roughness: 0.7,
@@ -121,15 +121,15 @@ fn carve(
     let rod = commands
       .spawn((Rod, Transform::from_translation(GRIP), Visibility::Hidden, ChildOf(eye)))
       .id();
-    parts.into_iter().for_each(|part| {
+    for part in parts.into_iter() {
       commands.spawn((part, ChildOf(rod)));
-    });
+    }
     commands.spawn((
       RodTip,
       Transform::from_translation(Vec3::Z * -ROD_LENGTH),
       ChildOf(rod)
     ));
-  })
+  }
 }
 
 fn raise(
@@ -172,12 +172,12 @@ fn reskin(
   if let Some(pilot) = pilot
     && let Ok(skin) = skins.get(pilot.me)
   {
-    hands.iter().for_each(|clad| {
+    for clad in hands.iter() {
       if let Some(mut image) = images.get_mut(&clad.image) {
         image.data = Some(skin.pixels(false))
       }
       materials.get_mut(&clad.material);
-    })
+    }
   }
 }
 
@@ -195,11 +195,11 @@ fn swing(
   mut rods: Query<(&mut Transform, &mut Visibility), With<Rod>>,
   mut grips: Query<(&mut Grip, &ChildOf)>
 ) {
-  grips.iter_mut().filter(|(_, parent)| hands.contains(parent.parent())).for_each(
-    |(mut grip, _)| {
-      grip.set_if_neq(Grip(pilot.held.filter(|&block| block != Block::FishingRod)));
-    }
-  );
+  for (mut grip, _) in
+    grips.iter_mut().filter(|(_, parent)| hands.contains(parent.parent()))
+  {
+    grip.set_if_neq(Grip(pilot.held.filter(|&block| block != Block::FishingRod)));
+  }
   let fishing = inventories
     .get(pilot.me)
     .ok()
@@ -209,7 +209,7 @@ fn swing(
     && (buttons.just_pressed(MouseButton::Left)
       || buttons.just_pressed(MouseButton::Right));
   let first = *view == View::First;
-  hands.iter_mut().for_each(|(mut hand, mut transform, mut visibility)| {
+  for (mut hand, mut transform, mut visibility) in hands.iter_mut() {
     visibility.set_if_neq(match first {
       true => Visibility::Inherited,
       false => Visibility::Hidden
@@ -221,14 +221,14 @@ fn swing(
     let progress = (hand.swung / SWING).min(1.0);
     let arc = (progress * PI).sin();
     let sway = gait.sway() * 0.6;
-    rods.iter_mut().for_each(|(mut rod, mut visibility)| {
+    for (mut rod, mut visibility) in rods.iter_mut() {
       *visibility =
         if fishing && first { Visibility::Visible } else { Visibility::Hidden };
       *rod = Transform::from_translation(
         GRIP + Vec3::new(-sway.x - arc * 0.04, sway.y * 0.5 + arc * 0.06, -arc * 0.05)
       )
       .with_rotation(Quat::from_euler(EulerRot::YXZ, 0.12, 0.55 + arc * 0.5, 0.0))
-    });
+    }
     *transform = Transform::from_translation(
       REST + Vec3::new(-sway.x - arc * 0.08, sway.y * 0.5 - arc * 0.05, -arc * 0.12)
     )
@@ -239,7 +239,7 @@ fn swing(
       1.95 - arc * 0.9,
       -0.12
     ))
-  })
+  }
 }
 
 pub struct Hands;

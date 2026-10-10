@@ -102,21 +102,21 @@ fn stream(
       .collect();
     missing.sort_by_key(|&key| (horizontal(key, centre), (key.y - centre.y).abs()));
     let room = GENERATING.saturating_sub(streaming.generating.len()).min(STARTS);
-    missing.iter().take(room).for_each(|&key| {
+    for &key in missing.iter().take(room) {
       let kept = kept.clone();
       streaming
         .generating
         .insert(key, pool.spawn(async move { generated(seed, &kept, key) }));
-    });
+    }
     let generated: Vec<(IVec3, Chunk)> = streaming
       .generating
       .iter_mut()
       .filter_map(|(&key, task)| check_ready(task).map(|chunk| (key, chunk)))
       .collect();
-    generated.into_iter().for_each(|(key, chunk)| {
+    for (key, chunk) in generated.into_iter() {
       streaming.generating.remove(&key);
       voxels.insert(key, chunk)
-    });
+    }
     let far = |key: &IVec3| horizontal(*key, centre) > (reach + KEEP_BEYOND).pow(2);
     voxels.chunks.retain(|key, _| !far(key));
     let mut dirty: Vec<IVec3> = voxels
@@ -152,7 +152,7 @@ fn stream(
       .iter_mut()
       .filter_map(|(&key, task)| check_ready(task).map(|built| (key, built)))
       .collect();
-    built.into_iter().for_each(|(key, built)| {
+    for (key, built) in built.into_iter() {
       streaming.meshing.remove(&key);
       let placed = Transform::from_translation(origin_of(key).as_vec3());
       let solid = built.solid.map(|mesh| {
@@ -175,28 +175,22 @@ fn stream(
           .id()
       });
       let shown: Vec<Entity> = solid.into_iter().chain(liquid).collect();
-      streaming
-        .shown
-        .insert(key, shown)
-        .into_iter()
-        .flatten()
-        .for_each(|old| commands.entity(old).despawn())
-    });
+      for old in streaming.shown.insert(key, shown).into_iter().flatten() {
+        commands.entity(old).despawn()
+      }
+    }
     let gone: Vec<IVec3> = streaming
       .shown
       .keys()
       .copied()
       .filter(|key| horizontal(*key, centre) > reach * reach)
       .collect();
-    gone.into_iter().for_each(|key| {
+    for key in gone.into_iter() {
       voxels.dirty.insert(key);
-      streaming
-        .shown
-        .remove(&key)
-        .into_iter()
-        .flatten()
-        .for_each(|old| commands.entity(old).despawn())
-    });
+      for old in streaming.shown.remove(&key).into_iter().flatten() {
+        commands.entity(old).despawn()
+      }
+    }
     let unmeshed = voxels
       .dirty
       .iter()

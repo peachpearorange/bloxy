@@ -87,11 +87,10 @@ fn post(
     let surplus = (lines.iter().count() + heard.len()).saturating_sub(MOST);
     let mut oldest: Vec<(Entity, &Line)> = lines.iter().collect();
     oldest.sort_by(|a, b| b.1.age.total_cmp(&a.1.age));
-    oldest
-      .into_iter()
-      .take(surplus)
-      .for_each(|(line, _)| commands.entity(line).despawn());
-    heard.into_iter().rev().take(MOST).rev().for_each(|(level, text)| {
+    for (line, _) in oldest.into_iter().take(surplus) {
+      commands.entity(line).despawn()
+    }
+    for (level, text) in heard.into_iter().rev().take(MOST).rev() {
       commands.entity(board).with_child((
         Line { age: 0.0 },
         Text::new(text),
@@ -100,7 +99,7 @@ fn post(
         SHADE,
         Node { left: px(-40), ..default() }
       ));
-    })
+    }
   }
 }
 
@@ -110,7 +109,7 @@ fn fade(
   mut commands: Commands
 ) {
   let dt = time.delta_secs();
-  lines.iter_mut().for_each(|(entity, mut line, mut node, mut color)| {
+  for (entity, mut line, mut node, mut color) in lines.iter_mut() {
     line.age += dt;
     let arriving = (line.age / SLIDE).min(1.0);
     let leaving = ((SHOWN_FOR - line.age) / SLIDE).clamp(0.0, 1.0);
@@ -119,7 +118,7 @@ fn fade(
     if line.age > SHOWN_FOR {
       commands.entity(entity).despawn()
     }
-  })
+  }
 }
 
 pub struct Console;

@@ -157,8 +157,8 @@ fn survey(
     }
     let corner = centre - SPAN / 2;
     let rows = map.row..map.row + ROWS_PER_FRAME;
-    rows.clone().for_each(|row| {
-      (0..SPAN).for_each(|column| {
+    for row in rows.clone() {
+      for column in 0..SPAN {
         let index = (row * SPAN + column) as usize;
         let (x, z) = (corner.x + column, corner.y + row);
         match surface(&voxels, x, z) {
@@ -189,22 +189,22 @@ fn survey(
           }
           None => map.colours[index] = UNKNOWN
         }
-      })
-    });
+      }
+    }
     map.row = rows.end % SPAN;
     map.since += time.delta_secs();
   }
 }
 
 fn dot(pixels: &mut [[u8; 4]], at: IVec2, radius: i32, colour: [u8; 4]) {
-  (-radius..=radius).for_each(|dz| {
-    (-radius..=radius).for_each(|dx| {
+  for dz in -radius..=radius {
+    for dx in -radius..=radius {
       let spot = at + IVec2::new(dx, dz);
       if spot.cmpge(IVec2::ZERO).all() && spot.cmplt(IVec2::splat(SPAN)).all() {
         pixels[(spot.y * SPAN + spot.x) as usize] = colour
       }
-    })
-  })
+    }
+  }
 }
 
 fn draw(
@@ -224,18 +224,16 @@ fn draw(
     let corner = map.centre - SPAN / 2;
     let on_map = |at: Vec3| at.xz().floor().as_ivec2() - corner;
     let mut pixels = map.colours.clone();
-    visits.get(pilot.me).into_iter().flat_map(|visited| visited.0.iter()).for_each(
-      |&cell| {
-        if let Some(island) = Island::at(voxels.seed, cell) {
-          dot(&mut pixels, island.stone.xz() - corner, 1, [230, 60, 230, 255])
-        }
+    for &cell in visits.get(pilot.me).into_iter().flat_map(|visited| visited.0.iter()) {
+      if let Some(island) = Island::at(voxels.seed, cell) {
+        dot(&mut pixels, island.stone.xz() - corner, 1, [230, 60, 230, 255])
       }
-    );
-    others.iter().for_each(|(avatar, player)| {
+    }
+    for (avatar, player) in others.iter() {
       let [r, g, b] =
         crate::protocol::HUES[usize::from(player.hue) % crate::protocol::HUES.len()];
       dot(&mut pixels, on_map(avatar.at), 1, [r, g, b, 255])
-    });
+    }
     let facing = (pilot.facing() * Vec3::NEG_Z).xz().normalize_or(Vec2::NEG_Y);
     let across = facing.perp();
     let centre = Vec2::splat(SPAN as f32 / 2.0);
@@ -245,8 +243,8 @@ fn draw(
       centre - facing * 3.0 - across * 3.5
     );
     let side = |a: Vec2, b: Vec2, point: Vec2| (b - a).perp_dot(point - a);
-    (-6..=6).for_each(|dz| {
-      (-6..=6).for_each(|dx| {
+    for dz in -6..=6 {
+      for dx in -6..=6 {
         let point = centre + Vec2::new(dx as f32, dz as f32) + 0.5;
         let signs =
           [side(tip, left, point), side(left, right, point), side(right, tip, point)];
@@ -255,10 +253,10 @@ fn draw(
           let spot = point.floor().as_ivec2();
           pixels[(spot.y * SPAN + spot.x) as usize] = [255, 70, 50, 255]
         }
-      })
-    });
+      }
+    }
     let middle = Vec2::splat(SPAN as f32 / 2.0);
-    pixels.iter_mut().enumerate().for_each(|(index, pixel)| {
+    for (index, pixel) in pixels.iter_mut().enumerate() {
       let at =
         Vec2::new((index as i32 % SPAN) as f32, (index as i32 / SPAN) as f32) + 0.5;
       let away = at.distance(middle);
@@ -267,7 +265,7 @@ fn draw(
         away if away > middle.x - 2.0 => RING,
         _ => *pixel
       }
-    });
+    }
     if let Some(mut image) = images.get_mut(&map.image) {
       image.data = Some(pixels.concat())
     }
@@ -279,11 +277,11 @@ fn draw(
       })
       .map_or("Open sea".to_string(), |island| island.name(voxels.seed));
     let line = format!("{} {} {}\n{place}", at.x, at.y, at.z);
-    texts.iter_mut().for_each(|mut text| {
+    for mut text in texts.iter_mut() {
       if text.0 != line {
         text.0 = line.clone()
       }
-    })
+    }
   }
 }
 

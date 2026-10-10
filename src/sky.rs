@@ -165,7 +165,7 @@ fn kindle(
     });
     let intensity =
       TORCH_LUMENS * 2f32.powf(daylight(opts().hour).ev100 - NIGHT_EXPOSURE);
-    near.iter().for_each(|&torch| {
+    for &torch in near.iter() {
       match flames.0.get(&torch).and_then(|&entity| lights.get_mut(entity).ok()) {
         Some(mut light) => {
           if light.intensity != intensity {
@@ -192,7 +192,7 @@ fn kindle(
           flames.0.insert(torch, entity);
         }
       }
-    })
+    }
   }
 }
 

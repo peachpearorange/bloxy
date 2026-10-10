@@ -163,19 +163,19 @@ struct Builder {
 impl Builder {
   fn polygon(&mut self, points: &[Vec3], uvs: &[Vec2], normal: Vec3, hue: LinearRgba) {
     let first = self.positions.len() as u32;
-    points.iter().zip(uvs).for_each(|(point, uv)| {
+    for (point, uv) in points.iter().zip(uvs) {
       self.positions.push(point.to_array());
       self.normals.push(normal.to_array());
       self.uvs.push(uv.to_array());
       self.colors.push(hue.with_alpha(1.0).to_f32_array())
-    });
+    }
     let facing = (points[1] - points[0]).cross(points[2] - points[0]).dot(normal) > 0.0;
-    (1..points.len() as u32 - 1).for_each(|corner| {
+    for corner in 1..points.len() as u32 - 1 {
       self.indices.extend(match facing {
         true => [first, first + corner, first + corner + 1],
         false => [first, first + corner + 1, first + corner]
       })
-    })
+    }
   }
 
   fn mesh(self) -> Option<Mesh> {
@@ -266,7 +266,7 @@ fn builders(
   };
   let mut solid = Builder::default();
   let mut liquid = Builder::default();
-  (0..SIZE * SIZE * SIZE).for_each(|index| {
+  for index in 0..SIZE * SIZE * SIZE {
     let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
     let block = padded.get(local);
     if block != Block::Air {
@@ -282,68 +282,66 @@ fn builders(
           false => shows(block, neighbour).then_some(0.0)
         }
       };
-      FACES.iter().filter_map(|face| floor(face).map(|floor| (face, floor))).for_each(
-        |(face, floor)| {
-          let builder = match block.liquid() {
-            Some((Fluid::Water, _)) => &mut liquid,
-            _ => &mut solid
+      for (face, floor) in
+        FACES.iter().filter_map(|face| floor(face).map(|floor| (face, floor)))
+      {
+        let builder = match block.liquid() {
+          Some((Fluid::Water, _)) => &mut liquid,
+          _ => &mut solid
+        };
+        let outside = local + face.normal;
+        let blocks = |at: IVec3| u8::from(padded.get(at).opaque());
+        let clamp = |at: IVec3| at.clamp(IVec3::NEG_ONE, IVec3::splat(SIZE));
+        let occlusion = CORNERS.map(|(a, b)| {
+          let across = face.across * (a * 2 - 1);
+          let up = face.up * (b * 2 - 1);
+          let (first, second) = (blocks(outside + across), blocks(outside + up));
+          let corner = blocks(outside + across + up);
+          match first + second {
+            2 => 0,
+            sides => 3 - sides - corner
+          }
+        });
+        let daylight = CORNERS.map(|(a, b)| {
+          let (across, up) = (face.across * (a * 2 - 1), face.up * (b * 2 - 1));
+          [outside, outside + across, outside + up, outside + across + up]
+            .map(|at| sky(clamp(at)))
+            .iter()
+            .sum::<f32>()
+            / 4.0
+        });
+        let tile = block.tiles()[face.side];
+        let first = builder.positions.len() as u32;
+        for ((&(a, b), shade), daylight) in CORNERS.iter().zip(occlusion).zip(daylight) {
+          let corner = (local + face.base + face.across * a + face.up * b).as_vec3();
+          let height = match corner.y > local.y as f32 + 0.5 {
+            true => local.y as f32 + top,
+            false => local.y as f32 + floor
           };
-          let outside = local + face.normal;
-          let blocks = |at: IVec3| u8::from(padded.get(at).opaque());
-          let clamp = |at: IVec3| at.clamp(IVec3::NEG_ONE, IVec3::splat(SIZE));
-          let occlusion = CORNERS.map(|(a, b)| {
-            let across = face.across * (a * 2 - 1);
-            let up = face.up * (b * 2 - 1);
-            let (first, second) = (blocks(outside + across), blocks(outside + up));
-            let corner = blocks(outside + across + up);
-            match first + second {
-              2 => 0,
-              sides => 3 - sides - corner
-            }
-          });
-          let daylight = CORNERS.map(|(a, b)| {
-            let (across, up) = (face.across * (a * 2 - 1), face.up * (b * 2 - 1));
-            [outside, outside + across, outside + up, outside + across + up]
-              .map(|at| sky(clamp(at)))
-              .iter()
-              .sum::<f32>()
-              / 4.0
-          });
-          let tile = block.tiles()[face.side];
-          let first = builder.positions.len() as u32;
-          CORNERS.iter().zip(occlusion).zip(daylight).for_each(
-            |((&(a, b), shade), daylight)| {
-              let corner = (local + face.base + face.across * a + face.up * b).as_vec3();
-              let height = match corner.y > local.y as f32 + 0.5 {
-                true => local.y as f32 + top,
-                false => local.y as f32 + floor
-              };
-              builder.positions.push([corner.x, height, corner.z]);
-              builder.normals.push(face.normal.as_vec3().to_array());
-              builder
-                .uvs
-                .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
-              let hue = match (kind(block), block) {
-                (Some(Fluid::Water), _) => tint(corner),
-                (_, Block::Grass) => meadow(origin.as_vec3() + corner),
-                _ => LinearRgba::WHITE
-              };
-              let torch = torchlight(origin.as_vec3() + corner.with_y(height));
-              builder.colors.push(lit(hue, daylight, torch, OCCLUSION[shade as usize]));
-            }
-          );
-          let flipped = occlusion[1] + occlusion[3] > occlusion[0] + occlusion[2];
-          let order = match flipped {
-            true => [1, 2, 3, 1, 3, 0],
-            false => [0, 1, 2, 0, 2, 3]
+          builder.positions.push([corner.x, height, corner.z]);
+          builder.normals.push(face.normal.as_vec3().to_array());
+          builder
+            .uvs
+            .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
+          let hue = match (kind(block), block) {
+            (Some(Fluid::Water), _) => tint(corner),
+            (_, Block::Grass) => meadow(origin.as_vec3() + corner),
+            _ => LinearRgba::WHITE
           };
-          builder.indices.extend(order.map(|corner| first + corner))
+          let torch = torchlight(origin.as_vec3() + corner.with_y(height));
+          builder.colors.push(lit(hue, daylight, torch, OCCLUSION[shade as usize]));
         }
-      );
+        let flipped = occlusion[1] + occlusion[3] > occlusion[0] + occlusion[2];
+        let order = match flipped {
+          true => [1, 2, 3, 1, 3, 0],
+          false => [0, 1, 2, 0, 2, 3]
+        };
+        builder.indices.extend(order.map(|corner| first + corner))
+      }
       let shift = model::shift(block, seed, origin + local);
       let light = sky(local);
       let torch = torchlight(origin.as_vec3() + local.as_vec3() + 0.5);
-      model::bits(block).iter().for_each(|&Bit { low, high, color: [r, g, b], tile }| {
+      for &Bit { low, high, color: [r, g, b], tile } in model::bits(block).iter() {
         let (low, high) =
           (Vec3::from(low.map(f32::from)), Vec3::from(high.map(f32::from)));
         let hue = LinearRgba::from_f32_array(lit(
@@ -352,7 +350,7 @@ fn builders(
           torch,
           1.0
         ));
-        FACES.iter().for_each(|face| {
+        for face in FACES.iter() {
           let texels = CORNERS.map(|(a, b)| {
             low + (high - low) * (face.base + face.across * a + face.up * b).as_vec3()
           });
@@ -368,13 +366,13 @@ fn builders(
             face.normal.as_vec3(),
             hue
           )
-        })
-      });
+        }
+      }
       if block.look() == Look::Log {
         let [top, side, bottom] = block.tiles();
         let hue = LinearRgba::from_f32_array(lit(LinearRgba::WHITE, light, torch, 1.0));
         let corner = local.as_vec3();
-        (0..8).for_each(|edge| {
+        for edge in 0..8 {
           let (from, to) = (OCTAGON[edge], OCTAGON[(edge + 1) % 8]);
           let outward = ((from + to) / 2.0 - 0.5).normalize();
           let normal = Vec3::new(outward.x, 0.0, outward.y);
@@ -392,23 +390,23 @@ fn builders(
               hue
             )
           }
-        });
-        [(1.0, IVec3::Y, top), (0.0, IVec3::NEG_Y, bottom)].into_iter().for_each(
-          |(y, normal, tile)| {
-            let next = padded.get(local + normal);
-            if !next.opaque() && next.look() != Look::Log {
-              solid.polygon(
-                &OCTAGON.map(|point| corner + Vec3::new(point.x, y, point.y)),
-                &OCTAGON.map(|point| uv_corner(tile, point)),
-                normal.as_vec3(),
-                hue
-              )
-            }
+        }
+        for (y, normal, tile) in
+          [(1.0, IVec3::Y, top), (0.0, IVec3::NEG_Y, bottom)].into_iter()
+        {
+          let next = padded.get(local + normal);
+          if !next.opaque() && next.look() != Look::Log {
+            solid.polygon(
+              &OCTAGON.map(|point| corner + Vec3::new(point.x, y, point.y)),
+              &OCTAGON.map(|point| uv_corner(tile, point)),
+              normal.as_vec3(),
+              hue
+            )
           }
-        )
+        }
       }
     }
-  });
+  }
   (solid, liquid)
 }
 
@@ -462,15 +460,18 @@ mod tests {
   #[test]
   fn flowing_water_steps_down() {
     let mut blocks = Box::new([Block::Air; VOLUME]);
-    (0..SIZE).for_each(|x| {
-      (0..SIZE).for_each(|z| blocks[Chunk::index(IVec3::new(x, 4, z))] = Block::Stone)
-    });
-    [Block::Water, Block::WaterFlow1, Block::WaterFlow2, Block::WaterFlow3]
-      .into_iter()
-      .enumerate()
-      .for_each(|(x, block)| {
-        blocks[Chunk::index(IVec3::new(x as i32 + 8, 5, 8))] = block
-      });
+    for x in 0..SIZE {
+      for z in 0..SIZE {
+        blocks[Chunk::index(IVec3::new(x, 4, z))] = Block::Stone
+      }
+    }
+    for (x, block) in
+      [Block::Water, Block::WaterFlow1, Block::WaterFlow2, Block::WaterFlow3]
+        .into_iter()
+        .enumerate()
+    {
+      blocks[Chunk::index(IVec3::new(x as i32 + 8, 5, 8))] = block
+    }
     let chunk = Arc::new(Chunk::Mixed(blocks));
     let key = IVec3::new(500, 3, 500);
     let padded = Padded::gather(key, |near| {

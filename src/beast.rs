@@ -120,7 +120,7 @@ fn muster(
   mut commands: Commands
 ) {
   let seed = voxels.seed;
-  players
+  for island in players
     .iter()
     .flat_map(|avatar| {
       Island::near(seed, avatar.at)
@@ -130,56 +130,56 @@ fn muster(
     .collect::<Vec<_>>()
     .into_iter()
     .filter(|island| herds.0.insert(island.cell))
-    .for_each(|island| {
-      let key =
-        hash(seed ^ 0xBEA57, island.cell.x, 0x31, 0) ^ hash(seed, 0, island.cell.y, 9);
-      let roll = |salt: u32, attempt: u32| unit(key ^ salt, attempt as i32, 0, 0);
-      let grassy = matches!(island.kind, Kind::Meadow | Kind::Woods);
-      let sheep = if grassy { (3 + (island.radius / 14.0) as u32).min(7) } else { 0 };
-      let lizards = match island.kind {
-        Kind::Frost | Kind::Volcano => 0,
-        _ => 2 + (island.radius / 25.0) as u32
-      };
-      let flock = (0..sheep * 6)
-        .filter_map(|attempt| {
-          let spot = (island.centre
-            + Vec2::new(roll(1, attempt) * 2.0 - 1.0, roll(2, attempt) * 2.0 - 1.0)
-              * island.radius
-              * 0.6)
-            .floor()
-            .as_ivec2();
-          let ground = generate::height(seed, spot.x, spot.y);
-          (ground > SEA + 1).then(|| {
-            (
-              Breed::Sheep(fleece(roll(3, attempt))),
-              Vec3::new(spot.x as f32 + 0.5, ground as f32 + 1.05, spot.y as f32 + 0.5)
-            )
-          })
+  {
+    let key =
+      hash(seed ^ 0xBEA57, island.cell.x, 0x31, 0) ^ hash(seed, 0, island.cell.y, 9);
+    let roll = |salt: u32, attempt: u32| unit(key ^ salt, attempt as i32, 0, 0);
+    let grassy = matches!(island.kind, Kind::Meadow | Kind::Woods);
+    let sheep = if grassy { (3 + (island.radius / 14.0) as u32).min(7) } else { 0 };
+    let lizards = match island.kind {
+      Kind::Frost | Kind::Volcano => 0,
+      _ => 2 + (island.radius / 25.0) as u32
+    };
+    let flock = (0..sheep * 6)
+      .filter_map(|attempt| {
+        let spot = (island.centre
+          + Vec2::new(roll(1, attempt) * 2.0 - 1.0, roll(2, attempt) * 2.0 - 1.0)
+            * island.radius
+            * 0.6)
+          .floor()
+          .as_ivec2();
+        let ground = generate::height(seed, spot.x, spot.y);
+        (ground > SEA + 1).then(|| {
+          (
+            Breed::Sheep(fleece(roll(3, attempt))),
+            Vec3::new(spot.x as f32 + 0.5, ground as f32 + 1.05, spot.y as f32 + 0.5)
+          )
         })
-        .take(sheep as usize);
-      let swimmers = (0..lizards * 8)
-        .filter_map(|attempt| {
-          let angle = roll(4, attempt) * TAU;
-          let reach = island.radius * (1.05 + roll(5, attempt) * 0.3);
-          let spot = (island.centre + Vec2::from_angle(angle) * reach).floor().as_ivec2();
-          let floor = generate::height(seed, spot.x, spot.y);
-          (floor < SEA && floor >= SEA - 8).then(|| {
-            (
-              Breed::Lizard,
-              Vec3::new(spot.x as f32 + 0.5, SEA as f32 + 0.6, spot.y as f32 + 0.5)
-            )
-          })
-        })
-        .take(lizards as usize);
-      flock.chain(swimmers).enumerate().for_each(|(index, (breed, at))| {
-        commands.spawn(herd(
-          breed,
-          at,
-          island.cell,
-          key ^ (index as u32).wrapping_mul(0x9E37)
-        ));
       })
-    })
+      .take(sheep as usize);
+    let swimmers = (0..lizards * 8)
+      .filter_map(|attempt| {
+        let angle = roll(4, attempt) * TAU;
+        let reach = island.radius * (1.05 + roll(5, attempt) * 0.3);
+        let spot = (island.centre + Vec2::from_angle(angle) * reach).floor().as_ivec2();
+        let floor = generate::height(seed, spot.x, spot.y);
+        (floor < SEA && floor >= SEA - 8).then(|| {
+          (
+            Breed::Lizard,
+            Vec3::new(spot.x as f32 + 0.5, SEA as f32 + 0.6, spot.y as f32 + 0.5)
+          )
+        })
+      })
+      .take(lizards as usize);
+    for (index, (breed, at)) in flock.chain(swimmers).enumerate() {
+      commands.spawn(herd(
+        breed,
+        at,
+        island.cell,
+        key ^ (index as u32).wrapping_mul(0x9E37)
+      ));
+    }
+  }
 }
 
 pub fn herd(breed: Breed, at: Vec3, home: IVec2, luck: u32) -> impl Bundle {
@@ -294,135 +294,134 @@ fn roam(
     players.iter().map(|(entity, _, avatar, ..)| (entity, avatar.at)).collect();
   let watched =
     |at: Vec3| spots.iter().any(|(_, spot)| spot.xz().distance(at.xz()) < SLEEP);
-  beasts.iter_mut().filter(|(beast, _)| watched(beast.at)).for_each(
-    |(mut beast, mut roam)| {
-      let Beast { breed, mut at, mut yaw, .. } = *beast;
-      let bulk = breed.bulk();
-      [
-        IVec3::ZERO,
-        IVec3::X * 3,
-        IVec3::X * -3,
-        IVec3::Z * 3,
-        IVec3::Z * -3,
-        IVec3::Y * -3
-      ]
-      .into_iter()
-      .for_each(|offset| {
-        voxels.ensure(at.floor().as_ivec3() + offset);
-      });
-      let (low, high) = bulk.body(at);
-      if cells(low, high).any(|cell| voxels.solid(cell)) {
-        at.y = at.y.floor() + 1.0
-      }
-      let body = (at + Vec3::Y * 0.3).floor().as_ivec3();
-      let swimming = wet(&voxels, body);
-      roam.timer -= dt;
-      roam.ashore -= dt;
-      roam.shorn -= dt;
-      roam.stagger -= dt;
-      roam.grudge -= dt;
-      roam.bite -= dt;
-      let prey = spots
-        .iter()
-        .filter(|(_, spot)| roam.grudge > 0.0 && spot.distance(at) < CHASE)
-        .min_by(|a, b| a.1.distance(at).total_cmp(&b.1.distance(at)))
-        .copied();
-      let fright = spots.iter().map(|(_, spot)| at.xz() - spot.xz()).find(|away| {
-        away.length() < SKITTISH && breed == Breed::Lizard && prey.is_none()
-      });
-      if let Some((victim, spot)) = prey
-        && spot.xz().distance(at.xz()) < JAWS
-        && (spot.y - at.y).abs() < 1.5
-        && roam.bite <= 0.0
-        && roam.stagger <= 0.0
-        && let Ok((_, controller, _, mut health, mut vigour)) = players.get_mut(victim)
-      {
-        roam.bite = BITE_EVERY;
-        hurt(&mut health, &mut vigour, BITE);
-        knocks.write(ToClients {
-          targets: SendTargets::Single(controller.client),
-          message: Knock(
-            (spot - at).with_y(0.0).normalize_or_zero() * KNOCK * 0.7 + Vec3::Y * 4.0
-          )
-        });
-      }
-      let was = roam.mood;
-      roam.mood = mood(&mut roam, breed, swimming, fright, prey.map(|(_, spot)| spot));
-      let turned = roam.mood != was || roam.timer <= 0.0;
-      let island = Island::at(seed, roam.home);
-      let homeward = island.map(|island| (island.centre - at.xz(), island.radius));
-      yaw = match roam.mood {
-        Mood::Hunt if let Some((_, spot)) = prey => toward(spot.xz() - at.xz()),
-        Mood::Dash if let Some(away) = fright => toward(-away),
-        Mood::Landing => seek(&voxels, at, standable)
-          .or(homeward.map(|(home, _)| toward(home)))
-          .unwrap_or(yaw),
-        Mood::Seaward => seek(&voxels, at, wet).unwrap_or(yaw),
-        Mood::Stroll | Mood::Swim | Mood::Dash if turned => {
-          yaw + (roam.dice() - 0.5) * PI * 1.4
-        }
-        _ => yaw
-      };
-      let straying = homeward.is_some_and(|(home, radius)| {
-        home.length() > radius * if breed == Breed::Lizard { 1.6 } else { 0.8 }
-      });
-      if straying
-        && matches!(roam.mood, Mood::Stroll | Mood::Swim | Mood::Idle | Mood::Graze)
-      {
-        yaw = homeward.map_or(yaw, |(home, _)| toward(home))
-      }
-      let probe = (at + ahead(yaw) * 0.8).floor().as_ivec3();
-      let drop = (0..4).all(|depth| !voxels.solid(probe - IVec3::Y * (depth + 1)));
-      let flooded = [probe, probe - IVec3::Y].into_iter().any(|cell| wet(&voxels, cell));
-      let shy = match breed {
-        Breed::Sheep(_) => drop || flooded,
-        Breed::Lizard => drop && !flooded && !swimming
-      };
-      if shy && roam.grounded && roam.mood != Mood::Seaward {
-        yaw += PI;
-        roam.timer = roam.timer.max(1.0)
-      }
-      let pace = match roam.mood {
-        Mood::Stroll if matches!(breed, Breed::Sheep(_)) => GRAZE,
-        Mood::Stroll => STROLL,
-        Mood::Dash if matches!(breed, Breed::Sheep(_)) => STROLL * 2.0,
-        Mood::Dash => DASH,
-        Mood::Seaward => DASH * 0.85,
-        Mood::Hunt
-          if prey.is_some_and(|(_, spot)| spot.xz().distance(at.xz()) < JAWS * 0.8) =>
-        {
-          0.0
-        }
-        Mood::Hunt => DASH * 0.8,
-        Mood::Swim => PADDLE,
-        Mood::Landing => PADDLE * 1.4,
-        Mood::Idle | Mood::Graze => 0.0
-      };
-      let walk = match roam.stagger > 0.0 {
-        true => roam.velocity.with_y(0.0) * (1.0 - dt * 3.0),
-        false => ahead(yaw) * pace
-      };
-      let vertical = match swimming && roam.velocity.y <= 3.0 {
-        true => (surface(&voxels, body) - 0.25 - at.y) * 5.0,
-        false => (roam.velocity.y - GRAVITY * dt).max(-40.0)
-      };
-      let Marched { at: moved, velocity, blocked, landed } =
-        march(&voxels, bulk, at, Vec3::new(walk.x, vertical, walk.z), dt);
-      roam.velocity = match blocked && (landed || swimming) {
-        true => velocity.with_y(LEAP),
-        false => velocity
-      };
-      roam.grounded = landed;
-      let pose = match roam.mood {
-        _ if swimming => Pose::Swim,
-        Mood::Dash | Mood::Seaward | Mood::Hunt => Pose::Run,
-        Mood::Graze => Pose::Graze,
-        _ if pace > 0.0 => Pose::Walk,
-        _ => Pose::Still
-      };
-      beast.set_if_neq(Beast { breed, at: moved, yaw: yaw.rem_euclid(TAU), pose });
+  for (mut beast, mut roam) in beasts.iter_mut().filter(|(beast, _)| watched(beast.at)) {
+    let Beast { breed, mut at, mut yaw, .. } = *beast;
+    let bulk = breed.bulk();
+    for offset in [
+      IVec3::ZERO,
+      IVec3::X * 3,
+      IVec3::X * -3,
+      IVec3::Z * 3,
+      IVec3::Z * -3,
+      IVec3::Y * -3
+    ]
+    .into_iter()
+    {
+      voxels.ensure(at.floor().as_ivec3() + offset);
     }
-  )
+    let (low, high) = bulk.body(at);
+    if cells(low, high).any(|cell| voxels.solid(cell)) {
+      at.y = at.y.floor() + 1.0
+    }
+    let body = (at + Vec3::Y * 0.3).floor().as_ivec3();
+    let swimming = wet(&voxels, body);
+    roam.timer -= dt;
+    roam.ashore -= dt;
+    roam.shorn -= dt;
+    roam.stagger -= dt;
+    roam.grudge -= dt;
+    roam.bite -= dt;
+    let prey = spots
+      .iter()
+      .filter(|(_, spot)| roam.grudge > 0.0 && spot.distance(at) < CHASE)
+      .min_by(|a, b| a.1.distance(at).total_cmp(&b.1.distance(at)))
+      .copied();
+    let fright = spots
+      .iter()
+      .map(|(_, spot)| at.xz() - spot.xz())
+      .find(|away| away.length() < SKITTISH && breed == Breed::Lizard && prey.is_none());
+    if let Some((victim, spot)) = prey
+      && spot.xz().distance(at.xz()) < JAWS
+      && (spot.y - at.y).abs() < 1.5
+      && roam.bite <= 0.0
+      && roam.stagger <= 0.0
+      && let Ok((_, controller, _, mut health, mut vigour)) = players.get_mut(victim)
+    {
+      roam.bite = BITE_EVERY;
+      hurt(&mut health, &mut vigour, BITE);
+      knocks.write(ToClients {
+        targets: SendTargets::Single(controller.client),
+        message: Knock(
+          (spot - at).with_y(0.0).normalize_or_zero() * KNOCK * 0.7 + Vec3::Y * 4.0
+        )
+      });
+    }
+    let was = roam.mood;
+    roam.mood = mood(&mut roam, breed, swimming, fright, prey.map(|(_, spot)| spot));
+    let turned = roam.mood != was || roam.timer <= 0.0;
+    let island = Island::at(seed, roam.home);
+    let homeward = island.map(|island| (island.centre - at.xz(), island.radius));
+    yaw = match roam.mood {
+      Mood::Hunt if let Some((_, spot)) = prey => toward(spot.xz() - at.xz()),
+      Mood::Dash if let Some(away) = fright => toward(-away),
+      Mood::Landing => seek(&voxels, at, standable)
+        .or(homeward.map(|(home, _)| toward(home)))
+        .unwrap_or(yaw),
+      Mood::Seaward => seek(&voxels, at, wet).unwrap_or(yaw),
+      Mood::Stroll | Mood::Swim | Mood::Dash if turned => {
+        yaw + (roam.dice() - 0.5) * PI * 1.4
+      }
+      _ => yaw
+    };
+    let straying = homeward.is_some_and(|(home, radius)| {
+      home.length() > radius * if breed == Breed::Lizard { 1.6 } else { 0.8 }
+    });
+    if straying
+      && matches!(roam.mood, Mood::Stroll | Mood::Swim | Mood::Idle | Mood::Graze)
+    {
+      yaw = homeward.map_or(yaw, |(home, _)| toward(home))
+    }
+    let probe = (at + ahead(yaw) * 0.8).floor().as_ivec3();
+    let drop = (0..4).all(|depth| !voxels.solid(probe - IVec3::Y * (depth + 1)));
+    let flooded = [probe, probe - IVec3::Y].into_iter().any(|cell| wet(&voxels, cell));
+    let shy = match breed {
+      Breed::Sheep(_) => drop || flooded,
+      Breed::Lizard => drop && !flooded && !swimming
+    };
+    if shy && roam.grounded && roam.mood != Mood::Seaward {
+      yaw += PI;
+      roam.timer = roam.timer.max(1.0)
+    }
+    let pace = match roam.mood {
+      Mood::Stroll if matches!(breed, Breed::Sheep(_)) => GRAZE,
+      Mood::Stroll => STROLL,
+      Mood::Dash if matches!(breed, Breed::Sheep(_)) => STROLL * 2.0,
+      Mood::Dash => DASH,
+      Mood::Seaward => DASH * 0.85,
+      Mood::Hunt
+        if prey.is_some_and(|(_, spot)| spot.xz().distance(at.xz()) < JAWS * 0.8) =>
+      {
+        0.0
+      }
+      Mood::Hunt => DASH * 0.8,
+      Mood::Swim => PADDLE,
+      Mood::Landing => PADDLE * 1.4,
+      Mood::Idle | Mood::Graze => 0.0
+    };
+    let walk = match roam.stagger > 0.0 {
+      true => roam.velocity.with_y(0.0) * (1.0 - dt * 3.0),
+      false => ahead(yaw) * pace
+    };
+    let vertical = match swimming && roam.velocity.y <= 3.0 {
+      true => (surface(&voxels, body) - 0.25 - at.y) * 5.0,
+      false => (roam.velocity.y - GRAVITY * dt).max(-40.0)
+    };
+    let Marched { at: moved, velocity, blocked, landed } =
+      march(&voxels, bulk, at, Vec3::new(walk.x, vertical, walk.z), dt);
+    roam.velocity = match blocked && (landed || swimming) {
+      true => velocity.with_y(LEAP),
+      false => velocity
+    };
+    roam.grounded = landed;
+    let pose = match roam.mood {
+      _ if swimming => Pose::Swim,
+      Mood::Dash | Mood::Seaward | Mood::Hunt => Pose::Run,
+      Mood::Graze => Pose::Graze,
+      _ if pace > 0.0 => Pose::Walk,
+      _ => Pose::Still
+    };
+    beast.set_if_neq(Beast { breed, at: moved, yaw: yaw.rem_euclid(TAU), pose });
+  }
 }
 
 fn shear(
@@ -431,7 +430,7 @@ fn shear(
   mut beasts: Query<(&mut Beast, &mut Roam, &mut Health)>,
   mut commands: Commands
 ) {
-  strikes.read().for_each(|&FromClient { client_id, message: Strike(target) }| {
+  for &FromClient { client_id, message: Strike(target) } in strikes.read() {
     if let Ok((mut beast, mut roam, mut health)) = beasts.get_mut(target)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(beast.at) <= REACH + 1.0
@@ -465,7 +464,7 @@ fn shear(
         commands.entity(target).despawn()
       }
     }
-  })
+  }
 }
 
 pub fn struck(beast: &Beast, from: Vec3, toward: Vec3) -> Option<f32> {
@@ -630,14 +629,14 @@ pub fn rig(
         ChildOf(parent)
       ))
       .id();
-    bone.boxes.iter().for_each(|&(centre, size, color, grain)| {
+    for &(centre, size, color, grain) in bone.boxes.iter() {
       commands.spawn((
         Mesh3d(shapes.cuboid(meshes, size)),
         MeshMaterial3d(shapes.paint(materials, images, color, grain)),
         Transform::from_translation(centre),
         ChildOf(entity)
       ));
-    });
+    }
     spawned.push(entity);
     spawned
   })
@@ -796,7 +795,7 @@ fn dress(
   mut images: ResMut<Assets<Image>>,
   mut commands: Commands
 ) {
-  arrivals.iter().for_each(|(entity, beast)| {
+  for (entity, beast) in arrivals.iter() {
     commands.entity(entity).insert((
       Shown { at: beast.at, yaw: beast.yaw, stride: 0.0, pace: 0.0, stance: 0.0 },
       Transform::from_translation(beast.at),
@@ -815,7 +814,7 @@ fn dress(
       &mut images,
       &mut commands
     );
-  })
+  }
 }
 
 struct Stance {
@@ -891,7 +890,7 @@ fn animate(
   mut joints: Query<(&Joint, &Rest, &mut Transform), Without<Shown>>
 ) {
   let (dt, now) = (time.delta_secs(), time.elapsed_secs());
-  beasts.iter_mut().for_each(|(entity, beast, mut shown, mut transform)| {
+  for (entity, beast, mut shown, mut transform) in beasts.iter_mut() {
     let before = shown.at;
     shown.at = before.lerp(beast.at, (dt * 12.0).min(1.0));
     let turn = (beast.yaw - shown.yaw + PI).rem_euclid(TAU) - PI;
@@ -906,7 +905,7 @@ fn animate(
       .with_scale(Vec3::splat(beast.breed.size()));
     let Stance { hips, trunk, neck, tail, tip, leg, arm } =
       stance(beast.breed, beast.pose, shown.stride, shown.stance, now);
-    family.iter_descendants(entity).for_each(|child| {
+    for child in family.iter_descendants(entity) {
       if let Ok((joint, rest, mut transform)) = joints.get_mut(child) {
         let (translation, rotation) = match *joint {
           Joint::Fixed => (rest.0, Quat::IDENTITY),
@@ -929,8 +928,8 @@ fn animate(
         transform.translation = translation;
         transform.rotation = rotation
       }
-    })
-  })
+    }
+  }
 }
 
 pub struct Beasts;

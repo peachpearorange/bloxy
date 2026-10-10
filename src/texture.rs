@@ -499,7 +499,7 @@ static PEBBLES_OF_COBBLE: std::sync::LazyLock<Vec<u32>> =
   std::sync::LazyLock::new(|| {
     let size = PIXELS * PIXELS;
     let mut labels = vec![0u32; size as usize];
-    (0..size).for_each(|start| {
+    for start in 0..size {
       if !mortar(start % PIXELS, start / PIXELS) && labels[start as usize] == 0 {
         labels[start as usize] = start + 1;
         let neighbours = |at: u32| {
@@ -526,7 +526,7 @@ static PEBBLES_OF_COBBLE: std::sync::LazyLock<Vec<u32>> =
         })
         .count();
       }
-    });
+    }
     labels
   });
 
@@ -1316,12 +1316,12 @@ mod tests {
 
   #[test]
   fn tiles_paint_without_gaps() {
-    Tile::ALL.into_iter().for_each(|tile| {
-      (0..PIXELS * PIXELS).for_each(|index| {
+    for tile in Tile::ALL.into_iter() {
+      for index in 0..PIXELS * PIXELS {
         let texel = paint(tile, index % PIXELS, index / PIXELS);
         assert!(texel.color != [1.0, 0.0, 1.0, 1.0], "{tile:?} has a hole at {index}")
-      })
-    })
+      }
+    }
   }
 
   #[test]

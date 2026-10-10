@@ -88,7 +88,7 @@ fn draw(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  plates.iter_mut().for_each(|(entity, plate, mut drawn)| {
+  for (entity, plate, mut drawn) in plates.iter_mut() {
     let ink = plate.color.to_srgba().to_u8_array();
     let health = plate.health.map(|share| (share.clamp(0.0, 1.0) * 255.0) as u8);
     if drawn.0.as_ref().is_none_or(|(text, was, had, _)| {
@@ -108,7 +108,7 @@ fn draw(
       drawn.0 = Some((plate.text.clone(), ink, health, size));
       commands.entity(entity).insert((Mesh3d(quad.0.clone()), MeshMaterial3d(material)));
     }
-  })
+  }
 }
 
 fn face(
@@ -117,7 +117,7 @@ fn face(
 ) {
   if let Ok(eye) = eyes.single() {
     let (_, turned, from) = eye.to_scale_rotation_translation();
-    plates.iter_mut().for_each(|(plate, drawn, mut transform, mut visibility)| {
+    for (plate, drawn, mut transform, mut visibility) in plates.iter_mut() {
       if let Some((.., size)) = drawn.0 {
         let scale = size.as_vec2().extend(1.0) * Vec3::new(TEXEL, TEXEL, 1.0);
         *transform =
@@ -129,7 +129,7 @@ fn face(
           false => Visibility::Hidden
         });
       }
-    })
+    }
   }
 }
 

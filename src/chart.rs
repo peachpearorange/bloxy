@@ -188,9 +188,9 @@ fn survey(voxels: Option<Res<Voxels>>, menu: Res<Menu>, mut chart: ResMut<Chart>
     if !made.is_empty() {
       chart.since = REDRAW_EVERY
     }
-    made.into_iter().for_each(|(tile, pixels)| {
+    for (tile, pixels) in made.into_iter() {
       chart.tiles.insert((zoom, tile), pixels);
-    })
+    }
   }
 }
 
@@ -295,18 +295,18 @@ fn draw(
     let (wide, tall) = (chart.size.x, chart.size.y);
     let origin = chart.origin().as_ivec2();
     let mut pixels = vec![UNKNOWN; (wide * tall) as usize];
-    chart.wanted().into_iter().for_each(|tile| {
+    for tile in chart.wanted().into_iter() {
       if let Some(cached) = chart.tiles.get(&(chart.zoom, tile)) {
         let corner = tile * TILE - origin;
-        (corner.y.max(0)..(corner.y + TILE).min(tall)).for_each(|y| {
+        for y in corner.y.max(0)..(corner.y + TILE).min(tall) {
           let (from, to) = (corner.x.max(0), (corner.x + TILE).min(wide));
           let source = ((y - corner.y) * TILE + from - corner.x) as usize;
           let target = (y * wide + from) as usize;
           let span = (to - from).max(0) as usize;
           pixels[target..target + span].copy_from_slice(&cached[source..source + span])
-        })
+        }
       }
-    });
+    }
     let mut paint = |pixel: IVec2, colour: [f32; 3], blend: f32| {
       if pixel.cmpge(IVec2::ZERO).all() && pixel.cmplt(IVec2::new(wide, tall)).all() {
         let index = (pixel.y * wide + pixel.x) as usize;
@@ -317,53 +317,57 @@ fn draw(
       }
     };
     let chunk = SIZE as f32;
-    claims.iter().for_each(|claim| {
+    for claim in claims.iter() {
       let low = chart.pixel(claim.column.as_vec2() * chunk).floor().as_ivec2();
       let high = chart.pixel((claim.column.as_vec2() + 1.0) * chunk).floor().as_ivec2();
       let colour = crate::protocol::hue(claim.hue).to_srgba().to_f32_array_no_alpha();
-      (low.y.max(0)..high.y.min(tall)).for_each(|y| {
-        (low.x.max(0)..high.x.min(wide)).for_each(|x| {
+      for y in low.y.max(0)..high.y.min(tall) {
+        for x in low.x.max(0)..high.x.min(wide) {
           let edge = x == low.x || y == low.y || x == high.x - 1 || y == high.y - 1;
           paint(IVec2::new(x, y), colour, if edge { 0.9 } else { 0.35 })
-        })
-      })
-    });
+        }
+      }
+    }
     if chart.scale() <= 1.0 {
       let first = (chart.world(Vec2::ZERO) / chunk).floor().as_ivec2();
       let last = (chart.world(chart.size.as_vec2()) / chunk).ceil().as_ivec2();
-      (first.x..=last.x).for_each(|cx| {
+      for cx in first.x..=last.x {
         let x = chart.pixel(Vec2::new(cx as f32 * chunk, 0.0)).x as i32;
-        (0..tall).step_by(2).for_each(|y| paint(IVec2::new(x, y), [0.0; 3], 0.25))
-      });
-      (first.y..=last.y).for_each(|cz| {
+        for y in (0..tall).step_by(2) {
+          paint(IVec2::new(x, y), [0.0; 3], 0.25)
+        }
+      }
+      for cz in first.y..=last.y {
         let y = chart.pixel(Vec2::new(0.0, cz as f32 * chunk)).y as i32;
-        (0..wide).step_by(2).for_each(|x| paint(IVec2::new(x, y), [0.0; 3], 0.25))
-      });
+        for x in (0..wide).step_by(2) {
+          paint(IVec2::new(x, y), [0.0; 3], 0.25)
+        }
+      }
     }
     let dot = |paint: &mut dyn FnMut(IVec2, [f32; 3], f32),
                at: Vec2,
                radius: i32,
                colour: [f32; 3]| {
       let centre = chart.pixel(at).floor().as_ivec2();
-      (-radius..=radius).for_each(|dy| {
-        (-radius..=radius).for_each(|dx| paint(centre + IVec2::new(dx, dy), colour, 1.0))
-      })
-    };
-    visits.get(pilot.me).into_iter().flat_map(|visited| visited.0.iter()).for_each(
-      |&cell| {
-        if let Some(island) = Island::at(voxels.seed, cell) {
-          dot(&mut paint, island.stone.xz().as_vec2(), 2, [0.9, 0.25, 0.9])
+      for dy in -radius..=radius {
+        for dx in -radius..=radius {
+          paint(centre + IVec2::new(dx, dy), colour, 1.0)
         }
       }
-    );
-    others.iter().for_each(|(avatar, player)| {
+    };
+    for &cell in visits.get(pilot.me).into_iter().flat_map(|visited| visited.0.iter()) {
+      if let Some(island) = Island::at(voxels.seed, cell) {
+        dot(&mut paint, island.stone.xz().as_vec2(), 2, [0.9, 0.25, 0.9])
+      }
+    }
+    for (avatar, player) in others.iter() {
       dot(
         &mut paint,
         avatar.at.xz(),
         2,
         crate::protocol::hue(player.hue).to_srgba().to_f32_array_no_alpha()
       )
-    });
+    }
     let facing = (pilot.facing() * Vec3::NEG_Z).xz().normalize_or(Vec2::NEG_Y);
     let across = facing.perp();
     let centre = chart.pixel(pilot.at.xz());
@@ -373,8 +377,8 @@ fn draw(
       centre - facing * 5.0 - across * 6.0
     );
     let side = |a: Vec2, b: Vec2, point: Vec2| (b - a).perp_dot(point - a);
-    (-10..=10).for_each(|dy| {
-      (-10..=10).for_each(|dx| {
+    for dy in -10..=10 {
+      for dx in -10..=10 {
         let point = centre.floor() + Vec2::new(dx as f32, dy as f32) + 0.5;
         let signs =
           [side(tip, left, point), side(left, right, point), side(right, tip, point)];
@@ -382,8 +386,8 @@ fn draw(
         {
           paint(point.floor().as_ivec2(), [1.0, 0.27, 0.2], 1.0)
         }
-      })
-    });
+      }
+    }
     if let Some(mut image) = images.get_mut(&chart.image) {
       image.data = Some(pixels.concat())
     }
@@ -409,11 +413,11 @@ fn draw(
         chart.scale()
       )
     });
-    legends.iter_mut().for_each(|mut text| {
+    for mut text in legends.iter_mut() {
       if text.0 != line {
         text.0 = line.clone()
       }
-    })
+    }
   }
 }
 

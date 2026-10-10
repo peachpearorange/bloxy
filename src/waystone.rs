@@ -68,11 +68,11 @@ fn list(
         false => "Stand by a waystone to travel.".into()
       }
     };
-    whereabouts.iter_mut().for_each(|mut text| {
+    for mut text in whereabouts.iter_mut() {
       if text.0 != line {
         text.0 = line.clone()
       }
-    });
+    }
     let labels: Vec<(IVec2, String)> = visited
       .iter()
       .filter(|&&cell| here.is_none_or(|here| here.cell != cell))
@@ -92,9 +92,9 @@ fn list(
       })
       .collect();
     if *shown != labels {
-      destinations.iter().for_each(|container| {
+      for container in destinations.iter() {
         commands.entity(container).despawn_children().with_children(|list| {
-          labels.iter().for_each(|(cell, label)| {
+          for (cell, label) in labels.iter() {
             list
               .spawn((
                 Button,
@@ -110,9 +110,9 @@ fn list(
                 BackgroundColor(BUTTON)
               ))
               .with_child(words(label.clone(), 15.0, INK));
-          })
+          }
         });
-      });
+      }
       *shown = labels
     }
   }
@@ -124,7 +124,7 @@ fn obey(
   voxels: Option<Res<Voxels>>,
   mut travels: MessageWriter<Travel>
 ) {
-  pressed.read().for_each(|&Pressed(act)| {
+  for &Pressed(act) in pressed.read() {
     if let Act::Travel(cell) = act
       && let Some(pilot) = &pilot
       && let Some(voxels) = &voxels
@@ -132,7 +132,7 @@ fn obey(
     {
       travels.write(Travel(cell));
     }
-  })
+  }
 }
 
 fn arrive(
@@ -141,13 +141,13 @@ fn arrive(
   mut menu: ResMut<Menu>
 ) {
   if let Some(mut pilot) = pilot {
-    teleports.read().for_each(|&Teleport(avatar)| {
+    for &Teleport(avatar) in teleports.read() {
       pilot.at = avatar.at;
       pilot.yaw = avatar.yaw;
       pilot.pitch = avatar.pitch;
       pilot.velocity = Vec3::ZERO;
       menu.open = false
-    })
+    }
   }
 }
 

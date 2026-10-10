@@ -74,11 +74,12 @@ pub mod server {
     mut links: Query<(Entity, &mut Link)>,
     mut next_id: Local<u64>
   ) {
-    std::iter::from_fn(|| listener.socket.accept().ok())
-      .for_each(|(stream, _)| greet(stream, listener.greeter.clone()));
+    for (stream, _) in std::iter::from_fn(|| listener.socket.accept().ok()) {
+      greet(stream, listener.greeter.clone())
+    }
     let greeted =
       listener.greeted.lock().map(|greeted| greeted.try_iter().collect::<Vec<_>>());
-    greeted.unwrap_or_default().into_iter().for_each(|socket| {
+    for socket in greeted.unwrap_or_default().into_iter() {
       *next_id += 1;
       let client = commands
         .spawn((
@@ -88,8 +89,8 @@ pub mod server {
         ))
         .id();
       info!("player connected as {client}")
-    });
-    links.iter_mut().for_each(|(client, mut link)| {
+    }
+    for (client, mut link) in links.iter_mut() {
       let mut closed = false;
       loop {
         match link.0.read() {
@@ -111,7 +112,7 @@ pub mod server {
         info!("player {client} disconnected");
         commands.entity(client).despawn()
       }
-    })
+    }
   }
 
   fn send(
@@ -120,7 +121,7 @@ pub mod server {
     mut disconnects: MessageReader<DisconnectRequest>,
     mut links: Query<&mut Link>
   ) {
-    messages.drain_sent().for_each(|(client, channel, message)| {
+    for (client, channel, message) in messages.drain_sent() {
       if let Ok(mut link) = links.get_mut(client)
         && let Err(blame) =
           link.0.write(Message::Binary(framed(channel, &message).into()))
@@ -128,15 +129,17 @@ pub mod server {
       {
         commands.entity(client).despawn()
       }
-    });
-    links.iter_mut().for_each(|mut link| drop(link.0.flush()));
-    disconnects.read().for_each(|request| {
+    }
+    for mut link in links.iter_mut() {
+      drop(link.0.flush())
+    }
+    for request in disconnects.read() {
       if let Ok(mut link) = links.get_mut(request.client) {
         drop(link.0.close(None));
         drop(link.0.flush())
       }
       commands.entity(request.client).despawn()
-    })
+    }
   }
 
   pub struct ServerNet;
@@ -371,11 +374,9 @@ fn receive(
   mut next: ResMut<NextState<ClientState>>
 ) {
   if let Some(mut uplink) = uplink {
-    uplink
-      .0
-      .poll()
-      .into_iter()
-      .for_each(|(channel, message)| messages.insert_received(channel, message));
+    for (channel, message) in uplink.0.poll().into_iter() {
+      messages.insert_received(channel, message)
+    }
     match (state.get(), uplink.0.open(), uplink.0.closed()) {
       (ClientState::Connecting, true, _) => next.set(ClientState::Connected),
       (ClientState::Connecting | ClientState::Connected, _, true) => {
@@ -388,7 +389,9 @@ fn receive(
 
 fn send(uplink: Option<NonSendMut<Uplink>>, mut messages: ResMut<ClientMessages>) {
   if let Some(mut uplink) = uplink {
-    messages.drain_sent().for_each(|(channel, message)| uplink.0.send(channel, &message));
+    for (channel, message) in messages.drain_sent() {
+      uplink.0.send(channel, &message)
+    }
     uplink.0.flush()
   }
 }

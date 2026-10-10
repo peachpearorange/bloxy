@@ -103,7 +103,7 @@ pub fn deeds(claims: &Query<(&Claim, &Holding)>) -> Vec<Deed> {
 }
 
 pub fn settle(commands: &mut Commands, accounts: &Accounts, deeds: &[Deed]) {
-  deeds.iter().filter(|deed| deed.account < accounts.0.len()).for_each(|deed| {
+  for deed in deeds.iter().filter(|deed| deed.account < accounts.0.len()) {
     commands.spawn((
       Replicated,
       Claim {
@@ -116,7 +116,7 @@ pub fn settle(commands: &mut Commands, accounts: &Accounts, deeds: &[Deed]) {
         snapshot: deed.snapshot.as_ref().map(|text| Arc::new(decode(text)))
       }
     ));
-  })
+  }
 }
 
 fn stake(
@@ -128,7 +128,7 @@ fn stake(
 ) {
   let mut gone: Vec<Entity> = Vec::new();
   let mut made: Vec<(IVec2, usize)> = Vec::new();
-  stakes.read().for_each(|&FromClient { client_id, message: Stake(column) }| {
+  for &FromClient { client_id, message: Stake(column) } in stakes.read() {
     if let Some((controller, player)) =
       players.iter().find(|(controller, _)| controller.client == client_id)
     {
@@ -170,25 +170,22 @@ fn stake(
         message: Notice(word)
       });
     }
-  })
+  }
 }
 
 fn rename(
   players: Query<(&Controller, &Player), Changed<Player>>,
   mut claims: Query<(&mut Claim, &Holding)>
 ) {
-  players.iter().for_each(|(controller, player)| {
-    claims
-      .iter_mut()
-      .filter(|(claim, holding)| {
-        holding.account == controller.account
-          && (claim.owner != player.name || claim.hue != player.hue)
-      })
-      .for_each(|(mut claim, _)| {
-        claim.owner = player.name.clone();
-        claim.hue = player.hue
-      })
-  })
+  for (controller, player) in players.iter() {
+    for (mut claim, _) in claims.iter_mut().filter(|(claim, holding)| {
+      holding.account == controller.account
+        && (claim.owner != player.name || claim.hue != player.hue)
+    }) {
+      claim.owner = player.name.clone();
+      claim.hue = player.hue
+    }
+  }
 }
 
 fn refresh(
@@ -201,14 +198,11 @@ fn refresh(
   if *since >= REFRESH_EVERY {
     *since = 0.0;
     let touched = std::mem::take(&mut voxels.touched);
-    claims
-      .iter_mut()
-      .filter(|(claim, holding)| {
-        holding.snapshot.is_none() || touched.contains(&claim.column)
-      })
-      .for_each(|(claim, mut holding)| {
-        holding.snapshot = Some(Arc::new(pack(&voxels.snapshot(claim.column))))
-      });
+    for (claim, mut holding) in claims.iter_mut().filter(|(claim, holding)| {
+      holding.snapshot.is_none() || touched.contains(&claim.column)
+    }) {
+      holding.snapshot = Some(Arc::new(pack(&voxels.snapshot(claim.column))))
+    }
   }
 }
 
@@ -245,9 +239,9 @@ pub fn regen(world: &mut World, seed: Option<u32>) -> String {
     .query_filtered::<Entity, Or<(With<Beast>, With<Bird>, With<Hopper>)>>()
     .iter(world)
     .collect();
-  doomed.iter().for_each(|&entity| {
+  for &entity in doomed.iter() {
     world.despawn(entity);
-  });
+  }
   world.insert_resource(Herds::default());
   world.insert_resource(Flocks::default());
   world.insert_resource(Colonies::default());
@@ -264,13 +258,13 @@ pub fn regen(world: &mut World, seed: Option<u32>) -> String {
       .iter(world)
       .map(|(entity, controller)| (entity, controller.client))
       .collect();
-    players.into_iter().for_each(|(entity, client)| {
+    for (entity, client) in players.into_iter() {
       world.entity_mut(entity).insert(arrival);
       world.write_message(ToClients {
         targets: SendTargets::Single(client),
         message: Teleport(arrival)
       });
-    })
+    }
   }
   format!(
     "regenerated with seed {seed}: {} claimed columns kept, {} mobs cleared",
@@ -306,9 +300,9 @@ mod tests {
 
   #[test]
   fn base64_round_trips() {
-    (0..20).for_each(|length| {
+    for length in 0..20 {
       let bytes: Vec<u8> = (0..length).map(|index| (index * 37 + 11) as u8).collect();
       assert_eq!(decode(&encode(&bytes)), bytes)
-    })
+    }
   }
 }

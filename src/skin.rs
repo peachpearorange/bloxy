@@ -93,19 +93,17 @@ impl Part {
         let (normal, across, down) = face.axes();
         let extent = |axis: Vec3| axis.abs().dot(size);
         let centre = normal * extent(normal) / 2.0;
-        [(0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)].into_iter().for_each(
-          |(s, t)| {
-            positions.push(
-              (centre
-                + across * (s - 0.5) * extent(across)
-                + down * (t - 0.5) * extent(down))
-              .to_array()
-            );
-            let corner = rect.min.as_vec2() + Vec2::new(s, t) * rect.size().as_vec2();
-            uvs.push((corner / Vec2::new(WIDE as f32, TALL as f32)).to_array());
-            normals.push(normal.to_array())
-          }
-        );
+        for (s, t) in [(0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)].into_iter() {
+          positions.push(
+            (centre
+              + across * (s - 0.5) * extent(across)
+              + down * (t - 0.5) * extent(down))
+            .to_array()
+          );
+          let corner = rect.min.as_vec2() + Vec2::new(s, t) * rect.size().as_vec2();
+          uvs.push((corner / Vec2::new(WIDE as f32, TALL as f32)).to_array());
+          normals.push(normal.to_array())
+        }
         (positions, uvs, normals)
       }
     );
@@ -179,10 +177,10 @@ impl Skin {
     let trousers = pick(5, &[30, 19, 1, 28, 9, 29]);
     let shoes = pick(6, &[0, 10, 1, 9]);
     let mut painted = Skin(vec![0; (WIDE * TALL) as usize]);
-    Part::ALL.iter().for_each(|&part| {
-      part.faces().into_iter().for_each(|(face, rect)| {
-        (rect.min.y..rect.max.y).for_each(|y| {
-          (rect.min.x..rect.max.x).for_each(|x| {
+    for &part in Part::ALL.iter() {
+      for (face, rect) in part.faces().into_iter() {
+        for y in rect.min.y..rect.max.y {
+          for x in rect.min.x..rect.max.x {
             let (col, row) = (x - rect.min.x, y - rect.min.y);
             let colour = match (part, face) {
               (Part::Head, Face::Top) => hair,
@@ -222,10 +220,10 @@ impl Skin {
               }
             };
             painted.set(UVec2::new(x, y), colour)
-          })
-        })
-      })
-    });
+          }
+        }
+      }
+    }
     painted
   }
 

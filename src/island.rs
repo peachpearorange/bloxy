@@ -402,7 +402,7 @@ mod tests {
   #[test]
   fn every_kind_appears_near_home() {
     let islands = Island::within(1, IVec2::splat(-CELL * 5), IVec2::splat(CELL * 5));
-    [
+    for kind in [
       Kind::Meadow,
       Kind::Woods,
       Kind::Peak,
@@ -412,12 +412,12 @@ mod tests {
       Kind::Dunes
     ]
     .into_iter()
-    .for_each(|kind| {
+    {
       assert!(islands.iter().any(|island| island.kind == kind), "no {kind:?}")
-    });
+    }
     let mut nearest = islands.clone();
     nearest.sort_by_key(|island| island.cell.length_squared());
-    nearest.iter().take(25).for_each(|island| {
+    for island in nearest.iter().take(25) {
       println!(
         "{:?} {:?} r{:.0} centre {} stone {} summit {:.0} {}",
         island.cell,
@@ -428,6 +428,6 @@ mod tests {
         island.summit,
         island.name(1)
       )
-    })
+    }
   }
 }

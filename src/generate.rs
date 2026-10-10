@@ -308,30 +308,37 @@ fn grow(
           (fork, way, reach)
         })
         .map(|(fork, way, reach)| {
-          (1..=reach).for_each(|step| {
+          for step in 1..=reach {
             put(
               root + IVec3::new(way.x * step, fork + step / 2, way.y * step),
               Block::Log
             )
-          });
+          }
           root + IVec3::new(way.x * reach, fork + reach / 2, way.y * reach)
         })
         .collect();
-      ends.iter().copied().chain([root + IVec3::Y * (trunk + 1)]).for_each(|centre| {
-        clump(centre, 2, 1, 0x1EAF).for_each(|at| put(at, Block::Leaves))
-      });
-      (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::Log))
+      for centre in ends.iter().copied().chain([root + IVec3::Y * (trunk + 1)]) {
+        for at in clump(centre, 2, 1, 0x1EAF) {
+          put(at, Block::Leaves)
+        }
+      }
+      for dy in 0..trunk {
+        put(root + IVec3::Y * dy, Block::Log)
+      }
     }
     Growth::Tree(Wood::Birch) => {
       let trunk = 5 + size;
-      clump(root + IVec3::Y * (trunk - 1), 2, 3, 0xB1C)
-        .for_each(|at| put(at, Block::BirchLeaves));
-      (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::BirchLog))
+      for at in clump(root + IVec3::Y * (trunk - 1), 2, 3, 0xB1C) {
+        put(at, Block::BirchLeaves)
+      }
+      for dy in 0..trunk {
+        put(root + IVec3::Y * dy, Block::BirchLog)
+      }
     }
     Growth::Tree(Wood::Spruce) => {
       let trunk = 6 + size * 2;
-      disc(3).for_each(|(dx, dz)| {
-        (2..=trunk + 1).for_each(|dy| {
+      for (dx, dz) in disc(3) {
+        for dy in 2..=trunk + 1 {
           let tier = (trunk + 2 - dy) / 2 - (trunk - dy).rem_euclid(2);
           let radius = tier.clamp(0, 3);
           let offset = IVec3::new(dx, dy, dz);
@@ -341,9 +348,11 @@ fn grow(
           {
             put(root + offset, Block::SpruceLeaves)
           }
-        })
-      });
-      (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::SpruceLog))
+        }
+      }
+      for dy in 0..trunk {
+        put(root + IVec3::Y * dy, Block::SpruceLog)
+      }
     }
     Growth::Tree(Wood::Palm) => {
       let trunk = 5 + size;
@@ -357,38 +366,46 @@ fn grow(
       let crown = root + lean * shift(trunk) + IVec3::Y * trunk;
       put(crown, Block::PalmLeaves);
       put(crown + IVec3::Y, Block::PalmLeaves);
-      disc(1).filter(|&(dx, dz)| dx != 0 || dz != 0).for_each(|(dx, dz)| {
+      for (dx, dz) in disc(1).filter(|&(dx, dz)| dx != 0 || dz != 0) {
         let way = IVec3::new(dx, 0, dz);
         let length = if dx != 0 && dz != 0 { 2 } else { 3 };
-        (1..=length).for_each(|step| {
+        for step in 1..=length {
           let droop = if step == length { -1 } else { 0 };
           put(crown + way * step + IVec3::Y * droop, Block::PalmLeaves)
-        })
-      });
-      (0..trunk)
-        .for_each(|dy| put(root + lean * shift(dy) + IVec3::Y * dy, Block::PalmLog))
+        }
+      }
+      for dy in 0..trunk {
+        put(root + lean * shift(dy) + IVec3::Y * dy, Block::PalmLog)
+      }
     }
     Growth::RedShroom => {
       let (stem, radius) = (5 + size * 2, 2 + size.min(1) + 1);
-      disc(radius).for_each(|(dx, dz)| {
+      for (dx, dz) in disc(radius) {
         let ring = dx.abs().max(dz.abs());
         let corner = dx.abs() == dz.abs() && ring >= radius - 1;
         if ring < radius && !(corner && ring == radius - 1) {
           put(root + IVec3::new(dx, stem, dz), Block::RedCap)
         }
         if ring == radius && dx.abs() != dz.abs() {
-          (stem - 2..stem)
-            .for_each(|dy| put(root + IVec3::new(dx, dy, dz), Block::RedCap))
+          for dy in stem - 2..stem {
+            put(root + IVec3::new(dx, dy, dz), Block::RedCap)
+          }
         }
-      });
-      (0..stem).for_each(|dy| put(root + IVec3::Y * dy, Block::MushroomStem))
+      }
+      for dy in 0..stem {
+        put(root + IVec3::Y * dy, Block::MushroomStem)
+      }
     }
     Growth::BrownShroom => {
       let (stem, radius) = (4 + size * 2, 3 + size.min(2));
-      disc(radius)
-        .filter(|&(dx, dz)| dx * dx + dz * dz <= radius * radius + 1)
-        .for_each(|(dx, dz)| put(root + IVec3::new(dx, stem, dz), Block::BrownCap));
-      (0..stem).for_each(|dy| put(root + IVec3::Y * dy, Block::MushroomStem))
+      for (dx, dz) in
+        disc(radius).filter(|&(dx, dz)| dx * dx + dz * dz <= radius * radius + 1)
+      {
+        put(root + IVec3::new(dx, stem, dz), Block::BrownCap)
+      }
+      for dy in 0..stem {
+        put(root + IVec3::Y * dy, Block::MushroomStem)
+      }
     }
   }
 }
@@ -529,7 +546,7 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
         })
         .collect();
       let mut blocks = Box::new([Block::Air; VOLUME]);
-      (0..VOLUME as i32).for_each(|index| {
+      for index in 0..VOLUME as i32 {
         let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
         let at = origin + local;
         let ground = column_at(local.x, local.z);
@@ -563,13 +580,13 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
           ),
           other => other
         };
-      });
-      veins(seed, key).for_each(|(ore, centre, radius)| {
+      }
+      for (ore, centre, radius) in veins(seed, key) {
         let low = (centre - radius).floor().as_ivec3() - origin;
         let high = (centre + radius).ceil().as_ivec3() - origin;
-        (low.max(IVec3::ZERO).y..=high.min(IVec3::splat(SIZE - 1)).y).for_each(|y| {
-          (low.max(IVec3::ZERO).z..=high.min(IVec3::splat(SIZE - 1)).z).for_each(|z| {
-            (low.max(IVec3::ZERO).x..=high.min(IVec3::splat(SIZE - 1)).x).for_each(|x| {
+        for y in low.max(IVec3::ZERO).y..=high.min(IVec3::splat(SIZE - 1)).y {
+          for z in low.max(IVec3::ZERO).z..=high.min(IVec3::splat(SIZE - 1)).z {
+            for x in low.max(IVec3::ZERO).x..=high.min(IVec3::splat(SIZE - 1)).x {
               let local = IVec3::new(x, y, z);
               let at = origin + local;
               let ragged = radius * (0.75 + unit(seed ^ 0x0AE, at.x, at.y, at.z) * 0.5);
@@ -577,15 +594,15 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
               if slot.rock() && at.as_vec3().distance(centre) <= ragged {
                 *slot = ore
               }
-            })
-          })
-        })
-      });
+            }
+          }
+        }
+      }
       let inside = |local: IVec3| {
         local.cmpge(IVec3::ZERO).all() && local.cmplt(IVec3::splat(SIZE)).all()
       };
-      (-TREE_REACH..SIZE + TREE_REACH).for_each(|x| {
-        (-TREE_REACH..SIZE + TREE_REACH).for_each(|z| {
+      for x in -TREE_REACH..SIZE + TREE_REACH {
+        for z in -TREE_REACH..SIZE + TREE_REACH {
           let ground = column_at(x, z);
           if let Some(sprout) = growth(seed, origin.x + x, origin.z + z, &ground)
             && ground.height + TALLEST_GROWTH >= origin.y
@@ -606,10 +623,10 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
               }
             )
           }
-        })
-      });
-      (0..SIZE).for_each(|x| {
-        (0..SIZE).for_each(|z| {
+        }
+      }
+      for x in 0..SIZE {
+        for z in 0..SIZE {
           let ground = column_at(x, z);
           let local = IVec3::new(x, ground.height + 1 - origin.y, z);
           if let Some(plant) = bloom(seed, origin.x + x, origin.z + z, &ground)
@@ -619,16 +636,16 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
           {
             blocks[Chunk::index(local)] = plant
           }
-        })
-      });
-      islands.iter().for_each(|island| {
+        }
+      }
+      for island in islands.iter() {
         let stone = island.stone;
-        (-2..=2).for_each(|dx| {
-          (-2..=2).for_each(|dz| {
+        for dx in -2..=2 {
+          for dz in -2..=2 {
             let local = stone - origin + IVec3::new(dx, 0, dz);
             if (0..SIZE).contains(&local.x) && (0..SIZE).contains(&local.z) {
               let ground = column_at(local.x, local.z).height;
-              (ground.min(stone.y - 1)..=stone.y + 4).for_each(|y| {
+              for y in ground.min(stone.y - 1)..=stone.y + 4 {
                 let cell = IVec3::new(local.x, y - origin.y, local.z);
                 let block = match y - stone.y {
                   0 if dx == 0 && dz == 0 => Block::Waystone,
@@ -640,11 +657,11 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
                 if inside(cell) {
                   blocks[Chunk::index(cell)] = block
                 }
-              })
+              }
             }
-          })
-        })
-      });
+          }
+        }
+      }
       Chunk::Mixed(blocks).settled()
     }
   }
@@ -688,7 +705,7 @@ mod tests {
       (-3..3)
         .any(|x| (0..3).any(|y| blocks(&chunk(1, IVec3::new(x, y, 0))).contains(&wanted)))
     };
-    [
+    for wanted in [
       Block::Stone,
       Block::CoalOre,
       Block::IronOre,
@@ -697,7 +714,9 @@ mod tests {
       Block::Bedrock
     ]
     .into_iter()
-    .for_each(|wanted| assert!(found(wanted), "no {wanted:?}"));
+    {
+      assert!(found(wanted), "no {wanted:?}")
+    }
   }
 
   #[test]

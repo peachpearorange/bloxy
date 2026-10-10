@@ -90,7 +90,7 @@ fn tally(
   mut commands: Commands
 ) {
   let now = time.elapsed_secs();
-  creatures.iter().for_each(|(entity, health, folk, beast, bird)| {
+  for (entity, health, folk, beast, bird) in creatures.iter() {
     if let Some(Sighted { top, .. }) = sighted(folk, beast, bird) {
       let before = wounds.0.get(&entity).copied();
       let struck = before.is_some_and(|(was, ..)| health.0 < was);
@@ -105,7 +105,7 @@ fn tally(
       };
       wounds.0.insert(entity, (health.0, when, top));
     }
-  })
+  }
 }
 
 fn fell(
@@ -130,27 +130,25 @@ fn rise(
   mut commands: Commands
 ) {
   let dt = time.delta_secs();
-  numbers.iter_mut().for_each(
-    |(entity, mut rising, mut node, mut color, mut visibility)| {
-      rising.age += dt;
-      let lifted = rising.at + Vec3::Y * RISE * rising.age / RISE_FOR;
-      let spot = eyes
-        .single()
-        .ok()
-        .and_then(|(camera, eye)| camera.world_to_viewport(eye, lifted).ok())
-        .map(|spot| spot / scale.0);
-      match (rising.age > RISE_FOR, spot) {
-        (true, _) => commands.entity(entity).despawn(),
-        (false, Some(spot)) => {
-          node.left = px(spot.x - 8.0);
-          node.top = px(spot.y - 10.0);
-          color.0.set_alpha(1.0 - (rising.age / RISE_FOR).powi(2));
-          *visibility = Visibility::Inherited
-        }
-        (false, None) => *visibility = Visibility::Hidden
+  for (entity, mut rising, mut node, mut color, mut visibility) in numbers.iter_mut() {
+    rising.age += dt;
+    let lifted = rising.at + Vec3::Y * RISE * rising.age / RISE_FOR;
+    let spot = eyes
+      .single()
+      .ok()
+      .and_then(|(camera, eye)| camera.world_to_viewport(eye, lifted).ok())
+      .map(|spot| spot / scale.0);
+    match (rising.age > RISE_FOR, spot) {
+      (true, _) => commands.entity(entity).despawn(),
+      (false, Some(spot)) => {
+        node.left = px(spot.x - 8.0);
+        node.top = px(spot.y - 10.0);
+        color.0.set_alpha(1.0 - (rising.age / RISE_FOR).powi(2));
+        *visibility = Visibility::Inherited
       }
+      (false, None) => *visibility = Visibility::Hidden
     }
-  )
+  }
 }
 
 #[derive(Resource, Default)]
@@ -203,28 +201,26 @@ fn target(
     }
     kept
   });
-  wanted.into_iter().for_each(
-    |(creature, (health, Sighted { name, top, full, hostile }))| {
-      let color = if hostile { HOSTILE } else { TAME };
-      let share = (f32::from(health) / f32::from(full.max(1))).clamp(0.0, 1.0);
-      let at = top + Vec3::Y * 0.15;
-      match plated.0.get(&creature).and_then(|&plate| plates.get_mut(plate).ok()) {
-        Some(mut plate) => {
-          plate.at = at;
-          if plate.health != Some(share) {
-            plate.health = Some(share)
-          }
-        }
-        None => {
-          let plate = commands
-            .spawn(plate(name, color, at))
-            .insert(Plate { text: name.into(), color, health: Some(share), at })
-            .id();
-          plated.0.insert(creature, plate);
+  for (creature, (health, Sighted { name, top, full, hostile })) in wanted.into_iter() {
+    let color = if hostile { HOSTILE } else { TAME };
+    let share = (f32::from(health) / f32::from(full.max(1))).clamp(0.0, 1.0);
+    let at = top + Vec3::Y * 0.15;
+    match plated.0.get(&creature).and_then(|&plate| plates.get_mut(plate).ok()) {
+      Some(mut plate) => {
+        plate.at = at;
+        if plate.health != Some(share) {
+          plate.health = Some(share)
         }
       }
+      None => {
+        let plate = commands
+          .spawn(plate(name, color, at))
+          .insert(Plate { text: name.into(), color, health: Some(share), at })
+          .id();
+        plated.0.insert(creature, plate);
+      }
     }
-  )
+  }
 }
 
 const BLINK: f32 = 0.35;
@@ -247,9 +243,9 @@ fn blush(
   mut commands: Commands
 ) {
   let now = time.elapsed_secs();
-  creatures.iter().for_each(|creature| {
+  for creature in creatures.iter() {
     let hurt = wounds.0.get(&creature).is_some_and(|&(_, when, _)| now - when < BLINK);
-    family.iter_descendants(creature).for_each(|part| {
+    for part in family.iter_descendants(creature) {
       if let Ok((mut material, blushing)) = meshes.get_mut(part) {
         match (hurt, blushing) {
           (true, None) => {
@@ -273,8 +269,8 @@ fn blush(
           _ => ()
         }
       }
-    })
-  })
+    }
+  }
 }
 
 pub struct Glances;

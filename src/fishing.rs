@@ -98,7 +98,7 @@ fn cast(
   mut commands: Commands
 ) {
   let now = time.elapsed_secs();
-  casts.read().for_each(|&FromClient { client_id, message: Cast(at) }| {
+  for &FromClient { client_id, message: Cast(at) } in casts.read() {
     if let Some((entity, avatar, inventory)) = player_of(players.iter(), client_id)
       && inventory.count(Block::FishingRod) > 0
       && voxels.ensure(at).liquid().is_some_and(|(fluid, _)| fluid == Fluid::Water)
@@ -113,7 +113,7 @@ fn cast(
         message: Bite { catch, after }
       });
     }
-  })
+  }
 }
 
 fn reel(
@@ -124,7 +124,7 @@ fn reel(
   mut commands: Commands
 ) {
   let now = time.elapsed_secs();
-  reels.read().for_each(|&FromClient { client_id, message: Reel(landed) }| {
+  for &FromClient { client_id, message: Reel(landed) } in reels.read() {
     if let Some((entity, mut inventory, line)) = player_of(players.iter_mut(), client_id)
     {
       commands.entity(entity).remove::<Line>();
@@ -138,14 +138,14 @@ fn reel(
         }
         None => None
       };
-      word.into_iter().for_each(|word| {
+      for word in word.into_iter() {
         notices.write(ToClients {
           targets: SendTargets::Single(client_id),
           message: Notice(word)
         });
-      })
+      }
     }
-  })
+  }
 }
 
 #[derive(Clone, Copy)]
@@ -452,11 +452,11 @@ fn show(
     .map_or(pilot.eye() + pilot.facing() * Vec3::new(0.35, 0.25, -1.2), |tip| {
       tip.translation()
     });
-  bobbers.iter_mut().for_each(|(mut transform, mut visibility)| {
+  for (mut transform, mut visibility) in bobbers.iter_mut() {
     *visibility = if bob.is_some() { Visibility::Visible } else { Visibility::Hidden };
     transform.translation = bob.unwrap_or_default()
-  });
-  tethers.iter_mut().for_each(|(mut transform, mut visibility)| {
+  }
+  for (mut transform, mut visibility) in tethers.iter_mut() {
     *visibility = if bob.is_some() { Visibility::Visible } else { Visibility::Hidden };
     if let Some(bob) = bob {
       let length = tip.distance(bob).max(0.01);
@@ -464,26 +464,28 @@ fn show(
         .looking_at(bob, Vec3::Y)
         .with_scale(Vec3::new(1.0, 1.0, length))
     }
-  });
+  }
   let fight = match rod.angling {
     Angling::Fighting(fight) => Some(fight),
     _ => None
   };
-  panels.iter_mut().for_each(|mut visibility| {
+  for mut visibility in panels.iter_mut() {
     *visibility = if fight.is_some() { Visibility::Visible } else { Visibility::Hidden }
-  });
+  }
   if let Some(fight) = fight {
     let inner = BAR - 6.0;
     let Temper { zone: size, .. } = Temper::of(fight.catch);
-    zones.iter_mut().for_each(|mut node| {
+    for mut node in zones.iter_mut() {
       node.bottom = px(fight.zone * inner);
       node.height = px(size * inner)
-    });
-    quarries.iter_mut().for_each(|(mut node, mut image)| {
+    }
+    for (mut node, mut image) in quarries.iter_mut() {
       node.bottom = px(fight.fish * inner - 16.0);
       image.rect = Some(icon_rect(fight.catch))
-    });
-    gauges.iter_mut().for_each(|mut node| node.height = percent(fight.progress * 100.0))
+    }
+    for mut node in gauges.iter_mut() {
+      node.height = percent(fight.progress * 100.0)
+    }
   }
 }
 
