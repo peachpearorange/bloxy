@@ -8,9 +8,10 @@ use {crate::{island::Island, player::Pilot, voxels::Voxels},
                    Gradient, HanabiPlugin, LinearDragModifier, OrientMode,
                    OrientModifier, ParticleEffect, ParticleTextureModifier,
                    SetAttributeModifier, SetPositionCircleModifier,
-                   SetPositionSphereModifier, SetVelocityTangentModifier,
-                   ShapeDimension, SimulationSpace, SizeOverLifetimeModifier,
-                   SpawnerSettings, TangentAccelModifier, VectorType}};
+                   SetPositionSphereModifier, SetVelocitySphereModifier,
+                   SetVelocityTangentModifier, ShapeDimension, SimulationSpace,
+                   SizeOverLifetimeModifier, SpawnerSettings, TangentAccelModifier,
+                   VectorType}};
 
 const ENCHANTED: f32 = 96.0;
 
@@ -18,6 +19,7 @@ const ENCHANTED: f32 = 96.0;
 pub struct Effects {
   pub ember: Handle<EffectAsset>,
   pub magic: Handle<EffectAsset>,
+  pub poof: Handle<EffectAsset>,
   pub dot: Handle<Image>
 }
 
@@ -147,6 +149,46 @@ fn magic() -> EffectAsset {
     .render(ParticleTextureModifier::new(slot))
 }
 
+fn poof() -> EffectAsset {
+  let writer = ExprWriter::new();
+  let position = SetPositionSphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    radius: writer.lit(0.35).expr(),
+    dimension: ShapeDimension::Volume
+  };
+  let velocity = SetVelocitySphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    speed: writer.lit(1.2).uniform(writer.lit(2.6)).expr()
+  };
+  let age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+  let lifetime = SetAttributeModifier::new(
+    Attribute::LIFETIME,
+    writer.lit(0.45).uniform(writer.lit(0.8)).expr()
+  );
+  let lift = AccelModifier::new(writer.lit(Vec3::Y * 1.2).expr());
+  let drag = LinearDragModifier::new(writer.lit(4.0).expr());
+  let slot = writer.lit(0u32).expr();
+  let mut module = writer.finish();
+  module.add_texture_slot("dot");
+  EffectAsset::new(48, SpawnerSettings::once(36.0.into()), module)
+    .with_simulation_space(SimulationSpace::Global)
+    .with_alpha_mode(Blending::Blend)
+    .init(position)
+    .init(velocity)
+    .init(age)
+    .init(lifetime)
+    .update(lift)
+    .update(drag)
+    .render(ColorOverLifetimeModifier::new(Gradient::from_keys([
+      (0.0, Vec4::new(1.0, 1.0, 1.0, 0.95)),
+      (0.6, Vec4::new(0.9, 0.9, 0.9, 0.7)),
+      (1.0, Vec4::new(0.8, 0.8, 0.8, 0.0))
+    ])))
+    .render(size(0.22, 0.5))
+    .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
+    .render(ParticleTextureModifier::new(slot))
+}
+
 fn prepare(
   mut commands: Commands,
   mut effects: ResMut<Assets<EffectAsset>>,
@@ -155,6 +197,7 @@ fn prepare(
   commands.insert_resource(Effects {
     ember: effects.add(ember()),
     magic: effects.add(magic()),
+    poof: effects.add(poof()),
     dot: images.add(dot())
   })
 }

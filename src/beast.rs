@@ -3,7 +3,7 @@ use {crate::{authority::{Controller, player_of},
              folk::ray_box,
              folk::{KNOCK, PUNCH, Vigour, hurt},
              generate,
-             island::{Island, Kind, SEA},
+             island::{Island, Kind, SEA, UNLOAD},
              loose::scatter,
              menu::Menu,
              noise::{hash, unit},
@@ -178,6 +178,34 @@ fn muster(
         island.cell,
         key ^ (index as u32).wrapping_mul(0x9E37)
       ));
+    }
+  }
+}
+
+fn disperse(
+  voxels: Res<Voxels>,
+  players: Query<&Avatar>,
+  beasts: Query<(Entity, &Roam)>,
+  mut herds: ResMut<Herds>,
+  mut commands: Commands
+) {
+  let seed = voxels.seed;
+  let forgotten: Vec<IVec2> = herds
+    .0
+    .iter()
+    .copied()
+    .filter(|&cell| {
+      Island::at(seed, cell).is_none_or(|island| {
+        !players.iter().any(|avatar| avatar.at.xz().distance(island.centre) < UNLOAD)
+      })
+    })
+    .collect();
+  for cell in forgotten.iter() {
+    herds.0.remove(cell);
+  }
+  for (entity, roam) in beasts.iter() {
+    if forgotten.contains(&roam.home) {
+      commands.entity(entity).despawn()
     }
   }
 }
@@ -434,6 +462,7 @@ fn shear(
     if let Ok((mut beast, mut roam, mut health)) = beasts.get_mut(target)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(beast.at) <= REACH + 1.0
+      && health.0 > 0
     {
       let sheep = matches!(beast.breed, Breed::Sheep(_));
       let woolly = sheep && roam.shorn <= 0.0;
@@ -461,7 +490,8 @@ fn shear(
             0.4
           )
         }
-        commands.entity(target).despawn()
+        commands.entity(target).remove::<Roam>();
+        crate::death::slay(&mut commands, target)
       }
     }
   }
@@ -941,7 +971,10 @@ impl Plugin for Beasts {
       .init_resource::<Shapes>()
       .add_systems(
         Update,
-        (muster, roam).chain().run_if(authority).run_if(resource_exists::<Voxels>)
+        (muster, roam, disperse)
+          .chain()
+          .run_if(authority)
+          .run_if(resource_exists::<Voxels>)
       )
       .add_systems(PreUpdate, shear.after(ServerSystems::Receive).run_if(authority))
       .add_systems(Update, (dress, animate).chain().run_if(plays))

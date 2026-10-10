@@ -14,6 +14,7 @@ mod claim;
 mod console;
 mod crafting;
 mod crumble;
+mod death;
 mod editor;
 mod figure;
 mod fishing;
@@ -275,7 +276,8 @@ fn main() {
       weather::Weathering,
       bird::Birds,
       claim::Claiming,
-      loose::Litter
+      loose::Litter,
+      death::Deaths
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

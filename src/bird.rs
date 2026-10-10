@@ -3,7 +3,7 @@ use {crate::{authority::{Controller, player_of},
              block::Block,
              folk::{PUNCH, ray_box},
              generate,
-             island::{Island, Kind, SEA, Wood},
+             island::{Island, Kind, SEA, UNLOAD, Wood},
              loose::scatter,
              menu::Menu,
              noise::{hash, unit},
@@ -194,6 +194,32 @@ pub fn release(voxels: &Voxels, breed: Breed, at: Vec3, luck: u32) -> impl Bundl
   hatch(voxels, breed, at, Flight::new(breed, home, radius, luck))
 }
 
+fn scatter_flocks(
+  voxels: Res<Voxels>,
+  players: Query<&Avatar>,
+  birds: Query<(Entity, &Flight)>,
+  mut flocks: ResMut<Flocks>,
+  mut commands: Commands
+) {
+  let seed = voxels.seed;
+  let watched = |island: &Island| {
+    players.iter().any(|avatar| avatar.at.xz().distance(island.centre) < UNLOAD)
+  };
+  let forgotten: Vec<Vec2> = flocks
+    .0
+    .iter()
+    .filter_map(|&cell| Island::at(seed, cell))
+    .filter(|island| !watched(island))
+    .map(|island| island.centre)
+    .collect();
+  flocks.0.retain(|&cell| Island::at(seed, cell).is_some_and(|island| watched(&island)));
+  for (entity, flight) in birds.iter() {
+    if forgotten.contains(&flight.home) {
+      commands.entity(entity).despawn()
+    }
+  }
+}
+
 fn muster(
   mut voxels: ResMut<Voxels>,
   mut flocks: ResMut<Flocks>,
@@ -348,6 +374,7 @@ fn pluck(
     if let Ok((bird, mut flight, mut health)) = birds.get_mut(target)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(bird.at) <= REACH + 1.5
+      && health.0 > 0
     {
       if flight.plucked <= 0.0 {
         flight.plucked = PLUCK_AGAIN;
@@ -361,7 +388,8 @@ fn pluck(
       if health.0 == 0 {
         let feathers = 1 + (flight.dice() * 2.0) as u16;
         scatter(&mut commands, Block::Feather, feathers, bird.at, Vec3::Y * 2.0, 0.4);
-        commands.entity(target).despawn()
+        commands.entity(target).remove::<Flight>();
+        crate::death::slay(&mut commands, target)
       }
     }
   }
@@ -644,7 +672,10 @@ impl Plugin for Birds {
       .init_resource::<Flocks>()
       .add_systems(
         Update,
-        (muster, fly).chain().run_if(authority).run_if(resource_exists::<Voxels>)
+        (muster, fly, scatter_flocks)
+          .chain()
+          .run_if(authority)
+          .run_if(resource_exists::<Voxels>)
       )
       .add_systems(PreUpdate, pluck.after(ServerSystems::Receive).run_if(authority))
       .add_systems(Update, (dress, animate).chain().run_if(plays))

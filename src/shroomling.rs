@@ -1,6 +1,6 @@
 use {crate::{block::Block,
              generate,
-             island::{Island, Kind, SEA},
+             island::{Island, Kind, SEA, UNLOAD},
              noise::{hash, unit},
              player::{Bulk, Marched, cells, march},
              protocol::{Avatar, Hopper, authority, plays},
@@ -8,7 +8,7 @@ use {crate::{block::Block,
      bevy::{asset::RenderAssetUsages,
             image::ImageSampler,
             mesh::{Indices, PrimitiveTopology},
-            platform::collections::HashSet,
+            platform::collections::{HashMap, HashSet},
             prelude::*,
             render::render_resource::{Extent3d, TextureDimension, TextureFormat}},
      bevy_replicon::prelude::*,
@@ -43,6 +43,9 @@ impl Wander {
 #[derive(Resource, Default)]
 pub struct Colonies(pub HashSet<IVec2>);
 
+#[derive(Resource, Default)]
+pub struct Dormant(pub HashMap<IVec2, Vec<(Hopper, u32)>>);
+
 pub fn lodge(commands: &mut Commands, home: IVec2, hopper: Hopper, luck: u32) {
   commands.spawn((Replicated, hopper, Wander {
     home,
@@ -60,6 +63,7 @@ fn ahead(yaw: f32) -> Vec3 { Quat::from_rotation_y(yaw) * Vec3::NEG_Z }
 fn muster(
   voxels: Res<Voxels>,
   mut colonies: ResMut<Colonies>,
+  mut dormant: ResMut<Dormant>,
   players: Query<&Avatar>,
   mut commands: Commands
 ) {
@@ -74,6 +78,9 @@ fn muster(
     .collect::<Vec<_>>()
     .into_iter()
   {
+    for (hopper, luck) in dormant.0.remove(&island.cell).into_iter().flatten() {
+      lodge(&mut commands, island.cell, hopper, luck)
+    }
     if colonies.0.insert(island.cell) {
       let key =
         hash(seed ^ 0x5B0, island.cell.x, 0x77, 0) ^ hash(seed, 0, island.cell.y, 7);
@@ -102,6 +109,23 @@ fn muster(
           key ^ index as u32
         )
       }
+    }
+  }
+}
+
+fn doze(
+  voxels: Res<Voxels>,
+  players: Query<&Avatar>,
+  hoppers: Query<(Entity, &Hopper, &Wander)>,
+  mut dormant: ResMut<Dormant>,
+  mut commands: Commands
+) {
+  for (entity, &hopper, wander) in hoppers.iter() {
+    if let Some(island) = Island::at(voxels.seed, wander.home)
+      && !players.iter().any(|avatar| avatar.at.xz().distance(island.centre) < UNLOAD)
+    {
+      dormant.0.entry(wander.home).or_default().push((hopper, wander.luck));
+      commands.entity(entity).despawn()
     }
   }
 }
@@ -409,9 +433,13 @@ impl Plugin for Shroomlings {
   fn build(&self, app: &mut App) {
     app
       .init_resource::<Colonies>()
+      .init_resource::<Dormant>()
       .add_systems(
         Update,
-        (muster, wander).chain().run_if(authority).run_if(resource_exists::<Voxels>)
+        (muster, wander, doze)
+          .chain()
+          .run_if(authority)
+          .run_if(resource_exists::<Voxels>)
       )
       .add_systems(Startup, mould.run_if(plays))
       .add_systems(Update, (dress, animate).chain().run_if(plays));

@@ -245,6 +245,7 @@ pub fn regen(world: &mut World, seed: Option<u32>) -> String {
   world.insert_resource(Herds::default());
   world.insert_resource(Flocks::default());
   world.insert_resource(Colonies::default());
+  world.insert_resource(crate::shroomling::Dormant::default());
   world.write_message(ToClients { targets: SendTargets::All, message: welcome });
   if seed != old {
     let arrival = Avatar {

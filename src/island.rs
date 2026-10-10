@@ -9,6 +9,7 @@ const DRIFT: f32 = 40.0;
 const CRATER: f32 = 0.78;
 const FLOES: f32 = 24.0;
 pub const FACING_STONE: f32 = std::f32::consts::FRAC_PI_2;
+pub const UNLOAD: f32 = 220.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {

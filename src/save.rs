@@ -5,7 +5,7 @@ use {crate::{account::{Account, Accounts, Kept},
              generate::GENERATION,
              opts::opts,
              protocol::*,
-             shroomling::Wander,
+             shroomling::{Dormant, Wander},
              skin::Skin,
              voxels::Voxels},
      bevy::prelude::*,
@@ -59,6 +59,7 @@ fn store(
   accounts: Res<Accounts>,
   players: Query<(&Controller, Kept)>,
   shroomlings: Query<(&Hopper, &Wander)>,
+  dormant: Res<Dormant>,
   boats: Query<&Vessel>,
   signs: Query<&Sign>,
   claims: Query<(&Claim, &Holding)>,
@@ -86,6 +87,7 @@ fn store(
   let terminated = TERMINATED.load(Ordering::Relaxed);
   let closing = exits.read().count() > 0 || terminated;
   *pending |= voxels.is_changed()
+    || dormant.is_changed()
     || accounts.is_changed()
     || !altered.is_empty()
     || released.read().count() > 0;
@@ -107,6 +109,9 @@ fn store(
       shroomlings: shroomlings
         .iter()
         .map(|(&hopper, wander)| (wander.home, hopper))
+        .chain(dormant.0.iter().flat_map(|(&home, sleepers)| {
+          sleepers.iter().map(move |&(hopper, _)| (home, hopper))
+        }))
         .collect(),
       boats: boats.iter().map(|vessel| (vessel.at, vessel.yaw)).collect(),
       signs: signs.iter().cloned().collect(),

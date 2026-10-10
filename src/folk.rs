@@ -232,6 +232,7 @@ fn strike(
       && let Ok((folk, mut health, raider)) = folk.get_mut(target)
       && folk.band.hostile()
       && (avatar.at + Vec3::Y * EYE).distance(folk.at + Vec3::Y * 0.9) <= REACH + 1.0
+      && health.0 > 0
     {
       vigour.swung = now;
       health.0 = health.0.saturating_sub(PUNCH);
@@ -241,7 +242,8 @@ fn strike(
         raider.stagger = 0.35
       }
       if health.0 == 0 {
-        commands.entity(target).despawn()
+        commands.entity(target).remove::<Raider>();
+        crate::death::slay(&mut commands, target)
       }
     }
   }
