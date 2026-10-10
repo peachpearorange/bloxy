@@ -1,9 +1,12 @@
-use {crate::{editor::{self, Draft},
+use {crate::{block::Block,
+             crafting,
+             editor::{self, Draft},
              identity::{Credentials, Identity, Standing},
              local,
              opts::opts,
              protocol::plays,
              settings::{Knob, Settings},
+             stream::Palette,
              waystone},
      bevy::{input::{ButtonState,
                     keyboard::{Key, KeyboardInput}},
@@ -16,11 +19,12 @@ pub const BUTTON: Color = Color::srgb(0.17, 0.19, 0.22);
 const HOVERED: Color = Color::srgb(0.25, 0.28, 0.32);
 const PANEL: Color = Color::srgba(0.07, 0.08, 0.1, 0.94);
 pub const EDGE: Color = Color::srgb(0.3, 0.33, 0.36);
-const LIT: Color = Color::srgb(0.95, 0.85, 0.45);
+pub const LIT: Color = Color::srgb(0.95, 0.85, 0.45);
 const ESCAPE_GRACE: f32 = 0.3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
+  Inventory,
   Settings,
   Profile,
   Skin,
@@ -28,10 +32,12 @@ pub enum Tab {
 }
 
 impl Tab {
-  const ALL: [Tab; 4] = [Tab::Settings, Tab::Profile, Tab::Skin, Tab::Waystones];
+  const ALL: [Tab; 5] =
+    [Tab::Inventory, Tab::Settings, Tab::Profile, Tab::Skin, Tab::Waystones];
 
   fn label(self) -> &'static str {
     match self {
+      Tab::Inventory => "Inventory",
       Tab::Settings => "Settings",
       Tab::Profile => "Profile",
       Tab::Skin => "Skin",
@@ -94,7 +100,10 @@ pub enum Act {
   Randomize,
   Revert,
   Wear,
-  Travel(IVec2)
+  Travel(IVec2),
+  Slot(u8),
+  Inspect(Block),
+  Craft(u16)
 }
 
 #[derive(Message, Clone, Copy)]
@@ -172,7 +181,8 @@ fn settings_page(page: &mut ChildSpawnerCommands) {
       });
   });
   page.spawn(words(
-    "Tab or Esc opens and closes this menu. Click the world to look around.",
+    "Tab or Esc opens and closes this menu, E the inventory. Click the world to look \
+     around.",
     14.0,
     FAINT
   ));
@@ -222,7 +232,7 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
   ));
 }
 
-fn build(mut commands: Commands, draft: Res<Draft>) {
+fn build(mut commands: Commands, draft: Res<Draft>, palette: Res<Palette>) {
   commands
     .spawn((
       Overlay,
@@ -281,6 +291,7 @@ fn build(mut commands: Commands, draft: Res<Draft>) {
                 ..default()
               }))
               .with_children(|page| match tab {
+                Tab::Inventory => crafting::page(page, &palette),
                 Tab::Settings => settings_page(page),
                 Tab::Profile => profile_page(page),
                 Tab::Skin => editor::page(page, &draft),
@@ -307,12 +318,16 @@ fn toggle(
     lost
   });
   let escape = keys.just_pressed(KeyCode::Escape) && now - menu.since > ESCAPE_GRACE;
-  match (menu.open, keys.just_pressed(KeyCode::Tab) || escape, lost) {
-    (false, true, _) | (false, _, true) => {
+  let inventory = keys.just_pressed(KeyCode::KeyE) && focus.0.is_none();
+  match (menu.open, keys.just_pressed(KeyCode::Tab) || escape, lost, inventory) {
+    (false, _, _, true) => menu.show(Tab::Inventory, now),
+    (true, _, _, true) if menu.tab == Tab::Inventory => menu.open = false,
+    (true, _, _, true) => menu.tab = Tab::Inventory,
+    (false, true, _, _) | (false, _, true, _) => {
       let tab = menu.tab;
       menu.show(tab, now)
     }
-    (true, true, _) => menu.open = false,
+    (true, true, _, _) => menu.open = false,
     _ => ()
   }
   if *was != menu.open
@@ -469,7 +484,7 @@ fn show(
       _ => false
     };
     let colour = BorderColor::all(if lit { LIT } else { EDGE });
-    if !matches!(act, Act::Swatch(_)) && *border != colour {
+    if matches!(act, Act::Open(_) | Act::Focus(_)) && *border != colour {
       *border = colour
     }
   });
@@ -510,6 +525,7 @@ pub struct Menus;
 impl Plugin for Menus {
   fn build(&self, app: &mut App) {
     let tab = match opts().menu.as_deref() {
+      Some("inventory") => Tab::Inventory,
       Some("profile") => Tab::Profile,
       Some("skin") => Tab::Skin,
       Some("waystones") => Tab::Waystones,
@@ -520,7 +536,10 @@ impl Plugin for Menus {
       .init_resource::<Focus>()
       .init_resource::<Notice>()
       .add_message::<Pressed>()
-      .add_systems(Startup, build.after(editor::prepare).run_if(plays))
+      .add_systems(
+        Startup,
+        build.after(editor::prepare).after(crate::stream::paint).run_if(plays)
+      )
       .add_systems(Update, (toggle, click, obey, type_text, show).chain().run_if(plays));
   }
 }

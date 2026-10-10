@@ -1,9 +1,11 @@
 use {crate::{block::Block,
+             model,
              opts::opts,
              player::{Aim, Pilot, Selected},
              protocol::{HOTBAR, Inventory, Role, plays},
              stream::{Palette, Progress},
-             texture::{COLUMNS, PIXELS}},
+             texture::{COLUMNS, PIXELS},
+             voxels::Voxels},
      bevy::{diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
             prelude::*},
      bevy_replicon::prelude::*};
@@ -25,6 +27,11 @@ struct Breaking;
 
 #[derive(Component)]
 struct Outline;
+
+#[derive(Component)]
+struct Edge(usize);
+
+const EDGE: f32 = 0.012;
 
 const SLOT: f32 = 52.0;
 
@@ -131,36 +138,27 @@ fn build(
     TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, 0.7) },
     Node { position_type: PositionType::Absolute, left: px(10), top: px(8), ..default() }
   ));
-  let edge = 0.012;
-  let outline = [0, 1, 2].into_iter().flat_map(|axis| {
-    [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)].into_iter().map(move |(a, b)| {
-      let mut size = Vec3::splat(edge);
-      size[axis] = 1.0 + edge;
-      let mut centre = Vec3::ZERO;
-      centre[axis] = 0.5;
-      centre[(axis + 1) % 3] = a;
-      centre[(axis + 2) % 3] = b;
-      Cuboid::from_size(size).mesh().build().translated_by(centre - Vec3::splat(0.5))
-    })
+  let bar = meshes.add(Cuboid::default());
+  let ink = materials.add(StandardMaterial {
+    base_color: Color::srgba(0.05, 0.05, 0.05, 0.9),
+    unlit: true,
+    ..default()
   });
-  let merged = outline.reduce(|mut all, part| {
-    all.merge(&part).ok();
-    all
-  });
-  commands.spawn((
-    Outline,
-    Mesh3d(meshes.add(merged.unwrap_or_else(|| Cuboid::default().into()))),
-    MeshMaterial3d(materials.add(StandardMaterial {
-      base_color: Color::srgba(0.05, 0.05, 0.05, 0.9),
-      unlit: true,
-      ..default()
-    })),
-    Transform::default(),
-    Visibility::Hidden
-  ));
+  commands.spawn((Outline, Transform::default(), Visibility::Hidden)).with_children(
+    |outline| {
+      (0..12).for_each(|index| {
+        outline.spawn((
+          Edge(index),
+          Mesh3d(bar.clone()),
+          MeshMaterial3d(ink.clone()),
+          Transform::default()
+        ));
+      })
+    }
+  );
 }
 
-fn icon_rect(block: Block) -> Rect {
+pub fn icon_rect(block: Block) -> Rect {
   let index = block.tiles()[1].index();
   let corner =
     Vec2::new((index % COLUMNS) as f32, (index / COLUMNS) as f32) * PIXELS as f32;
@@ -202,19 +200,41 @@ fn refresh(
   })
 }
 
+fn edge(index: usize, low: Vec3, high: Vec3) -> Transform {
+  let (axis, corner) = (index / 4, index % 4);
+  let size = high - low;
+  let mut scale = Vec3::splat(EDGE);
+  scale[axis] = size[axis] + EDGE;
+  let mut centre = low + size / 2.0;
+  centre[(axis + 1) % 3] = [low, high][corner % 2][(axis + 1) % 3];
+  centre[(axis + 2) % 3] = [low, high][corner / 2][(axis + 2) % 3];
+  Transform::from_translation(centre).with_scale(scale)
+}
+
 fn aim(
   aim: Res<Aim>,
-  mut outline: Query<(&mut Transform, &mut Visibility), With<Outline>>,
+  voxels: Option<Res<Voxels>>,
+  mut outline: Query<&mut Visibility, With<Outline>>,
+  mut edges: Query<(&Edge, &mut Transform)>,
   mut breaking: Query<&mut Node, With<Breaking>>
 ) {
-  if let Ok((mut transform, mut visibility)) = outline.single_mut() {
-    match &aim.hit {
-      Some(hit) => {
-        transform.translation = hit.at.as_vec3() + Vec3::splat(0.5);
-        *visibility = Visibility::Inherited
-      }
-      None => *visibility = Visibility::Hidden
+  let bounds = aim.hit.as_ref().zip(voxels).map(|(hit, voxels)| {
+    model::bounds(hit.block, voxels.seed, hit.at).unwrap_or_else(|| {
+      let corner = hit.at.as_vec3();
+      (corner, corner + Vec3::ONE)
+    })
+  });
+  outline.iter_mut().for_each(|mut visibility| {
+    *visibility = match bounds {
+      Some(_) => Visibility::Inherited,
+      None => Visibility::Hidden
     }
+  });
+  if let Some((low, high)) = bounds {
+    let (low, high) = (low - EDGE / 2.0, high + EDGE / 2.0);
+    edges.iter_mut().for_each(|(edge, mut transform)| {
+      transform.set_if_neq(self::edge(edge.0, low, high));
+    })
   }
   if let Ok(mut node) = breaking.single_mut() {
     node.width = px(aim.progress * 60.0)

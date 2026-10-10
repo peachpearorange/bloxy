@@ -193,6 +193,58 @@ pub enum Look {
 }
 
 impl Block {
+  pub const ALL: [Block; 47] = [
+    Block::Air,
+    Block::Stone,
+    Block::Cobblestone,
+    Block::Dirt,
+    Block::Grass,
+    Block::Sand,
+    Block::Gravel,
+    Block::Clay,
+    Block::Snow,
+    Block::Bedrock,
+    Block::Log,
+    Block::Leaves,
+    Block::Planks,
+    Block::Glass,
+    Block::Water,
+    Block::CoalOre,
+    Block::IronOre,
+    Block::CopperOre,
+    Block::TinOre,
+    Block::GoldOre,
+    Block::DiamondOre,
+    Block::Lamp,
+    Block::Bricks,
+    Block::BirchLog,
+    Block::BirchLeaves,
+    Block::SpruceLog,
+    Block::SpruceLeaves,
+    Block::PalmLog,
+    Block::PalmLeaves,
+    Block::Mycelium,
+    Block::MushroomStem,
+    Block::RedCap,
+    Block::BrownCap,
+    Block::Basalt,
+    Block::Lava,
+    Block::Ice,
+    Block::Waystone,
+    Block::Poppy,
+    Block::Dandelion,
+    Block::Cornflower,
+    Block::Daisy,
+    Block::OakSapling,
+    Block::BirchSapling,
+    Block::SpruceSapling,
+    Block::PalmSapling,
+    Block::RedMushroom,
+    Block::BrownMushroom
+  ];
+
+  pub fn item(self) -> bool { !matches!(self, Block::Air | Block::Water | Block::Lava) }
+
   pub fn look(self) -> Look {
     match self {
       Block::Air => Look::Invisible,

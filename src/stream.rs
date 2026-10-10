@@ -58,6 +58,23 @@ pub fn paint(
   commands.insert_resource(Palette { solid, liquid, atlas })
 }
 
+const RIPPLE_EVERY: f32 = 0.18;
+
+fn ripple(
+  time: Res<Time>,
+  palette: Res<Palette>,
+  mut images: ResMut<Assets<Image>>,
+  mut shown: Local<u32>
+) {
+  let frame = (time.elapsed_secs() / RIPPLE_EVERY) as u32 % texture::WATER_FRAMES;
+  if frame != *shown
+    && let Some(mut atlas) = images.get_mut(&palette.atlas)
+  {
+    *shown = frame;
+    texture::ripple(&mut atlas, frame)
+  }
+}
+
 fn wanted(centre: IVec3, reach: i32) -> impl Iterator<Item = IVec3> {
   let inside = move |x: i32, z: i32| {
     let (x, z) = ((x.abs() - 1).max(0), (z.abs() - 1).max(0));
@@ -215,6 +232,6 @@ impl Plugin for Stream {
       .init_resource::<Streaming>()
       .init_resource::<Progress>()
       .add_systems(Startup, paint.run_if(plays))
-      .add_systems(Update, stream.run_if(plays));
+      .add_systems(Update, (stream, ripple).run_if(plays));
   }
 }

@@ -1,4 +1,6 @@
-use crate::block::{Block, Tile};
+use {crate::{block::{Block, Tile},
+             noise::hash},
+     bevy::prelude::*};
 
 #[derive(Clone, Copy)]
 pub struct Bit {
@@ -126,6 +128,23 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::BrownMushroom => BROWN_MUSHROOM_BITS,
     _ => &[]
   }
+}
+
+pub fn shift(seed: u32, at: IVec3) -> Vec3 {
+  let jitter = |salt: u32| (hash(seed ^ salt, at.x, at.y, at.z) % 5) as f32 - 2.0;
+  Vec3::new(jitter(0x51), 0.0, jitter(0x52))
+}
+
+pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
+  let shift = shift(seed, at);
+  bits(block)
+    .iter()
+    .map(|bit| (Vec3::from(bit.low.map(f32::from)), Vec3::from(bit.high.map(f32::from))))
+    .reduce(|(low, high), (bit_low, bit_high)| (low.min(bit_low), high.max(bit_high)))
+    .map(|(low, high)| {
+      let corner = at.as_vec3();
+      (corner + (low + shift) / 16.0, corner + (high + shift) / 16.0)
+    })
 }
 
 pub fn icon(block: Block, x: u32, y: u32) -> Option<Bit> {

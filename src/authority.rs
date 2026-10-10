@@ -4,6 +4,7 @@ use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              island::{FACING_STONE, Island},
              opts::opts,
              protocol::*,
+             recipe::RECIPES,
              save::{self, World},
              shroomling,
              voxels::Voxels},
@@ -28,12 +29,14 @@ fn starter(creative: bool) -> Inventory {
     Block::Sand,
     Block::Stone
   ];
-  Inventory {
-    slots: match creative {
-      true => kit.map(|block| Some(Stack { block, count: STACK })),
-      false => [None; HOTBAR]
-    }
+  let mut inventory = Inventory::default();
+  if creative {
+    kit
+      .iter()
+      .zip(&mut inventory.slots)
+      .for_each(|(&block, slot)| *slot = Some(Stack { block, count: STACK }))
   }
+  inventory
 }
 
 fn embody(
@@ -345,6 +348,31 @@ fn travel(
   })
 }
 
+fn shuffle(
+  mut shuffles: MessageReader<FromClient<Shuffle>>,
+  mut players: Query<(&Controller, &mut Inventory)>
+) {
+  shuffles.read().for_each(|&FromClient { client_id, message: Shuffle { from, to } }| {
+    if let Some(mut inventory) = player_of(players.iter_mut(), client_id) {
+      inventory.shuffle(from.into(), to.into())
+    }
+  })
+}
+
+fn craft(
+  mut crafts: MessageReader<FromClient<Craft>>,
+  mut players: Query<(&Controller, &mut Inventory)>
+) {
+  crafts.read().for_each(|&FromClient { client_id, message: Craft(index) }| {
+    if let Some(mut inventory) = player_of(players.iter_mut(), client_id)
+      && let Some(recipe) = RECIPES.get(usize::from(index))
+      && let Some(made) = recipe.made(&inventory)
+    {
+      *inventory = made
+    }
+  })
+}
+
 pub struct Authority;
 
 impl Plugin for Authority {
@@ -353,7 +381,7 @@ impl Plugin for Authority {
       .add_systems(Startup, found_world.run_if(authority))
       .add_systems(
         PreUpdate,
-        (sign_in, paint, follow, attune, travel, dig, put)
+        (sign_in, paint, follow, attune, travel, dig, put, shuffle, craft)
           .chain()
           .after(ServerSystems::Receive)
           .run_if(authority)

@@ -496,6 +496,12 @@ fn waystone(x: u32, y: u32) -> Texel {
   })
 }
 
+pub const WATER_FRAMES: u32 = PIXELS * 2;
+
+fn water(x: u32, y: u32, frame: u32) -> Texel {
+  solid(&SWELL, &FOAM, (x + frame) % PIXELS, (y + PIXELS - frame / 2) % PIXELS)
+}
+
 fn rune() -> Texel { Texel::rgb(0.3, 0.85, 1.0).glowing(0.7) }
 
 pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
@@ -540,7 +546,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
         _ => Texel::rgb(0.0, 0.0, 0.0).alpha(0.0)
       }
     }
-    Tile::Water => solid(&SWELL, &FOAM, x, y),
+    Tile::Water => water(x, y, 0),
     Tile::CoalOre => {
       ore(x, y, [[0.05, 0.05, 0.06], [0.12, 0.12, 0.13], [0.22, 0.22, 0.24]], 0.0)
     }
@@ -645,6 +651,23 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
 
 fn to_srgb(linear_ish: f32) -> u8 { (linear_ish.clamp(0.0, 1.0) * 255.0).round() as u8 }
 
+fn halve(level: &[[f32; 4]], width: u32, height: u32) -> Vec<[f32; 4]> {
+  let (half_width, half_height) = (width / 2, height / 2);
+  (0..half_width * half_height)
+    .map(|index| {
+      let (x, y) = (index % half_width * 2, index / half_width * 2);
+      let quad = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        .map(|(dx, dy)| level[((y + dy) * width + x + dx) as usize]);
+      let coverage: f32 = quad.iter().map(|texel| texel[3]).sum();
+      let weighted = |channel: usize| {
+        quad.iter().map(|texel| texel[channel] * texel[3].max(0.02)).sum::<f32>()
+          / quad.iter().map(|texel| texel[3].max(0.02)).sum::<f32>()
+      };
+      [weighted(0), weighted(1), weighted(2), coverage / 4.0]
+    })
+    .collect()
+}
+
 fn atlas_levels(texel: impl Fn(Tile, u32, u32) -> [f32; 4]) -> Vec<u8> {
   let (width, height) = (COLUMNS * PIXELS, ROWS * PIXELS);
   let base: Vec<[f32; 4]> = (0..width * height)
@@ -658,23 +681,7 @@ fn atlas_levels(texel: impl Fn(Tile, u32, u32) -> [f32; 4]) -> Vec<u8> {
     .collect();
   let levels =
     std::iter::successors(Some((base, width, height)), |(level, width, height)| {
-      (*width > COLUMNS).then(|| {
-        let (half_width, half_height) = (width / 2, height / 2);
-        let smaller = (0..half_width * half_height)
-          .map(|index| {
-            let (x, y) = (index % half_width * 2, index / half_width * 2);
-            let quad = [(0, 0), (1, 0), (0, 1), (1, 1)]
-              .map(|(dx, dy)| level[((y + dy) * width + x + dx) as usize]);
-            let coverage: f32 = quad.iter().map(|texel| texel[3]).sum();
-            let weighted = |channel: usize| {
-              quad.iter().map(|texel| texel[channel] * texel[3].max(0.02)).sum::<f32>()
-                / quad.iter().map(|texel| texel[3].max(0.02)).sum::<f32>()
-            };
-            [weighted(0), weighted(1), weighted(2), coverage / 4.0]
-          })
-          .collect();
-        (smaller, half_width, half_height)
-      })
+      (*width > COLUMNS).then(|| (halve(level, *width, *height), width / 2, height / 2))
     });
   levels
     .take(MIPS as usize)
@@ -682,12 +689,35 @@ fn atlas_levels(texel: impl Fn(Tile, u32, u32) -> [f32; 4]) -> Vec<u8> {
     .collect()
 }
 
+pub fn ripple(atlas: &mut Image, frame: u32) {
+  let index = Tile::Water.index();
+  let cell = UVec2::new(index % COLUMNS, index / COLUMNS);
+  let base: Vec<[f32; 4]> = (0..PIXELS * PIXELS)
+    .map(|index| water(index % PIXELS, index / PIXELS, frame).color)
+    .collect();
+  let levels = std::iter::successors(Some((base, PIXELS)), |(level, size)| {
+    (*size > 1).then(|| (halve(level, *size, *size), size / 2))
+  });
+  if let Some(data) = atlas.data.as_mut() {
+    levels.take(MIPS as usize).enumerate().fold(0, |offset, (mip, (level, size))| {
+      let (width, height) = ((COLUMNS * PIXELS) >> mip, (ROWS * PIXELS) >> mip);
+      level.iter().enumerate().for_each(|(texel, color)| {
+        let (x, y) =
+          (cell.x * size + texel as u32 % size, cell.y * size + texel as u32 / size);
+        let at = offset + ((y * width + x) * 4) as usize;
+        data[at..at + 4].copy_from_slice(&color.map(to_srgb))
+      });
+      offset + (width * height * 4) as usize
+    });
+  }
+}
+
 fn image(data: Vec<u8>) -> Image {
   let mut image = Image::new_uninit(
     Extent3d { width: COLUMNS * PIXELS, height: ROWS * PIXELS, depth_or_array_layers: 1 },
     TextureDimension::D2,
     TextureFormat::Rgba8UnormSrgb,
-    RenderAssetUsages::RENDER_WORLD
+    RenderAssetUsages::default()
   );
   image.data = Some(data);
   image.texture_descriptor.mip_level_count = MIPS;
@@ -729,6 +759,23 @@ mod tests {
         assert!(texel.color != [1.0, 0.0, 1.0, 1.0], "{tile:?} has a hole at {index}")
       })
     })
+  }
+
+  #[test]
+  fn ripples_repaint_only_water() {
+    let still = albedo();
+    let mut rippled = albedo();
+    ripple(&mut rippled, 0);
+    assert!(still.data == rippled.data);
+    ripple(&mut rippled, 5);
+    let changed = still
+      .data
+      .iter()
+      .flatten()
+      .zip(rippled.data.iter().flatten())
+      .filter(|(before, after)| before != after)
+      .count();
+    assert!(changed > 0 && changed < (PIXELS * PIXELS * 4 * 2) as usize)
   }
 
   #[test]

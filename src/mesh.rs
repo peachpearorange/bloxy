@@ -2,7 +2,6 @@ use {crate::{block::{Block, Look},
              generate,
              island::SEA,
              model::{self, Bit},
-             noise::hash,
              texture::uv_corner,
              voxels::{Chunk, HEIGHT, SIZE, origin_of}},
      bevy::{asset::RenderAssetUsages,
@@ -279,9 +278,7 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
           builder.indices.extend(order.map(|corner| first + corner))
         }
       );
-      let at = origin + local;
-      let jitter = |salt: u32| (hash(seed ^ salt, at.x, at.y, at.z) % 5) as f32 - 2.0;
-      let shift = Vec3::new(jitter(0x51), 0.0, jitter(0x52));
+      let shift = model::shift(seed, origin + local);
       let light = sky(local);
       model::bits(block).iter().for_each(|&Bit { low, high, color: [r, g, b], tile }| {
         let (low, high) =

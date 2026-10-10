@@ -1,10 +1,11 @@
 #[cfg(target_arch = "wasm32")]
 mod web {
-  use {std::cell::RefCell,
+  use {std::cell::{Cell, RefCell},
        wasm_bindgen::{JsCast, closure::Closure}};
 
   thread_local! {
     static PASTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static CAPTURING: Cell<bool> = const { Cell::new(false) };
   }
 
   fn storage() -> Option<web_sys::Storage> {
@@ -49,6 +50,33 @@ mod web {
 
   pub fn pasted() -> Vec<String> { PASTED.with(|pasted| pasted.take()) }
 
+  pub fn capture_on_click(wanted: bool) {
+    CAPTURING.with(|capturing| capturing.set(wanted))
+  }
+
+  pub fn listen_for_clicks() {
+    let heard =
+      Closure::<dyn FnMut(web_sys::MouseEvent)>::new(|event: web_sys::MouseEvent| {
+        if event.button() == 0
+          && CAPTURING.with(Cell::get)
+          && let Some(document) = web_sys::window().and_then(|window| window.document())
+          && let Some(canvas) = document.query_selector("canvas").ok().flatten()
+        {
+          if document.pointer_lock_element().is_none() {
+            canvas.request_pointer_lock()
+          }
+          if document.fullscreen_element().is_none() {
+            canvas.request_fullscreen().ok();
+          }
+        }
+      });
+    web_sys::window().and_then(|window| window.document()).map(|document| {
+      document
+        .add_event_listener_with_callback("mousedown", heard.as_ref().unchecked_ref())
+    });
+    heard.forget()
+  }
+
   pub fn pointer_locked() -> Option<bool> {
     web_sys::window()
       .and_then(|window| window.document())
@@ -77,6 +105,10 @@ mod web {
   pub fn listen_for_paste() {}
 
   pub fn pasted() -> Vec<String> { Vec::new() }
+
+  pub fn capture_on_click(_wanted: bool) {}
+
+  pub fn listen_for_clicks() {}
 
   pub fn pointer_locked() -> Option<bool> { None }
 }

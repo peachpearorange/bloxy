@@ -4,6 +4,8 @@ use {crate::{block::Block, skin::Skin},
      serde::{Deserialize, Serialize}};
 
 pub const HOTBAR: usize = 9;
+pub const BACKPACK: usize = 27;
+pub const SLOTS: usize = HOTBAR + BACKPACK;
 pub const STACK: u16 = 64;
 pub const REACH: f32 = 5.0;
 pub const EYE: f32 = 1.62;
@@ -50,12 +52,48 @@ pub struct Stack {
   pub count: u16
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Default, PartialEq, Debug)]
+#[derive(Component, Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Inventory {
-  pub slots: [Option<Stack>; HOTBAR]
+  #[serde(deserialize_with = "fitted")]
+  pub slots: Vec<Option<Stack>>
+}
+
+fn fitted<'de, D: serde::Deserializer<'de>>(
+  slots: D
+) -> Result<Vec<Option<Stack>>, D::Error> {
+  Vec::<Option<Stack>>::deserialize(slots)
+    .map(|slots| slots.into_iter().chain(std::iter::repeat(None)).take(SLOTS).collect())
+}
+
+impl Default for Inventory {
+  fn default() -> Self { Inventory { slots: vec![None; SLOTS] } }
 }
 
 impl Inventory {
+  pub fn count(&self, block: Block) -> u32 {
+    self
+      .slots
+      .iter()
+      .flatten()
+      .filter(|stack| stack.block == block)
+      .map(|stack| u32::from(stack.count))
+      .sum()
+  }
+
+  pub fn shuffle(&mut self, from: usize, to: usize) {
+    if from != to && from < SLOTS && to < SLOTS {
+      match (self.slots[from], self.slots[to]) {
+        (Some(moved), Some(kept)) if moved.block == kept.block => {
+          let shifted = moved.count.min(STACK - kept.count);
+          self.slots[to] = Some(Stack { count: kept.count + shifted, ..kept });
+          self.slots[from] = (moved.count > shifted)
+            .then_some(Stack { count: moved.count - shifted, ..moved })
+        }
+        _ => self.slots.swap(from, to)
+      }
+    }
+  }
+
   pub fn add(&mut self, block: Block) -> bool {
     let fits = |slot: &Option<Stack>| {
       slot.is_some_and(|stack| stack.block == block && stack.count < STACK)
@@ -131,6 +169,15 @@ pub struct Travel(pub IVec2);
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Attune(pub IVec3);
 
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Shuffle {
+  pub from: u8,
+  pub to: u8
+}
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Craft(pub u16);
+
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Welcome {
   pub seed: u32,
@@ -171,6 +218,8 @@ impl Plugin for Protocol {
       .add_client_message::<Travel>(Channel::Ordered)
       .add_server_message::<Teleport>(Channel::Ordered)
       .replicate::<Hopper>()
-      .add_client_message::<Attune>(Channel::Ordered);
+      .add_client_message::<Attune>(Channel::Ordered)
+      .add_client_message::<Shuffle>(Channel::Ordered)
+      .add_client_message::<Craft>(Channel::Ordered);
   }
 }

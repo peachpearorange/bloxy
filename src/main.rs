@@ -3,6 +3,7 @@
 mod account;
 mod authority;
 mod block;
+mod crafting;
 mod editor;
 mod figure;
 mod generate;
@@ -18,6 +19,7 @@ mod noise;
 mod opts;
 mod player;
 mod protocol;
+mod recipe;
 mod save;
 mod settings;
 mod shroomling;
@@ -144,6 +146,7 @@ fn press(
       "D" => Ok(KeyCode::KeyD),
       "Tab" => Ok(KeyCode::Tab),
       "Esc" => Ok(KeyCode::Escape),
+      "E" => Ok(KeyCode::KeyE),
       digit => Ok(
         [
           KeyCode::Digit1,
@@ -232,7 +235,8 @@ fn main() {
         identity::Identifying,
         menu::Menus,
         editor::Editing,
-        waystone::Waystones
+        waystone::Waystones,
+        crafting::Crafting
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

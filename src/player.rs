@@ -1,4 +1,5 @@
 use {crate::{block::Block,
+             local,
              menu::{Menu, Tab, closed},
              opts::opts,
              protocol::*,
@@ -111,11 +112,11 @@ fn grab(
   buttons: Res<ButtonInput<MouseButton>>,
   menu: Res<Menu>
 ) {
+  let playing = !menu.open && opts().shot.is_none();
+  local::capture_on_click(playing);
   if let Ok((mut window, mut cursor)) = windows.single_mut()
-    && !menu.open
+    && playing
     && buttons.just_pressed(MouseButton::Left)
-    && cursor.grab_mode == CursorGrabMode::None
-    && opts().shot.is_none()
   {
     cursor.grab_mode = CursorGrabMode::Locked;
     cursor.visible = false;
@@ -401,6 +402,7 @@ pub struct Piloting;
 
 impl Plugin for Piloting {
   fn build(&self, app: &mut App) {
+    local::listen_for_clicks();
     app
       .init_resource::<Selected>()
       .init_resource::<Aim>()
