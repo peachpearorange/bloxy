@@ -456,10 +456,7 @@ fn work(
     let stack =
       inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
     let used = aim.hit.as_ref().filter(|hit| {
-      hit.block.waystone()
-        || hit.block.station()
-        || hit.block.sign()
-        || hit.block == Block::Bed
+      hit.block.waystone() || hit.block.station() || hit.block.sign() || hit.block.bed()
     });
     if active
       && buttons.just_pressed(MouseButton::Right)
@@ -476,7 +473,7 @@ fn work(
           inscription.begin(hit.at, text.unwrap_or_default());
           menu.show(Tab::Sign, time.elapsed_secs())
         }
-        Block::Bed => {
+        bed if bed.bed() => {
           rests.write(Rest(hit.at));
         }
         _ => menu.show(Tab::Inventory, time.elapsed_secs())
@@ -510,19 +507,24 @@ fn work(
       *cooldown = PLACE_EVERY;
       let at = hit.at + hit.normal;
       let ahead = (pilot.facing() * Vec3::NEG_Z).xz();
-      let wall = match (hit.normal.y, ahead.x.abs() > ahead.y.abs()) {
-        (0, _) => -hit.normal,
-        (_, true) => IVec3::X * ahead.x.signum() as i32,
-        (_, false) => IVec3::Z * ahead.y.signum() as i32
+      let facing = match ahead.x.abs() > ahead.y.abs() {
+        true => IVec3::X * ahead.x.signum() as i32,
+        false => IVec3::Z * ahead.y.signum() as i32
       };
-      let block = stack.block.against(wall);
+      let wall = if hit.normal.y == 0 { -hit.normal } else { facing };
+      let laid = (stack.block == Block::Bed).then(|| Block::laid(facing)).flatten();
+      let block = laid.map_or(stack.block.against(wall), |(foot, _)| foot);
       let (low, high) = Bulk::PERSON.body(pilot.at);
       let inside = cells(low, high).any(|cell| cell == at) && block.solid();
       let hung = block.wall().is_none_or(|wall| voxels.solid(at + wall));
-      if !inside && hung && voxels.block(at).is_some_and(|block| !block.solid()) {
+      let open = |cell: IVec3| voxels.block(cell).is_some_and(|block| !block.solid());
+      let roomy =
+        laid.is_none() || open(at + facing) && voxels.solid(at + facing - IVec3::Y);
+      if !inside && hung && roomy && open(at) {
         puts.write(Put { at, block });
         if *role == Role::Guest {
-          voxels.set(at, block)
+          voxels.set(at, block);
+          laid.into_iter().for_each(|(_, head)| voxels.set(at + facing, head))
         }
         if stack.block.sign() && voxels.block(at - IVec3::Y).is_some_and(Block::solid) {
           inscription.begin(at, "");

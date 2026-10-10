@@ -1,28 +1,33 @@
 use {crate::{island::{Island, Kind},
-             noise::{fbm2, hash, unit},
+             noise::{hash, unit},
              opts::opts,
              player::{Eye, Pilot},
              protocol::{authority, plays},
              settings::Settings,
+             sky::daylight,
              voxels::Voxels},
-     bevy::{asset::RenderAssetUsages,
-            light::NotShadowCaster,
-            mesh::{Indices, PrimitiveTopology},
-            pbr::DistanceFog,
-            prelude::*},
+     bevy::{asset::embedded_asset,
+            light::{NotShadowCaster, NotShadowReceiver,
+                    light_consts::lux::RAW_SUNLIGHT},
+            mesh::MeshVertexBufferLayoutRef,
+            pbr::{DistanceFog, Material, MaterialPipeline, MaterialPipelineKey,
+                  MaterialPlugin},
+            prelude::*,
+            render::render_resource::{AsBindGroup, Face, RenderPipelineDescriptor,
+                                      SpecializedMeshPipelineError},
+            shader::ShaderRef},
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
 
-const CLOUD_HEIGHT: f32 = 168.0;
-const CLOUD_CELL: f32 = 12.0;
-const CLOUD_THICK: f32 = 4.0;
-const CLOUD_SPAN: i32 = 56;
-const DRIFT: f32 = 1.6;
+const CLOUD_HEIGHT: f32 = 170.0;
+const CLOUD_THICK: f32 = 80.0;
+const CLOUD_SPAN: f32 = 5200.0;
+const DRIFT: f32 = 2.5;
 const DROPS: usize = 700;
 const SHOWER: f32 = 22.0;
 const RAIN_FALL: f32 = 16.0;
 const SNOW_FALL: f32 = 2.4;
-const SUN: f32 = bevy::light::light_consts::lux::RAW_SUNLIGHT;
+const FLASH: f32 = 1500.0;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sky {
@@ -119,7 +124,7 @@ struct Climate {
   sun: f32,
   flash: f32,
   luck: u32,
-  built: Option<(IVec2, f32)>
+  settled: bool
 }
 
 impl Climate {
@@ -151,8 +156,7 @@ struct Gear {
   streak: Handle<Mesh>,
   flake: Handle<Mesh>,
   bolt: Handle<StandardMaterial>,
-  segment: Handle<Mesh>,
-  clouds: Handle<StandardMaterial>
+  segment: Handle<Mesh>
 }
 
 fn gather(
@@ -181,13 +185,7 @@ fn gather(
       unlit: true,
       ..default()
     }),
-    segment: meshes.add(Cuboid::new(0.5, 0.5, 1.0)),
-    clouds: materials.add(StandardMaterial {
-      base_color: Color::srgba(1.0, 1.0, 1.0, 0.85),
-      alpha_mode: AlphaMode::Blend,
-      perceptual_roughness: 1.0,
-      ..default()
-    })
+    segment: meshes.add(Cuboid::new(0.5, 0.5, 1.0))
   };
   (0..DROPS).for_each(|index| {
     commands.spawn((
@@ -199,135 +197,101 @@ fn gather(
       Visibility::Hidden
     ));
   });
-  commands.spawn((
-    Clouds,
-    NotShadowCaster,
-    MeshMaterial3d(gear.clouds.clone()),
-    Transform::default(),
-    Visibility::Visible
-  ));
   commands.insert_resource(gear);
 }
 
-fn cloudy(cell: IVec2, cover: f32) -> bool {
-  let (x, z) = (cell.x as f32, cell.y as f32);
-  let puff =
-    fbm2(0xC10D, x / 7.0, z / 5.0, 3) + 0.5 + fbm2(0xC10E, x / 2.0, z / 2.0, 1) * 0.15;
-  puff > 1.0 - cover
+#[derive(Asset, TypePath, AsBindGroup, Clone, Default)]
+struct Cloud {
+  #[uniform(0)]
+  toward_light: Vec4,
+  #[uniform(1)]
+  light: Vec4,
+  #[uniform(2)]
+  ambient: Vec4,
+  #[uniform(3)]
+  drift: Vec4,
+  #[uniform(4)]
+  haze: Vec4
 }
 
-fn clouds(centre: IVec2, cover: f32) -> Mesh {
-  let half = CLOUD_SPAN / 2;
-  let cells: Vec<IVec2> = (-half..half)
-    .flat_map(|dz| (-half..half).map(move |dx| centre + IVec2::new(dx, dz)))
-    .filter(|&cell| cloudy(cell, cover))
-    .collect();
-  let (low, high) = (CLOUD_HEIGHT, CLOUD_HEIGHT + CLOUD_THICK);
-  let faces = cells.iter().flat_map(|&cell| {
-    let (x0, z0) = (cell.x as f32 * CLOUD_CELL, cell.y as f32 * CLOUD_CELL);
-    let (x1, z1) = (x0 + CLOUD_CELL, z0 + CLOUD_CELL);
-    let open = |offset: IVec2| !cloudy(cell + offset, cover);
-    [
-      Some((
-        [[x0, high, z1], [x1, high, z1], [x1, high, z0], [x0, high, z0]],
-        Vec3::Y,
-        1.0
-      )),
-      Some((
-        [[x0, low, z0], [x1, low, z0], [x1, low, z1], [x0, low, z1]],
-        Vec3::NEG_Y,
-        0.72
-      )),
-      open(IVec2::X).then_some((
-        [[x1, low, z1], [x1, low, z0], [x1, high, z0], [x1, high, z1]],
-        Vec3::X,
-        0.86
-      )),
-      open(IVec2::NEG_X).then_some((
-        [[x0, low, z0], [x0, low, z1], [x0, high, z1], [x0, high, z0]],
-        Vec3::NEG_X,
-        0.86
-      )),
-      open(IVec2::Y).then_some((
-        [[x0, low, z1], [x1, low, z1], [x1, high, z1], [x0, high, z1]],
-        Vec3::Z,
-        0.8
-      )),
-      open(IVec2::NEG_Y).then_some((
-        [[x1, low, z0], [x0, low, z0], [x0, high, z0], [x1, high, z0]],
-        Vec3::NEG_Z,
-        0.8
-      ))
-    ]
-    .into_iter()
-    .flatten()
-  });
-  let (positions, normals, colors): (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>) = faces
-    .flat_map(|(corners, normal, shade)| {
-      corners.map(|corner| (corner, normal.to_array(), [shade, shade, shade, 1.0]))
-    })
-    .fold(
-      (Vec::new(), Vec::new(), Vec::new()),
-      |(mut p, mut n, mut c), (corner, normal, color)| {
-        p.push(corner);
-        n.push(normal);
-        c.push(color);
-        (p, n, c)
-      }
-    );
-  let indices = (0..positions.len() as u32 / 4)
-    .flat_map(|quad| [0, 1, 2, 0, 2, 3].map(|corner| quad * 4 + corner))
-    .collect();
-  Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
-    .with_inserted_indices(Indices::U32(indices))
+impl Material for Cloud {
+  fn fragment_shader() -> ShaderRef { "embedded://bloxy/cloud.wgsl".into() }
+
+  fn alpha_mode(&self) -> AlphaMode { AlphaMode::Premultiplied }
+
+  fn enable_prepass() -> bool { false }
+
+  fn enable_shadows() -> bool { false }
+
+  fn specialize(
+    _: &MaterialPipeline,
+    descriptor: &mut RenderPipelineDescriptor,
+    _: &MeshVertexBufferLayoutRef,
+    _: MaterialPipelineKey<Self>
+  ) -> Result<(), SpecializedMeshPipelineError> {
+    descriptor.primitive.cull_mode = Some(Face::Front);
+    Ok(())
+  }
+}
+
+#[derive(Resource)]
+struct Canopy(Handle<Cloud>);
+
+fn spread(
+  mut commands: Commands,
+  mut meshes: ResMut<Assets<Mesh>>,
+  mut clouds: ResMut<Assets<Cloud>>
+) {
+  let cloud = clouds.add(Cloud::default());
+  commands.insert_resource(Canopy(cloud.clone()));
+  commands.spawn((
+    Clouds,
+    Mesh3d(meshes.add(Cuboid::new(CLOUD_SPAN, CLOUD_THICK, CLOUD_SPAN))),
+    MeshMaterial3d(cloud),
+    Transform::from_xyz(0.0, CLOUD_HEIGHT + CLOUD_THICK / 2.0, 0.0),
+    NotShadowCaster,
+    NotShadowReceiver
+  ));
 }
 
 fn drift(
   time: Res<Time>,
   pilot: Res<Pilot>,
   weathers: Query<&Weather>,
-  gear: Res<Gear>,
+  canopy: Res<Canopy>,
   mut climate: ResMut<Climate>,
-  mut meshes: ResMut<Assets<Mesh>>,
-  mut materials: ResMut<Assets<StandardMaterial>>,
-  mut skies: Query<(&mut Transform, Option<&Mesh3d>, Entity), With<Clouds>>,
-  mut commands: Commands
+  mut clouds: ResMut<Assets<Cloud>>,
+  mut skies: Query<&mut Transform, With<Clouds>>
 ) {
   let dt = time.delta_secs().min(0.1);
   let sky = weathers.iter().next().map_or(Sky::Clear, |weather| weather.sky);
   let ease = |from: f32, to: f32, rate: f32| from + (to - from) * (dt * rate).min(1.0);
-  let first = climate.built.is_none() || opts().shot.is_some();
+  let first = !climate.settled || opts().shot.is_some();
+  climate.settled = true;
   let rate = if first { 1000.0 } else { 0.05 };
   climate.cover = ease(climate.cover, sky.cover(), rate);
   climate.wet = ease(climate.wet, sky.wet(), rate * 2.0);
   climate.sun = ease(climate.sun, sky.sun(), rate);
-  let offset = time.elapsed_secs() * DRIFT;
-  let centre = ((pilot.at.xz() - Vec2::new(offset, 0.0)) / CLOUD_CELL).floor().as_ivec2();
-  let stale = climate.built.is_none_or(|(built, cover)| {
-    (built - centre).abs().max_element() > 6 || (cover - climate.cover).abs() > 0.02
+  skies.iter_mut().for_each(|mut transform| {
+    transform.translation = pilot.at.with_y(CLOUD_HEIGHT + CLOUD_THICK / 2.0).floor()
   });
-  skies.iter_mut().for_each(|(mut transform, mesh, entity)| {
-    transform.translation.x = offset;
-    if stale {
-      let made = meshes.add(clouds(centre, climate.cover));
-      mesh.into_iter().for_each(|old| {
-        meshes.remove(&old.0);
-      });
-      commands.entity(entity).insert(Mesh3d(made));
+  let day = daylight(opts().hour);
+  let lit = day.lux / RAW_SUNLIGHT;
+  let [r, g, b, _] = day.tint.to_linear().to_f32_array();
+  let sky_glow = Vec3::new(0.55, 0.64, 0.82) * (9000.0 * lit + 6.0) * climate.sun.sqrt();
+  if let Some(mut cloud) = clouds.get_mut(&canopy.0) {
+    *cloud = Cloud {
+      toward_light: day.toward.extend(0.0),
+      light: (Vec3::new(r, g, b) * day.lux * climate.sun).extend(0.0),
+      ambient: sky_glow.extend(0.0),
+      drift: Vec4::new(
+        time.elapsed_secs() * DRIFT,
+        time.elapsed_secs() * DRIFT * 0.3,
+        climate.cover - 0.3,
+        climate.wet
+      ),
+      haze: (sky_glow * 1.3).extend(1.0)
     }
-  });
-  if stale {
-    climate.built = Some((centre, climate.cover))
-  }
-  let grey = 1.0 - climate.wet * 0.55;
-  let tint = Color::srgba(grey, grey, grey * 1.02, 0.85);
-  if materials.get(&gear.clouds).is_some_and(|material| material.base_color != tint)
-    && let Some(mut material) = materials.get_mut(&gear.clouds)
-  {
-    material.base_color = tint
   }
 }
 
@@ -461,12 +425,15 @@ fn darken(
       commands.entity(entity).despawn()
     }
   });
+  let day = daylight(opts().hour);
+  let flash = FLASH * 2f32.powf(day.ev100 - 7.2);
   suns
     .iter_mut()
-    .for_each(|mut sun| sun.illuminance = SUN * (climate.sun + climate.flash * 1.5));
+    .for_each(|mut sun| sun.illuminance = day.lux * climate.sun + climate.flash * flash);
   let wet = climate.wet;
   fogs.iter_mut().for_each(|mut fog| {
-    fog.color = Color::srgb(0.66 - wet * 0.22, 0.74 - wet * 0.26, 0.86 - wet * 0.3);
+    let haze = day.haze * (1.0 - wet * 0.35);
+    fog.color = Color::srgb(haze.x, haze.y, haze.z);
     fog.falloff = match settings.fog() {
       FogFalloff::Linear { start, end } => FogFalloff::Linear {
         start: start * (1.0 - wet * 0.75),
@@ -481,7 +448,9 @@ pub struct Weathering;
 
 impl Plugin for Weathering {
   fn build(&self, app: &mut App) {
+    embedded_asset!(app, "cloud.wgsl");
     app
+      .add_plugins(MaterialPlugin::<Cloud>::default())
       .replicate::<Weather>()
       .insert_resource(Climate {
         cover: Sky::Clear.cover(),
@@ -489,11 +458,11 @@ impl Plugin for Weathering {
         sun: 1.0,
         flash: 0.0,
         luck: 0xC10D,
-        built: None
+        settled: false
       })
       .add_systems(Startup, forecast.run_if(authority))
       .add_systems(Update, turn.run_if(authority))
-      .add_systems(Startup, gather.run_if(plays))
+      .add_systems(Startup, (gather, spread).run_if(plays))
       .add_systems(
         Update,
         (drift, fall, darken).chain().run_if(plays).run_if(resource_exists::<Pilot>)

@@ -168,10 +168,10 @@ const LADDER_BITS: [Bit; 6] = [
   skin([4, 14, 0], [12, 15, 1], Tile::Ladder)
 ];
 
-const fn turned(bits: [Bit; 6], quarters: u8) -> [Bit; 6] {
+const fn turned<const N: usize>(bits: [Bit; N], quarters: u8) -> [Bit; N] {
   let mut turned = bits;
   let mut index = 0;
-  while index < 6 {
+  while index < N {
     let Bit { low: [lx, ly, lz], high: [hx, hy, hz], color, tile } = bits[index];
     let (low, high) = match quarters {
       1 => ([16 - hz, ly, lx], [16 - lz, hy, hx]),
@@ -191,17 +191,30 @@ const LADDER_WEST_BITS: [Bit; 6] = turned(LADDER_BITS, 3);
 
 const BLANKET: [f32; 3] = [0.75, 0.16, 0.14];
 
-const BED_BITS: &[Bit] = &[
-  skin([0, 0, 1], [2, 3, 3], Tile::Planks),
+const FOOT_BITS: [Bit; 5] = [
   skin([0, 0, 13], [2, 3, 15], Tile::Planks),
-  skin([14, 0, 1], [16, 3, 3], Tile::Planks),
   skin([14, 0, 13], [16, 3, 15], Tile::Planks),
-  skin([0, 3, 1], [1, 13, 15], Tile::Planks),
-  skin([0, 3, 1], [16, 5, 15], Tile::Planks),
-  skin([1, 5, 2], [16, 8, 14], Tile::Wool),
-  skin([1, 8, 3], [5, 10, 13], Tile::Wool),
-  Bit { low: [5, 7, 1], high: [16, 9, 15], color: BLANKET, tile: Tile::Wool }
+  skin([0, 3, 0], [16, 5, 16], Tile::Planks),
+  skin([1, 5, 0], [15, 8, 15], Tile::Wool),
+  Bit { low: [0, 7, 0], high: [16, 9, 16], color: BLANKET, tile: Tile::Wool }
 ];
+
+const HEAD_BITS: [Bit; 7] = [
+  skin([0, 0, 1], [2, 3, 3], Tile::Planks),
+  skin([14, 0, 1], [16, 3, 3], Tile::Planks),
+  skin([0, 3, 0], [16, 5, 16], Tile::Planks),
+  skin([0, 3, 0], [16, 13, 1], Tile::Planks),
+  skin([1, 5, 1], [15, 8, 16], Tile::Wool),
+  skin([2, 8, 2], [14, 10, 7], Tile::Wool),
+  Bit { low: [0, 7, 8], high: [16, 9, 16], color: BLANKET, tile: Tile::Wool }
+];
+
+const FOOT_EAST_BITS: [Bit; 5] = turned(FOOT_BITS, 1);
+const FOOT_SOUTH_BITS: [Bit; 5] = turned(FOOT_BITS, 2);
+const FOOT_WEST_BITS: [Bit; 5] = turned(FOOT_BITS, 3);
+const HEAD_EAST_BITS: [Bit; 7] = turned(HEAD_BITS, 1);
+const HEAD_SOUTH_BITS: [Bit; 7] = turned(HEAD_BITS, 2);
+const HEAD_WEST_BITS: [Bit; 7] = turned(HEAD_BITS, 3);
 
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
@@ -223,7 +236,14 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::LadderEast => &LADDER_EAST_BITS,
     Block::LadderSouth => &LADDER_SOUTH_BITS,
     Block::LadderWest => &LADDER_WEST_BITS,
-    Block::Bed => BED_BITS,
+    Block::Bed => &FOOT_BITS,
+    Block::BedEast => &FOOT_EAST_BITS,
+    Block::BedSouth => &FOOT_SOUTH_BITS,
+    Block::BedWest => &FOOT_WEST_BITS,
+    Block::BedHead => &HEAD_BITS,
+    Block::BedHeadEast => &HEAD_EAST_BITS,
+    Block::BedHeadSouth => &HEAD_SOUTH_BITS,
+    Block::BedHeadWest => &HEAD_WEST_BITS,
     _ => &[]
   }
 }

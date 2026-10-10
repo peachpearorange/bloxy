@@ -7,6 +7,16 @@ use {crate::{block::Block,
 const SNOW_LINE: f32 = 128.0;
 const CAVE_GRID: i32 = 4;
 const TREE_REACH: i32 = 5;
+const COMPASS: [IVec2; 8] = [
+  IVec2::new(1, 0),
+  IVec2::new(1, 1),
+  IVec2::new(0, 1),
+  IVec2::new(-1, 1),
+  IVec2::new(-1, 0),
+  IVec2::new(-1, -1),
+  IVec2::new(0, -1),
+  IVec2::new(1, -1)
+];
 const TALLEST_GROWTH: i32 = 16;
 
 #[derive(Clone, Copy)]
@@ -256,38 +266,52 @@ fn grow(
   let disc = |radius: i32| {
     (-radius..=radius).flat_map(move |dx| (-radius..=radius).map(move |dz| (dx, dz)))
   };
+  let clump = |centre: IVec3, wide: i32, tall: i32, salt: u32| {
+    (-tall..=tall).flat_map(move |dy| {
+      (-wide..=wide).flat_map(move |dx| {
+        (-wide..=wide).filter_map(move |dz| {
+          let offset = IVec3::new(dx, dy, dz);
+          let across = (dx * dx + dz * dz) as f32 / ((wide * wide) as f32 + 0.7);
+          let up = (dy * dy) as f32 / ((tall * tall) as f32 + 0.7);
+          let reach = across + up;
+          let at = centre + offset;
+          let roll = unit(seed ^ salt, at.x, at.y, at.z);
+          (reach <= 1.0 && (reach < 0.55 || roll < 0.62)).then_some(at)
+        })
+      })
+    })
+  };
   match growth {
     Growth::Tree(Wood::Oak) => {
       let trunk = 4 + size;
-      disc(2).for_each(|(dx, dz)| {
-        (trunk - 2..=trunk + 1).for_each(|dy| {
-          let corner = dx.abs() == 2 && dz.abs() == 2;
-          let inside = match dy < trunk {
-            true => !corner || speck(IVec3::new(dx, dy, dz), 0x1EAF) < 0.4,
-            false => dx.abs() + dz.abs() <= 1
-          };
-          if inside {
-            put(root + IVec3::new(dx, dy, dz), Block::Leaves)
-          }
+      let spokes = 2 + (hash(seed ^ 0x0A4, root.x, root.y, root.z) % 2) as i32;
+      let first = hash(seed ^ 0x0A5, root.x, root.y, root.z) as usize;
+      let ends: Vec<IVec3> = (0..spokes)
+        .map(|spoke| {
+          let way = COMPASS[(first + spoke as usize * 8 / spokes as usize) % 8];
+          let reach = 2 + i32::from(speck(way.extend(spoke), 0x0A6) < 0.5);
+          let fork = trunk - 1 + i32::from(speck(way.extend(spoke), 0x0A7) < 0.5);
+          (fork, way, reach)
         })
+        .map(|(fork, way, reach)| {
+          (1..=reach).for_each(|step| {
+            put(
+              root + IVec3::new(way.x * step, fork + step / 2, way.y * step),
+              Block::Log
+            )
+          });
+          root + IVec3::new(way.x * reach, fork + reach / 2, way.y * reach)
+        })
+        .collect();
+      ends.iter().copied().chain([root + IVec3::Y * (trunk + 1)]).for_each(|centre| {
+        clump(centre, 2, 1, 0x1EAF).for_each(|at| put(at, Block::Leaves))
       });
       (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::Log))
     }
     Growth::Tree(Wood::Birch) => {
       let trunk = 5 + size;
-      disc(2).for_each(|(dx, dz)| {
-        (trunk - 3..=trunk + 1).for_each(|dy| {
-          let offset = IVec3::new(dx, dy, dz);
-          let inside = match dy {
-            dy if dy >= trunk => dx.abs() + dz.abs() <= 1,
-            dy if dy == trunk - 1 => dx.abs().max(dz.abs()) <= 1,
-            _ => dx.abs() + dz.abs() <= 3 && speck(offset, 0xB1C) < 0.85
-          };
-          if inside {
-            put(root + offset, Block::BirchLeaves)
-          }
-        })
-      });
+      clump(root + IVec3::Y * (trunk - 1), 2, 3, 0xB1C)
+        .for_each(|at| put(at, Block::BirchLeaves));
       (0..trunk).for_each(|dy| put(root + IVec3::Y * dy, Block::BirchLog))
     }
     Growth::Tree(Wood::Spruce) => {
@@ -296,8 +320,12 @@ fn grow(
         (2..=trunk + 1).for_each(|dy| {
           let tier = (trunk + 2 - dy) / 2 - (trunk - dy).rem_euclid(2);
           let radius = tier.clamp(0, 3);
-          if dx * dx + dz * dz <= radius * radius + 1 - i32::from(radius == 0) {
-            put(root + IVec3::new(dx, dy, dz), Block::SpruceLeaves)
+          let offset = IVec3::new(dx, dy, dz);
+          let rim = dx * dx + dz * dz >= radius * radius - 1 && radius > 1;
+          if dx * dx + dz * dz <= radius * radius + 1 - i32::from(radius == 0)
+            && !(rim && speck(offset, 0x5F7) < 0.35)
+          {
+            put(root + offset, Block::SpruceLeaves)
           }
         })
       });

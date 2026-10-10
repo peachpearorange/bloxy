@@ -275,7 +275,7 @@ fn perish(
         .for_each(|mut vessel| vessel.rider = None);
       let bed = bedside
         .0
-        .filter(|&at| voxels.ensure(at) == Block::Bed)
+        .filter(|&at| voxels.ensure(at).bed())
         .map(|at| at.as_vec3() + Vec3::new(0.5, 0.05, 0.5));
       let revived = Avatar {
         at: bed.unwrap_or(generate::spawn_point(voxels.seed)),

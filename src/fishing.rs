@@ -1,5 +1,6 @@
 use {crate::{authority::{Controller, player_of},
              block::{Block, Fluid},
+             hand::RodTip,
              hud::icon_rect,
              island::{Island, Kind},
              menu::Menu,
@@ -422,6 +423,7 @@ fn show(
   time: Res<Time>,
   rod: Res<Rod>,
   pilot: Res<Pilot>,
+  tips: Query<&GlobalTransform, With<RodTip>>,
   mut bobbers: Query<(&mut Transform, &mut Visibility), (With<Bobber>, Without<Tether>)>,
   mut tethers: Query<(&mut Transform, &mut Visibility), (With<Tether>, Without<Bobber>)>,
   mut panels: Query<&mut Visibility, (With<Panel>, Without<Bobber>, Without<Tether>)>,
@@ -444,7 +446,12 @@ fn show(
       fight.bobber + Vec3::new((now * 7.0).sin() * 0.25, -0.15, (now * 5.0).cos() * 0.25)
     )
   };
-  let tip = pilot.eye() + pilot.facing() * Vec3::new(0.35, 0.25, -1.2);
+  let tip = tips
+    .iter()
+    .next()
+    .map_or(pilot.eye() + pilot.facing() * Vec3::new(0.35, 0.25, -1.2), |tip| {
+      tip.translation()
+    });
   bobbers.iter_mut().for_each(|(mut transform, mut visibility)| {
     *visibility = if bob.is_some() { Visibility::Visible } else { Visibility::Hidden };
     transform.translation = bob.unwrap_or_default()

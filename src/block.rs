@@ -108,7 +108,14 @@ pub enum Block {
   Cod,
   Salmon,
   TropicalFish,
-  Pufferfish
+  Pufferfish,
+  BedEast,
+  BedSouth,
+  BedWest,
+  BedHead,
+  BedHeadEast,
+  BedHeadSouth,
+  BedHeadWest
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -357,7 +364,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 92] = [
+  pub const ALL: [Block; 99] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -449,7 +456,14 @@ impl Block {
     Block::Cod,
     Block::Salmon,
     Block::TropicalFish,
-    Block::Pufferfish
+    Block::Pufferfish,
+    Block::BedEast,
+    Block::BedSouth,
+    Block::BedWest,
+    Block::BedHead,
+    Block::BedHeadEast,
+    Block::BedHeadSouth,
+    Block::BedHeadWest
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -510,10 +524,37 @@ impl Block {
     }
   }
 
+  pub const BEDS: [(IVec3, Block, Block); 4] = [
+    (IVec3::NEG_Z, Block::Bed, Block::BedHead),
+    (IVec3::X, Block::BedEast, Block::BedHeadEast),
+    (IVec3::Z, Block::BedSouth, Block::BedHeadSouth),
+    (IVec3::NEG_X, Block::BedWest, Block::BedHeadWest)
+  ];
+
+  pub fn bed(self) -> bool {
+    Block::BEDS.iter().any(|&(_, foot, head)| foot == self || head == self)
+  }
+
+  pub fn pillow(self) -> bool { Block::BEDS.iter().any(|&(_, _, head)| head == self) }
+
+  pub fn partner(self) -> Option<IVec3> {
+    Block::BEDS.iter().find_map(|&(toward, foot, head)| {
+      (foot == self).then_some(toward).or((head == self).then_some(-toward))
+    })
+  }
+
+  pub fn laid(toward: IVec3) -> Option<(Block, Block)> {
+    Block::BEDS
+      .iter()
+      .find(|&&(way, ..)| way == toward)
+      .map(|&(_, foot, head)| (foot, head))
+  }
+
   pub fn held(self) -> Block {
-    match self.ladder() {
-      true => Block::Ladder,
-      false => self
+    match (self.ladder(), self.bed()) {
+      (true, _) => Block::Ladder,
+      (_, true) => Block::Bed,
+      _ => self
     }
   }
 
@@ -597,11 +638,7 @@ impl Block {
   ];
 
   pub fn modelled(self) -> bool {
-    self.plant()
-      || self == Block::Torch
-      || self.sign()
-      || self.ladder()
-      || self == Block::Bed
+    self.plant() || self == Block::Torch || self.sign() || self.ladder() || self.bed()
   }
 
   pub fn plant(self) -> bool {
@@ -627,7 +664,7 @@ impl Block {
       Block::Glass => 0.3,
       sign if sign.sign() => 0.6,
       ladder if ladder.ladder() => 0.5,
-      Block::Bed => 0.4,
+      bed if bed.bed() => 0.4,
       model if model.modelled() => 0.05,
       leaves if leaves.leafy() => 0.3,
       Block::Dirt
@@ -758,7 +795,14 @@ impl Block {
       Block::Cod => "Cod",
       Block::Salmon => "Salmon",
       Block::TropicalFish => "Tropical Fish",
-      Block::Pufferfish => "Pufferfish"
+      Block::Pufferfish => "Pufferfish",
+      Block::BedEast => "Bed",
+      Block::BedSouth => "Bed",
+      Block::BedWest => "Bed",
+      Block::BedHead => "Bed",
+      Block::BedHeadEast => "Bed",
+      Block::BedHeadSouth => "Bed",
+      Block::BedHeadWest => "Bed"
     }
   }
 
@@ -857,7 +901,14 @@ impl Block {
       Block::Cod => all(Tile::Cod),
       Block::Salmon => all(Tile::Salmon),
       Block::TropicalFish => all(Tile::TropicalFish),
-      Block::Pufferfish => all(Tile::Pufferfish)
+      Block::Pufferfish => all(Tile::Pufferfish),
+      Block::BedEast => all(Tile::Bed),
+      Block::BedSouth => all(Tile::Bed),
+      Block::BedWest => all(Tile::Bed),
+      Block::BedHead => all(Tile::Bed),
+      Block::BedHeadEast => all(Tile::Bed),
+      Block::BedHeadSouth => all(Tile::Bed),
+      Block::BedHeadWest => all(Tile::Bed)
     }
   }
 }

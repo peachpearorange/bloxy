@@ -60,22 +60,22 @@ const STONE: Art = [
 ];
 
 const COBBLE: Art = [
-  "2222202222300000",
-  "0222203222022220",
-  "0003202222012320",
-  "2300023220322230",
-  "3211000000221201",
-  "2122022120022202",
-  "2313022221001022",
-  "1222022122100022",
-  "0000000122220000",
-  "2213030000002022",
-  "2220232222022002",
-  "1230223320232302",
-  "2220022320223202",
-  "2302002220223200",
-  "0032200000012120",
-  "2222220222002220"
+  "2221022121000002",
+  "1120212232002300",
+  "0130211222022220",
+  "0000112220222222",
+  "2020000000232231",
+  "0222002120022322",
+  "2222032212002320",
+  "2221022112102203",
+  "1223023222300032",
+  "2222022122023002",
+  "2221003230222100",
+  "0000002101222110",
+  "2121300021222120",
+  "3221100002222103",
+  "2121203300222202",
+  "2222023320022022"
 ];
 
 const DIRT: Art = [
@@ -553,7 +553,7 @@ static CRACKS_OF_COBBLE: std::sync::LazyLock<Vec<bool>> =
       .filter(|(label, cells)| {
         cells.len() >= 14 && crate::noise::unit(0xC4A, **label as i32, 0, 0) < 0.6
       })
-      .flat_map(|(&label, cells)| {
+      .map(|(&label, cells)| {
         let edge: Vec<(i32, i32, usize)> = cells
           .iter()
           .filter_map(|&(x, y)| {
@@ -582,6 +582,8 @@ static CRACKS_OF_COBBLE: std::sync::LazyLock<Vec<bool>> =
           .take_while(move |&(x, y)| pebble(x, y) == label)
           .collect::<Vec<_>>()
       })
+      .filter(|crack| crack.len() >= 3)
+      .flatten()
       .fold(vec![false; (PIXELS * PIXELS) as usize], |mut cracks, (x, y)| {
         let (x, y) = wrapped(x, y);
         cracks[(y * PIXELS + x) as usize] = true;
@@ -594,14 +596,31 @@ fn cracked(x: i32, y: i32) -> bool {
   CRACKS_OF_COBBLE[(y * PIXELS + x) as usize]
 }
 
-const PEBBLE_TINTS: [[f32; 3]; 6] = [
-  [1.0, 1.0, 1.0],
-  [1.05, 1.0, 0.94],
-  [0.96, 0.98, 1.04],
-  [0.99, 1.02, 0.97],
-  [1.07, 1.04, 1.0],
-  [0.9, 0.9, 0.91]
-];
+const PEBBLE_TINTS: [[f32; 3]; 4] =
+  [[1.0, 1.0, 1.0], [1.02, 1.0, 0.98], [0.98, 0.99, 1.01], [0.95, 0.95, 0.95]];
+
+static DOMES_OF_COBBLE: std::sync::LazyLock<Vec<Vec2>> = std::sync::LazyLock::new(|| {
+  let pebble = |at: u32| PEBBLES_OF_COBBLE[at as usize];
+  let unwrapped = |from: u32, at: u32| {
+    let step = |a: u32, b: u32| (b as i32 - a as i32 + 8).rem_euclid(16) - 8;
+    Vec2::new(
+      (from % PIXELS) as f32 + step(from % PIXELS, at % PIXELS) as f32,
+      (from / PIXELS) as f32 + step(from / PIXELS, at / PIXELS) as f32
+    )
+  };
+  (0..PIXELS * PIXELS)
+    .map(|at| {
+      let label = pebble(at);
+      let members: Vec<u32> = (0..PIXELS * PIXELS)
+        .filter(|&other| label != 0 && pebble(other) == label)
+        .collect();
+      let centre = members.iter().map(|&other| unwrapped(at, other)).sum::<Vec2>()
+        / members.len().max(1) as f32;
+      let radius = (members.len() as f32 / std::f32::consts::PI).sqrt().max(1.0) + 0.5;
+      (unwrapped(at, at) - centre) / radius
+    })
+    .collect()
+});
 
 fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
   let pebble = PEBBLES_OF_COBBLE[(y * PIXELS + x) as usize];
@@ -609,14 +628,19 @@ fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
     let (nx, ny) = wrapped(x as i32 + dx, y as i32 + dy);
     mortar(nx, ny)
   };
-  let tint = PEBBLE_TINTS[(crate::noise::hash(0xC0B, pebble as i32, 0, 0) % 6) as usize];
-  let bright = 0.88 + crate::noise::unit(0xC0C, pebble as i32, 0, 0) * 0.26;
-  let rim = [(-1, 0), (0, -1), (1, 0), (0, 1)].map(|(dx, dy)| near(dx, dy));
-  let light = match rim {
-    _ if pebble == 0 => 0.48 + lattice(0xC0D, 8, x, y) * 0.1,
-    [left, top, ..] if left || top => 1.08,
-    [_, _, right, bottom] if right || bottom => 0.78,
-    _ => 0.94 + (lattice(0xC0E, 8, x, y) - 0.5) * 0.18
+  let tint = PEBBLE_TINTS[(crate::noise::hash(0xC0B, pebble as i32, 0, 0) % 4) as usize];
+  let bright = 0.92 + crate::noise::unit(0xC0C, pebble as i32, 0, 0) * 0.16;
+  let dome = DOMES_OF_COBBLE[(y * PIXELS + x) as usize];
+  let normal =
+    dome.extend((1.0 - dome.length_squared()).max(0.0).sqrt()).normalize_or_zero();
+  let sunward = Vec3::new(-0.5, -0.6, 0.62).normalize();
+  let edged = [(1, 0), (0, 1)].into_iter().any(|(dx, dy)| near(dx, dy));
+  let light = match pebble {
+    0 => 0.5 + lattice(0xC0D, 8, x, y) * 0.1,
+    _ => {
+      0.66 + normal.dot(sunward).max(0.0) * 0.45 + (lattice(0xC0E, 8, x, y) - 0.5) * 0.1
+        - if edged { 0.08 } else { 0.0 }
+    }
   };
   let shade = shade_of(&COBBLE, x, y).map_or(0.0, |shade| (shade as f32 - 2.0) * 0.03);
   let crack = match (cracked(x as i32, y as i32), cracked(x as i32, y as i32 - 1)) {
@@ -762,6 +786,8 @@ fn bucket(fill: Option<Texel>, x: u32, y: u32) -> Texel {
 
 const WOOD: Palette =
   [[0.32, 0.22, 0.12], [0.46, 0.33, 0.19], [0.6, 0.45, 0.27], [0.7, 0.55, 0.34]];
+const RUNGS: Palette =
+  [[0.53, 0.4, 0.24], [0.57, 0.43, 0.26], [0.6, 0.46, 0.28], [0.63, 0.48, 0.3]];
 const TOOLS: Palette =
   [[0.2, 0.2, 0.2], [0.42, 0.28, 0.15], [0.6, 0.6, 0.62], [0.55, 0.55, 0.58]];
 
@@ -1077,8 +1103,11 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::LavaBucket => bucket(Some(Texel::rgb(1.0, 0.5, 0.1).glowing(0.4)), x, y),
     Tile::Torch => model_icon(Block::Torch, x, y),
     Tile::TallGrass => model_icon(Block::TallGrass, x, y),
-    Tile::Bed => model_icon(Block::Bed, x, y),
-    Tile::Ladder => solid(&GROOVES, &WOOD, y, x),
+    Tile::Bed => match x < PIXELS / 2 {
+      true => model_icon(Block::BedEast, x * 2, y),
+      false => model_icon(Block::BedHeadEast, x * 2 - PIXELS, y)
+    },
+    Tile::Ladder => solid(&GROOVES, &RUNGS, y, x),
     Tile::Wool => wool(x, y),
     Tile::Feather => cutout(&FEATHER, &QUILL, x, y),
     Tile::FishingRod => cutout(&ROD, &TACKLE, x, y),

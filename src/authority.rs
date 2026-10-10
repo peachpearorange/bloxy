@@ -264,8 +264,12 @@ fn dig(
   digs.read().for_each(|&FromClient { client_id, message: Dig { at } }| {
     let block = voxels.ensure(at);
     let above = at + IVec3::Y;
-    let perched =
-      Some(voxels.ensure(above)).filter(|block| block.modelled() && !block.ladder());
+    let perched = Some(voxels.ensure(above))
+      .filter(|block| block.modelled() && !block.ladder() && !block.bed());
+    let partner = block
+      .partner()
+      .map(|toward| at + toward)
+      .filter(|&cell| voxels.ensure(cell).partner() == Some(at - cell));
     let granted =
       player_of(players.iter_mut(), client_id).is_some_and(|(avatar, mut inventory)| {
         block.breakable() && within_reach(avatar, at) && {
@@ -280,6 +284,13 @@ fn dig(
       true => {
         voxels.set(at, Block::Air);
         flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
+        partner.into_iter().for_each(|cell| {
+          voxels.set(cell, Block::Air);
+          changes.write(ToClients {
+            targets: SendTargets::All,
+            message: Altered { at: cell, block: Block::Air }
+          });
+        });
         if perched.is_some() {
           voxels.set(above, Block::Air);
           changes.write(ToClients {
@@ -322,7 +333,18 @@ fn put(
       Some(wall) => voxels.ensure(at + wall).solid(),
       None => block.solid() || (block.modelled() && voxels.ensure(at - IVec3::Y).solid())
     };
+    let head = block
+      .partner()
+      .filter(|_| !block.pillow())
+      .and_then(|toward| Block::laid(toward).map(|(_, pillow)| (at + toward, pillow)));
+    let roomy = head.is_none_or(|(cell, _)| {
+      !voxels.ensure(cell).solid()
+        && voxels.ensure(cell - IVec3::Y).solid()
+        && !everyone.iter().any(|avatar| avatar.at.floor().as_ivec3() == cell)
+    });
     if block.held().placeable()
+      && !block.pillow()
+      && roomy
       && !(crowded && block.solid())
       && footed
       && !present.solid()
@@ -331,6 +353,13 @@ fn put(
       && inventory.take(block.held())
     {
       voxels.set(at, block);
+      head.into_iter().for_each(|(cell, pillow)| {
+        voxels.set(cell, pillow);
+        changes.write(ToClients {
+          targets: SendTargets::All,
+          message: Altered { at: cell, block: pillow }
+        });
+      });
       flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
       if block.sign() {
         commands.spawn((Replicated, Sign {
@@ -347,6 +376,12 @@ fn put(
         targets: SendTargets::Single(client_id),
         message: Altered { at, block: present }
       });
+      head.into_iter().for_each(|(cell, _)| {
+        changes.write(ToClients {
+          targets: SendTargets::Single(client_id),
+          message: Altered { at: cell, block: voxels.ensure(cell) }
+        });
+      })
     }
   })
 }
@@ -514,7 +549,7 @@ fn rest(
   mut notices: MessageWriter<ToClients<Notice>>
 ) {
   rests.read().for_each(|&FromClient { client_id, message: Rest(at) }| {
-    if voxels.ensure(at) == Block::Bed
+    if voxels.ensure(at).bed()
       && let Some((avatar, mut bedside)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
     {

@@ -40,9 +40,18 @@ struct Flash;
 #[derive(Component)]
 struct Announcement;
 
-const HEART: [&str; 7] =
-  [".00.00.", "0220110", "0211110", "0111110", ".01110.", "..010..", "...0..."];
-const HEART_SIZE: u32 = 7;
+const HEART: [&str; 9] = [
+  ".00...00.",
+  "0220.0110",
+  "022101110",
+  "021111110",
+  "011111110",
+  ".0111110.",
+  "..01110..",
+  "...010...",
+  "....0...."
+];
+const HEART_SIZE: u32 = 9;
 
 fn hearts() -> Image {
   let texel = |frame: u32, x: u32, y: u32| -> [u8; 4] {

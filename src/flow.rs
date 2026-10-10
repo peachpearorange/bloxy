@@ -21,7 +21,7 @@ impl Flows {
 }
 
 fn replaceable(block: Block) -> bool {
-  block == Block::Air || (block.modelled() && !block.ladder() && block != Block::Bed)
+  block == Block::Air || (block.modelled() && !block.ladder() && !block.bed())
 }
 
 fn next(voxels: &mut Voxels, at: IVec3) -> Option<Block> {
