@@ -23,7 +23,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let seen = textureSample(screen, screen_sampler, uv).rgb;
     let rim = in.uv - vec2<f32>(0.5);
     let vignette = 1.0 - dot(rim, rim) * 1.1 * submerged.strength;
-    let caustic = 1.0 + 0.05 * submerged.strength
+    let caustic = 1.0 + submerged.tint.a * submerged.strength
         * sin(in.uv.x * 40.0 + t * 1.9 + sin(in.uv.y * 31.0 - t * 1.4) * 2.0)
         * sin(in.uv.y * 37.0 - t * 1.6);
     let tinted = mix(seen, seen * submerged.tint.rgb, submerged.strength);

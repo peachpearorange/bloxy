@@ -51,6 +51,17 @@ impl FullscreenMaterial for Submerged {
   fn fragment_shader() -> ShaderRef { "embedded://bloxy/underwater.wgsl".into() }
 }
 
+fn below_surface(voxels: &Voxels, eye: Vec3) -> f32 {
+  let cell = eye.floor().as_ivec3();
+  let water = |block: Option<Block>| {
+    block.and_then(Block::liquid).is_some_and(|(fluid, _)| fluid == Fluid::Water)
+  };
+  (1..48)
+    .find(|&rise| !water(voxels.block(cell + IVec3::Y * rise)))
+    .map_or(48.0, |rise| (cell.y + rise) as f32 - 1.0 + SURFACE - eye.y)
+    .max(0.0)
+}
+
 fn underwater(voxels: &Voxels, eye: Vec3) -> bool {
   let cell = eye.floor().as_ivec3();
   let water = |block: Option<Block>| {
@@ -96,6 +107,7 @@ fn submerge(
     With<Eye>
   >,
   mut abysses: Query<(&Abyss, &mut Visibility)>,
+  mut suns: Query<&mut DirectionalLight>,
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
@@ -111,8 +123,13 @@ fn submerge(
     }
     match (under, submerged) {
       (true, submerged) => {
+        let depth = voxels.as_deref().map_or(0.0, |voxels| below_surface(voxels, eye));
+        let light = (-depth / 7.0).exp();
+        for mut sun in suns.iter_mut() {
+          sun.illuminance *= 0.08 + 0.92 * light
+        }
         let dim = 1.0 - daylight(opts().hour).dark * 0.85;
-        let murk = MURK * dim;
+        let murk = MURK * dim * (0.6 + 0.7 * light);
         fog.color = Color::srgb(murk.x, murk.y, murk.z);
         for (abyss, _) in abysses.iter() {
           if let Some(mut material) = materials.get_mut(&abyss.0)
@@ -123,7 +140,8 @@ fn submerge(
         }
         fog.falloff = FogFalloff::Linear { start: 0.5, end: SEEN_UNDERWATER };
         let state = Submerged {
-          tint: Vec4::new(0.55, 0.85, 0.95, 1.0),
+          tint: (Vec3::new(0.55, 0.85, 0.95) * (0.5 + 0.7 * light))
+            .extend(0.04 + 0.14 * (-depth / 5.0).exp()),
           time: time.elapsed_secs(),
           strength: 1.0,
           pad: Vec2::ZERO

@@ -41,7 +41,7 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     })
 }
 
-pub const GENERATION: u32 = 2;
+pub const GENERATION: u32 = 3;
 
 pub fn overview(seed: u32, x: i32, z: i32) -> (Block, i32, i32) {
   let spot = IVec2::new(x, z);
@@ -77,7 +77,13 @@ fn column(seed: u32, surface: Surface, steep: bool, x: i32, z: i32) -> Column {
   let beach = island.is_some_and(|(island, _)| island.beach);
   let inward = island.map_or(-1.0, |(_, rise)| rise.inward);
   let snow_line = SNOW_LINE + unit(seed ^ 0x5A0, x, 0, z) * 6.0;
-  let bed = unit(seed ^ 0xBED, x / 6, 0, z / 6);
+  let bed = {
+    let (fx, fz) = (x as f32, z as f32);
+    let warp = perlin2(seed ^ 0xBEE, fx * 0.043, fz * 0.043) * 7.0;
+    let swirl = perlin2(seed ^ 0xBEF, fx * 0.043, fz * 0.043) * 7.0;
+    (fbm2(seed ^ 0xBED, (fx + warp) * 0.05, (fz + swirl) * 0.05, 3) * 1.5 + 0.5)
+      .clamp(0.0, 1.0)
+  };
   let (top, under) = match kind {
     Some(Kind::Dunes) => (Block::Sand, Block::Sand),
     _ if height < SEA && beach && height >= SEA - 4 => (Block::Sand, Block::Sand),

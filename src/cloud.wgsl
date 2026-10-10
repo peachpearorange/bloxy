@@ -90,7 +90,10 @@ fn coverage(at: vec2<f32>) -> f32 {
   let q = at + drift.xy;
   let warp = vec2(fbm(q / 260.0, 2), fbm(q / 260.0 + vec2(17.0, 3.0), 2)) * 80.0;
   let broad = fbm(q / 1100.0 + vec2(4.0, 9.0), 2);
-  let puffs = 1.0 - cells((vec2(q.x * 0.8, q.y) + warp) / 110.0);
+  let big = 1.0 - cells((vec2(q.x * 0.8, q.y) + warp) / 110.0);
+  let small = 1.0 - cells((q + warp * 0.5) / 38.0 + vec2(5.3, 1.7));
+  let clustered = smoothstep(-0.1, 0.25, fbm(q / 520.0 + vec2(2.0, 11.0), 2));
+  let puffs = max(big, small * 0.8 * clustered);
   let fine = fbm((q + warp) / 50.0, 2);
   let shape = puffs * 0.62 + fine * 0.5 + broad * 0.9 + drift.z;
   return clamp((shape - 0.5) * 2.2, 0.0, 1.0);
@@ -99,11 +102,17 @@ fn coverage(at: vec2<f32>) -> f32 {
 fn density(p: vec3<f32>, detailed: bool) -> f32 {
   let h = (p.y - BASE) / THICK;
   let column = coverage(p.xz);
-  let top = column * (0.55 + 0.45 * column);
-  let profile = clamp(h * 8.0, 0.0, 1.0) * clamp((top - h) * 5.0, 0.0, 1.0);
-  var d = profile * column;
+  let q = p + vec3(drift.x, 0.0, drift.y);
+  let towering = 0.3 + 0.7 * clamp(fbm(q.xz / 700.0 + vec2(31.0, 7.0), 2) * 1.6 + 0.5, 0.0, 1.0);
+  let dome = sqrt(column);
+  var top = dome * towering;
+  if (detailed) {
+    top += (noise3(q / 24.0) - 0.5) * 0.3 * dome;
+  }
+  let bottom = 0.06 * (1.0 - column);
+  let profile = clamp((h - bottom) * 12.0, 0.0, 1.0) * clamp((top - h) * 6.0, 0.0, 1.0);
+  var d = profile * smoothstep(0.0, 0.35, column);
   if (detailed && d > 0.0) {
-    let q = p + vec3(drift.x, 0.0, drift.y);
     let erosion = noise3(q / 9.0) * 0.6 + noise3(q / 3.5) * 0.4;
     d = clamp(d * 1.6 - erosion * (1.0 - d) * 0.9, 0.0, 1.0);
   }
