@@ -25,6 +25,10 @@ const SKIN: f32 = 0.001;
 const STEP: f32 = 1.0 / 120.0;
 const SEND_EVERY: f32 = 0.05;
 const PLACE_EVERY: f32 = 0.22;
+const SCRAMBLE_FOR: f32 = 0.15;
+const STAGGER: f32 = 0.45;
+const BOB: f32 = 0.35;
+const BEHIND: f32 = 4.0;
 
 #[derive(Resource)]
 pub struct Pilot {
@@ -35,6 +39,9 @@ pub struct Pilot {
   pub pitch: f32,
   pub grounded: bool,
   pub swimming: bool,
+  pub walled: bool,
+  pub dried: f32,
+  pub staggered: f32,
   pub riding: Option<Riding>
 }
 
@@ -101,6 +108,9 @@ fn possess(
       pitch: opts().pitch.map_or(avatar.pitch, f32::to_radians),
       grounded: false,
       swimming: false,
+      walled: false,
+      dried: 0.0,
+      staggered: 0.0,
       riding: None
     })
   }
@@ -112,6 +122,7 @@ fn spawn_eye(mut commands: Commands, settings: Res<Settings>) {
     Camera3d::default(),
     Projection::Perspective(PerspectiveProjection {
       fov: settings.fov.to_radians(),
+      near: 0.05,
       ..default()
     }),
     crate::sky::lens(&settings),
@@ -248,6 +259,7 @@ fn fly(
   time: Res<Time>,
   keys: Res<ButtonInput<KeyCode>>,
   menu: Res<Menu>,
+  aim: Res<Aim>,
   voxels: Option<Res<Voxels>>,
   mut pilot: ResMut<Pilot>,
   mut spare: Local<f32>
@@ -257,7 +269,8 @@ fn fly(
     && pilot.riding.is_none()
   {
     let pressed = |key: KeyCode| !menu.open && keys.pressed(key);
-    let held = |key: KeyCode| f32::from(u8::from(pressed(key)));
+    let mining = aim.digging.is_some();
+    let held = |key: KeyCode| f32::from(u8::from(pressed(key) && !mining));
     let wish = Vec2::new(
       held(KeyCode::KeyD) - held(KeyCode::KeyA),
       held(KeyCode::KeyS) - held(KeyCode::KeyW)
@@ -279,14 +292,26 @@ fn fly(
       let (low, high) = Bulk::PERSON.body(pilot.at);
       let climbing = cells(low - Vec3::splat(0.05), high + Vec3::splat(0.05))
         .any(|cell| voxels.block(cell).is_some_and(Block::ladder));
-      let blend = if pilot.grounded || climbing { 0.35 } else { 0.06 };
+      let blend = match (pilot.staggered > 0.0, pilot.grounded || climbing) {
+        (true, _) => 0.015,
+        (false, true) => 0.35,
+        (false, false) => 0.06
+      };
       let velocity = pilot.velocity;
       let horizontal = velocity.xz().lerp(walk.xz(), blend);
-      let rising = pressed(KeyCode::Space) || pressed(KeyCode::KeyW);
-      let vertical = match (swimming, pressed(KeyCode::Space), pilot.grounded) {
+      let jumping = pressed(KeyCode::Space) && !mining;
+      let rising = jumping || (pressed(KeyCode::KeyW) && !mining);
+      let surfacing = voxels
+        .block((pilot.at + Vec3::Y * 1.5).floor().as_ivec3())
+        .is_none_or(|block| !block.fluid());
+      pilot.dried = if swimming { 0.0 } else { pilot.dried + STEP };
+      let scrambling = pilot.walled && rising && surfacing && pilot.dried < SCRAMBLE_FOR;
+      pilot.staggered -= STEP;
+      let vertical = match (swimming, jumping, pilot.grounded) {
         _ if climbing && !swimming && rising => CLIMB,
         _ if climbing && !swimming && pressed(KeyCode::KeyS) => -CLIMB,
         _ if climbing && !swimming => (velocity.y - GRAVITY * STEP).max(-SLIP),
+        _ if scrambling => velocity.y.max(JUMP),
         (true, true, _) => (velocity.y + 20.0 * STEP).min(3.0),
         (true, false, _) => (velocity.y - 8.0 * STEP).max(-2.5),
         (false, true, true) => JUMP,
@@ -295,16 +320,22 @@ fn fly(
       pilot.velocity = Vec3::new(horizontal.x, vertical, horizontal.y);
       pilot.swimming = swimming;
       let (at, mut velocity) = (pilot.at, pilot.velocity);
-      let (at, landed) = [1, 0, 2].into_iter().fold((at, false), |(at, landed), axis| {
-        let (at, hit) = slide(&voxels, Bulk::PERSON, at, axis, velocity[axis] * STEP);
-        if hit {
-          velocity[axis] = 0.0
-        }
-        (at, landed || (axis == 1 && hit && pilot.velocity.y < 0.0))
-      });
+      let (at, landed, walled) =
+        [1, 0, 2].into_iter().fold((at, false, false), |(at, landed, walled), axis| {
+          let (at, hit) = slide(&voxels, Bulk::PERSON, at, axis, velocity[axis] * STEP);
+          if hit {
+            velocity[axis] = 0.0
+          }
+          (
+            at,
+            landed || (axis == 1 && hit && pilot.velocity.y < 0.0),
+            walled || (axis != 1 && hit)
+          )
+        });
       pilot.at = at;
       pilot.velocity = velocity;
-      pilot.grounded = landed
+      pilot.grounded = landed;
+      pilot.walled = walled
     })
   }
 }
@@ -324,9 +355,37 @@ impl Gait {
 
 const STEP_LENGTH: f32 = 1.3;
 
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+  #[default]
+  First,
+  Behind
+}
+
+fn turn_view(keys: Res<ButtonInput<KeyCode>>, mut view: ResMut<View>) {
+  if keys.just_pressed(KeyCode::KeyV) {
+    *view = match *view {
+      View::First => View::Behind,
+      View::Behind => View::First
+    }
+  }
+}
+
+fn backed(voxels: Option<&Voxels>, eye: Vec3, back: Vec3) -> f32 {
+  (1..=(BEHIND * 10.0) as i32)
+    .map(|step| step as f32 / 10.0)
+    .find(|&distance| {
+      let probe = eye + back * (distance + 0.25);
+      voxels.is_some_and(|voxels| voxels.solid(probe.floor().as_ivec3()))
+    })
+    .map_or(BEHIND, |distance| (distance - 0.1).max(0.0))
+}
+
 fn follow(
   time: Res<Time>,
   pilot: Res<Pilot>,
+  view: Res<View>,
+  voxels: Option<Res<Voxels>>,
   mut gait: ResMut<Gait>,
   mut eyes: Query<&mut Transform, With<Eye>>
 ) {
@@ -337,11 +396,28 @@ fn follow(
   };
   gait.stride += pace * dt;
   gait.bob += ((pace / WALK).min(1.4) - gait.bob) * (dt * 8.0).min(1.0);
-  let sway = gait.sway();
-  let roll = Quat::from_rotation_z(sway.x * 0.25);
-  eyes.iter_mut().for_each(|mut eye| {
-    *eye = Transform::from_translation(pilot.eye() + pilot.facing() * sway)
-      .with_rotation(pilot.facing() * roll)
+  let placed = match *view {
+    View::First => {
+      let sway = gait.sway() * BOB;
+      Transform::from_translation(pilot.eye() + pilot.facing() * sway)
+        .with_rotation(pilot.facing() * Quat::from_rotation_z(sway.x * 0.25))
+    }
+    View::Behind => {
+      let back = pilot.facing() * Vec3::Z;
+      Transform::from_translation(
+        pilot.eye() + back * backed(voxels.as_deref(), pilot.eye(), back)
+      )
+      .with_rotation(pilot.facing())
+    }
+  };
+  eyes.iter_mut().for_each(|mut eye| *eye = placed)
+}
+
+fn reel(mut knocks: MessageReader<Knock>, mut pilot: ResMut<Pilot>) {
+  knocks.read().for_each(|&Knock(push)| {
+    pilot.velocity = pilot.velocity.with_y(0.0) + push;
+    pilot.grounded = false;
+    pilot.staggered = STAGGER
   })
 }
 
@@ -573,6 +649,7 @@ impl Plugin for Piloting {
       .init_resource::<Selected>()
       .init_resource::<Aim>()
       .init_resource::<Gait>()
+      .init_resource::<View>()
       .add_systems(Startup, spawn_eye.run_if(plays))
       .add_systems(
         PreUpdate,
@@ -587,7 +664,16 @@ impl Plugin for Piloting {
         (
           possess,
           grab,
-          (look, fly, follow, select.run_if(closed), work, report)
+          (
+            look,
+            reel,
+            fly,
+            turn_view.run_if(closed),
+            follow,
+            select.run_if(closed),
+            work,
+            report
+          )
             .chain()
             .run_if(resource_exists::<Pilot>)
         )

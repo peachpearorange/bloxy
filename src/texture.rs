@@ -931,13 +931,7 @@ pub fn timber(sign: Block) -> Palette {
 fn flame(x: u32, y: u32) -> Texel {
   let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
   let heat = (1.0 - (dx * dx + dy * dy).sqrt() / 9.0).clamp(0.0, 1.0);
-  Texel::rgb(1.0, 0.5 + heat * 0.35, 0.12 + heat * 0.3).glowing(0.08 + heat * 0.12)
-}
-
-pub const WATER_FRAMES: u32 = PIXELS * 2;
-
-fn water(x: u32, y: u32, frame: u32) -> Texel {
-  solid(&SWELL, &FOAM, (x + frame) % PIXELS, (y + PIXELS - frame / 2) % PIXELS)
+  Texel::rgb(1.0, 0.55 + heat * 0.3, 0.15 + heat * 0.25).glowing(0.08 + heat * 0.04)
 }
 
 fn rune() -> Texel { Texel::rgb(0.85, 0.97, 1.0).glowing(0.9) }
@@ -1000,7 +994,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
         _ => Texel::rgb(0.0, 0.0, 0.0).alpha(0.0)
       }
     }
-    Tile::Water => water(x, y, 0),
+    Tile::Water => solid(&SWELL, &FOAM, x, y),
     Tile::CoalOre => {
       ore(x, y, [[0.05, 0.05, 0.06], [0.12, 0.12, 0.13], [0.22, 0.22, 0.24]], 0.0)
     }
@@ -1182,33 +1176,6 @@ fn atlas_levels(texel: impl Fn(Tile, u32, u32) -> [f32; 4]) -> Vec<u8> {
     .take(MIPS as usize)
     .flat_map(|(level, _, _)| level.into_iter().flat_map(|texel| texel.map(to_srgb)))
     .collect()
-}
-
-pub struct Patch {
-  pub mip: u32,
-  pub corner: UVec2,
-  pub size: u32,
-  pub bytes: Vec<u8>
-}
-
-pub fn ripple(frame: u32) -> Vec<Patch> {
-  let index = Tile::Water.index();
-  let cell = UVec2::new(index % COLUMNS, index / COLUMNS);
-  let base: Vec<[f32; 4]> = (0..PIXELS * PIXELS)
-    .map(|index| water(index % PIXELS, index / PIXELS, frame).color)
-    .collect();
-  std::iter::successors(Some((base, PIXELS)), |(level, size)| {
-    (*size > 1).then(|| (halve(level, *size, *size), size / 2))
-  })
-  .take(MIPS as usize)
-  .enumerate()
-  .map(|(mip, (level, size))| Patch {
-    mip: mip as u32,
-    corner: cell * size,
-    size,
-    bytes: level.iter().flat_map(|texel| texel.map(to_srgb)).collect()
-  })
-  .collect()
 }
 
 fn image(data: Vec<u8>) -> Image {

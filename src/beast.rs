@@ -1,13 +1,15 @@
 use {crate::{authority::{Controller, player_of},
              block::Block,
+             folk::PUNCH,
              folk::ray_box,
              generate,
              island::{Island, Kind, SEA},
+             loose::scatter,
              menu::Menu,
              noise::{hash, unit},
              player::{Bulk, Marched, Pilot, captured, cells, march},
-             protocol::{Avatar, Beast, Breed, EYE, Fleece, Inventory, Pose, REACH,
-                        Strike, authority, plays},
+             protocol::{Avatar, Beast, Breed, EYE, Fleece, Health, Inventory, Pose,
+                        REACH, Strike, authority, plays},
              voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
             image::ImageSampler,
@@ -34,6 +36,13 @@ impl Breed {
     match self {
       Breed::Sheep(_) => Bulk { half: 0.35, tall: 1.0 },
       Breed::Lizard => Bulk { half: 0.3, tall: 0.95 }
+    }
+  }
+
+  fn health(self) -> u8 {
+    match self {
+      Breed::Sheep(_) => 8,
+      Breed::Lizard => 6
     }
   }
 
@@ -65,6 +74,7 @@ pub struct Roam {
   timer: f32,
   ashore: f32,
   shorn: f32,
+  stagger: f32,
   luck: u32
 }
 
@@ -168,6 +178,7 @@ pub fn herd(breed: Breed, at: Vec3, home: IVec2, luck: u32) -> impl Bundle {
   (
     Replicated,
     Beast { breed, at, yaw: unit(luck, 7, 0, 0) * TAU, pose: Pose::Still },
+    Health(breed.health()),
     Roam {
       home,
       velocity: Vec3::ZERO,
@@ -176,6 +187,7 @@ pub fn herd(breed: Breed, at: Vec3, home: IVec2, luck: u32) -> impl Bundle {
       timer: 1.0 + unit(luck, 8, 0, 0) * 3.0,
       ashore: 0.0,
       shorn: 0.0,
+      stagger: 0.0,
       luck
     }
   )
@@ -291,6 +303,7 @@ fn roam(
       roam.timer -= dt;
       roam.ashore -= dt;
       roam.shorn -= dt;
+      roam.stagger -= dt;
       let was = roam.mood;
       roam.mood = mood(&mut roam, breed, swimming, fright);
       let turned = roam.mood != was || roam.timer <= 0.0;
@@ -329,13 +342,17 @@ fn roam(
       let pace = match roam.mood {
         Mood::Stroll if matches!(breed, Breed::Sheep(_)) => GRAZE,
         Mood::Stroll => STROLL,
+        Mood::Dash if matches!(breed, Breed::Sheep(_)) => STROLL * 2.0,
         Mood::Dash => DASH,
         Mood::Seaward => DASH * 0.85,
         Mood::Swim => PADDLE,
         Mood::Landing => PADDLE * 1.4,
         Mood::Idle | Mood::Graze => 0.0
       };
-      let walk = ahead(yaw) * pace;
+      let walk = match roam.stagger > 0.0 {
+        true => roam.velocity.with_y(0.0) * (1.0 - dt * 3.0),
+        false => ahead(yaw) * pace
+      };
       let vertical = match swimming && roam.velocity.y <= 3.0 {
         true => (surface(&voxels, body) - 0.25 - at.y) * 5.0,
         false => (roam.velocity.y - GRAVITY * dt).max(-40.0)
@@ -362,19 +379,39 @@ fn roam(
 fn shear(
   mut strikes: MessageReader<FromClient<Strike>>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
-  mut beasts: Query<(&Beast, &mut Roam)>
+  mut beasts: Query<(&mut Beast, &mut Roam, &mut Health)>,
+  mut commands: Commands
 ) {
   strikes.read().for_each(|&FromClient { client_id, message: Strike(target) }| {
-    if let Ok((beast, mut roam)) = beasts.get_mut(target)
-      && matches!(beast.breed, Breed::Sheep(_))
+    if let Ok((mut beast, mut roam, mut health)) = beasts.get_mut(target)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(beast.at) <= REACH + 1.0
     {
-      if roam.shorn <= 0.0 && inventory.add(Block::Wool) {
+      let sheep = matches!(beast.breed, Breed::Sheep(_));
+      let woolly = sheep && roam.shorn <= 0.0;
+      if woolly && inventory.add(Block::Wool) {
         roam.shorn = REGROW
       }
-      roam.mood = Mood::Stroll;
-      roam.timer = 2.0
+      health.0 = health.0.saturating_sub(PUNCH);
+      let away = (beast.at - avatar.at).with_y(0.0).normalize_or_zero();
+      roam.velocity = away * 6.0 + Vec3::Y * 4.5;
+      roam.stagger = 0.35;
+      roam.mood = Mood::Dash;
+      roam.timer = 2.5;
+      beast.yaw = toward(away.xz());
+      if health.0 == 0 {
+        if sheep {
+          scatter(
+            &mut commands,
+            Block::Wool,
+            1 + u16::from(woolly),
+            beast.at + Vec3::Y * 0.5,
+            Vec3::Y * 3.0,
+            0.4
+          )
+        }
+        commands.entity(target).despawn()
+      }
     }
   })
 }

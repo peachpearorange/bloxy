@@ -8,7 +8,7 @@ pub const HOTBAR: usize = 9;
 pub const BACKPACK: usize = 27;
 pub const SLOTS: usize = HOTBAR + BACKPACK;
 pub const REACH: f32 = 5.0;
-pub const EYE: f32 = 1.62;
+pub const EYE: f32 = 1.7;
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Role {
@@ -352,6 +352,22 @@ pub struct Rest(pub IVec3);
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Debug)]
 pub struct Bedside(pub Option<IVec3>);
 
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Knock(pub Vec3);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Toss {
+  pub slot: u8,
+  pub all: bool
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Loose {
+  pub block: Block,
+  pub count: u16,
+  pub at: Vec3
+}
+
 pub struct Protocol;
 
 impl Plugin for Protocol {
@@ -397,6 +413,9 @@ impl Plugin for Protocol {
       .add_mapped_client_message::<Strike>(Channel::Ordered)
       .add_mapped_client_message::<Trade>(Channel::Ordered)
       .add_server_message::<Notice>(Channel::Ordered)
-      .add_client_message::<Rest>(Channel::Ordered);
+      .add_client_message::<Rest>(Channel::Ordered)
+      .add_server_message::<Knock>(Channel::Ordered)
+      .add_client_message::<Toss>(Channel::Ordered)
+      .replicate::<Loose>();
   }
 }

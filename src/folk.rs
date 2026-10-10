@@ -18,12 +18,13 @@ const CHASE: f32 = 64.0;
 const GIVE_UP: f32 = 40.0;
 const MEND_AFTER: f32 = 8.0;
 const MEND_EVERY: f32 = 3.0;
-const PUNCH: u8 = 3;
+pub const PUNCH: u8 = 3;
 const STRIKE_EVERY: f32 = 0.35;
 const ARM_REACH: f32 = 1.4;
 const GRAVITY: f32 = 30.0;
 const SCRAMBLE: f32 = 11.5;
 const SWING: f32 = 0.4;
+pub const KNOCK: f32 = 8.0;
 
 impl Band {
   pub fn health(self) -> u8 {
@@ -120,7 +121,8 @@ fn raid(
   time: Res<Time>,
   mut voxels: ResMut<Voxels>,
   mut raiders: Query<(Entity, &mut Folk, &mut Raider)>,
-  mut players: Query<(&Avatar, &mut Health, &mut Vigour), With<Controller>>,
+  mut players: Query<(&Controller, &Avatar, &mut Health, &mut Vigour)>,
+  mut knocks: MessageWriter<ToClients<Knock>>,
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -142,15 +144,15 @@ fn raid(
       voxels.block((at + Vec3::Y * 1.2).floor().as_ivec3()).is_some_and(Block::fluid);
     let target = players
       .iter_mut()
-      .map(|(avatar, health, vigour)| (avatar.at, health, vigour))
-      .filter(|(spot, ..)| spot.distance(at) < CHASE)
-      .min_by(|a, b| a.0.distance(at).total_cmp(&b.0.distance(at)));
+      .map(|(controller, avatar, health, vigour)| (controller, avatar.at, health, vigour))
+      .filter(|(_, spot, ..)| spot.distance(at) < CHASE)
+      .min_by(|a, b| a.1.distance(at).total_cmp(&b.1.distance(at)));
     raider.reload -= dt;
     raider.stagger -= dt;
     raider.detour -= dt;
     let side = if folk.luck % 2 == 0 { 1.5 } else { -1.5 };
     let wish = match target {
-      Some((spot, mut health, mut vigour)) => {
+      Some((controller, spot, mut health, mut vigour)) => {
         raider.idle = 0.0;
         let offset = spot.xz() - at.xz();
         yaw = toward(offset) + if raider.detour > 0.0 { side } else { 0.0 };
@@ -158,7 +160,13 @@ fn raid(
         if close && raider.reload <= 0.0 && raider.stagger <= 0.0 {
           raider.reload = 1.1;
           folk.blows = folk.blows.wrapping_add(1);
-          hurt(&mut health, &mut vigour, band.blow())
+          hurt(&mut health, &mut vigour, band.blow());
+          knocks.write(ToClients {
+            targets: SendTargets::Single(controller.client),
+            message: Knock(
+              offset.normalize_or_zero().extend(0.0).xzy() * KNOCK + Vec3::Y * 5.0
+            )
+          });
         }
         match close {
           true => Vec3::ZERO,

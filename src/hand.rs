@@ -1,7 +1,7 @@
 use {crate::{block::Block,
              figure::{Clad, Kit, clothe},
              menu::Menu,
-             player::{Aim, Eye, Gait, Pilot, Selected},
+             player::{Aim, Eye, Gait, Pilot, Selected, View},
              protocol::{Inventory, plays},
              skin::Skin},
      bevy::{light::NotShadowCaster, prelude::*},
@@ -124,8 +124,9 @@ fn swing(
   gait: Res<Gait>,
   pilot: Res<Pilot>,
   selected: Res<Selected>,
+  view: Res<View>,
   inventories: Query<&Inventory>,
-  mut hands: Query<(&mut Hand, &mut Transform), Without<Rod>>,
+  mut hands: Query<(&mut Hand, &mut Transform, &mut Visibility), Without<Rod>>,
   mut rods: Query<(&mut Transform, &mut Visibility), With<Rod>>
 ) {
   let fishing = inventories
@@ -136,7 +137,12 @@ fn swing(
   let pressed = !menu.open
     && (buttons.just_pressed(MouseButton::Left)
       || buttons.just_pressed(MouseButton::Right));
-  hands.iter_mut().for_each(|(mut hand, mut transform)| {
+  let first = *view == View::First;
+  hands.iter_mut().for_each(|(mut hand, mut transform, mut visibility)| {
+    visibility.set_if_neq(match first {
+      true => Visibility::Inherited,
+      false => Visibility::Hidden
+    });
     hand.swung += time.delta_secs();
     if (pressed || aim.digging.is_some()) && hand.swung >= SWING {
       hand.swung = 0.0
@@ -145,7 +151,8 @@ fn swing(
     let arc = (progress * PI).sin();
     let sway = gait.sway() * 0.6;
     rods.iter_mut().for_each(|(mut rod, mut visibility)| {
-      *visibility = if fishing { Visibility::Visible } else { Visibility::Hidden };
+      *visibility =
+        if fishing && first { Visibility::Visible } else { Visibility::Hidden };
       *rod = Transform::from_translation(
         GRIP + Vec3::new(-sway.x - arc * 0.04, sway.y * 0.5 + arc * 0.06, -arc * 0.05)
       )

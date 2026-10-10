@@ -3,19 +3,12 @@ use {crate::{mesh::{self, Meshes, Padded},
              protocol::plays,
              texture,
              voxels::{Chunk, LAYERS, SIZE, Voxels, chunk_of, generated, in_world,
-                      origin_of}},
+                      origin_of},
+             water::{self, Water}},
      bevy::{light::NotShadowCaster,
             platform::collections::HashMap,
             prelude::*,
-            render::{Render, RenderApp, RenderSystems,
-                     extract_resource::{ExtractResource, ExtractResourcePlugin},
-                     render_asset::RenderAssets,
-                     render_resource::{Extent3d, Origin3d, TexelCopyBufferLayout,
-                                       TexelCopyTextureInfo, TextureAspect},
-                     renderer::RenderQueue,
-                     texture::GpuImage},
-            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
-     std::sync::Arc};
+            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}}};
 
 const GENERATING: usize = if cfg!(target_arch = "wasm32") { 2 } else { 12 };
 const MESHING: usize = if cfg!(target_arch = "wasm32") { 3 } else { 12 };
@@ -26,8 +19,7 @@ const GLOW: f32 = 6.0;
 #[derive(Resource)]
 pub struct Palette {
   pub solid: Handle<StandardMaterial>,
-  pub liquid: Handle<StandardMaterial>,
-  pub atlas: Handle<Image>,
+  pub liquid: Handle<Water>,
   pub icons: Handle<Image>
 }
 
@@ -46,12 +38,13 @@ pub struct Progress {
 pub fn paint(
   mut commands: Commands,
   mut images: ResMut<Assets<Image>>,
-  mut materials: ResMut<Assets<StandardMaterial>>
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut waters: ResMut<Assets<Water>>
 ) {
   let atlas = images.add(texture::albedo());
   let glow = images.add(texture::glow());
   let solid = materials.add(StandardMaterial {
-    base_color_texture: Some(atlas.clone()),
+    base_color_texture: Some(atlas),
     emissive_texture: Some(glow.clone()),
     emissive: LinearRgba::rgb(GLOW, GLOW, GLOW),
     perceptual_roughness: 0.92,
@@ -59,85 +52,8 @@ pub fn paint(
     alpha_mode: AlphaMode::Mask(0.5),
     ..default()
   });
-  let liquid = materials.add(StandardMaterial {
-    base_color_texture: Some(atlas.clone()),
-    perceptual_roughness: 0.14,
-    reflectance: 0.55,
-    ..default()
-  });
-  commands.insert_resource(Palette {
-    solid,
-    liquid,
-    atlas,
-    icons: images.add(texture::icons())
-  })
-}
-
-const RIPPLE_EVERY: f32 = 0.18;
-
-#[derive(Resource, Clone)]
-struct Ripple {
-  atlas: Handle<Image>,
-  frame: u32,
-  patches: Arc<Vec<texture::Patch>>
-}
-
-impl ExtractResource for Ripple {
-  type Source = Ripple;
-
-  fn extract_resource(source: &Ripple) -> Self { source.clone() }
-}
-
-fn ripple(
-  time: Res<Time>,
-  palette: Res<Palette>,
-  ripple: Option<ResMut<Ripple>>,
-  mut commands: Commands
-) {
-  let frame = (time.elapsed_secs() / RIPPLE_EVERY) as u32 % texture::WATER_FRAMES;
-  match ripple {
-    Some(mut ripple) if ripple.frame != frame => {
-      ripple.frame = frame;
-      ripple.patches = Arc::new(texture::ripple(frame))
-    }
-    Some(_) => (),
-    None => commands.insert_resource(Ripple {
-      atlas: palette.atlas.clone(),
-      frame,
-      patches: Arc::new(texture::ripple(frame))
-    })
-  }
-}
-
-fn upload_ripple(
-  ripple: Option<Res<Ripple>>,
-  images: Res<RenderAssets<GpuImage>>,
-  queue: Res<RenderQueue>,
-  mut shown: Local<Option<u32>>
-) {
-  if let Some(ripple) = ripple
-    && *shown != Some(ripple.frame)
-    && let Some(atlas) = images.get(&ripple.atlas)
-  {
-    *shown = Some(ripple.frame);
-    ripple.patches.iter().for_each(|patch| {
-      queue.write_texture(
-        TexelCopyTextureInfo {
-          texture: &atlas.texture,
-          mip_level: patch.mip,
-          origin: Origin3d { x: patch.corner.x, y: patch.corner.y, z: 0 },
-          aspect: TextureAspect::All
-        },
-        &patch.bytes,
-        TexelCopyBufferLayout {
-          offset: 0,
-          bytes_per_row: Some(patch.size * 4),
-          rows_per_image: None
-        },
-        Extent3d { width: patch.size, height: patch.size, depth_or_array_layers: 1 }
-      )
-    })
-  }
+  let liquid = waters.add(water::water());
+  commands.insert_resource(Palette { solid, liquid, icons: images.add(texture::icons()) })
 }
 
 fn wanted(centre: IVec3, reach: i32) -> impl Iterator<Item = IVec3> {
@@ -238,23 +154,27 @@ fn stream(
       .collect();
     built.into_iter().for_each(|(key, built)| {
       streaming.meshing.remove(&key);
-      let shown: Vec<Entity> =
-        [(built.solid, palette.solid.clone()), (built.liquid, palette.liquid.clone())]
-          .into_iter()
-          .filter_map(|(mesh, material)| mesh.map(|mesh| (mesh, material)))
-          .map(|(mesh, material)| {
-            let liquid = material == palette.liquid;
-            let mut entity = commands.spawn((
-              Mesh3d(meshes.add(mesh)),
-              MeshMaterial3d(material),
-              Transform::from_translation(origin_of(key).as_vec3())
-            ));
-            if liquid {
-              entity.insert(NotShadowCaster);
-            }
-            entity.id()
-          })
-          .collect();
+      let placed = Transform::from_translation(origin_of(key).as_vec3());
+      let solid = built.solid.map(|mesh| {
+        commands
+          .spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(palette.solid.clone()),
+            placed
+          ))
+          .id()
+      });
+      let liquid = built.liquid.map(|mesh| {
+        commands
+          .spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(palette.liquid.clone()),
+            NotShadowCaster,
+            placed
+          ))
+          .id()
+      });
+      let shown: Vec<Entity> = solid.into_iter().chain(liquid).collect();
       streaming
         .shown
         .insert(key, shown)
@@ -269,6 +189,7 @@ fn stream(
       .filter(|key| horizontal(*key, centre) > reach * reach)
       .collect();
     gone.into_iter().for_each(|key| {
+      voxels.dirty.insert(key);
       streaming
         .shown
         .remove(&key)
@@ -304,10 +225,6 @@ impl Plugin for Stream {
       .init_resource::<Streaming>()
       .init_resource::<Progress>()
       .add_systems(Startup, paint.run_if(plays))
-      .add_systems(Update, (stream, ripple).run_if(plays));
-    app
-      .add_plugins(ExtractResourcePlugin::<Ripple>::default())
-      .sub_app_mut(RenderApp)
-      .add_systems(Render, upload_ripple.in_set(RenderSystems::PrepareResources));
+      .add_systems(Update, stream.run_if(plays));
   }
 }

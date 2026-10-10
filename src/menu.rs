@@ -306,6 +306,8 @@ fn build(
             width: px(1240),
             max_width: percent(96),
             min_height: px(560),
+            max_height: percent(96),
+            overflow: Overflow::clip(),
             flex_direction: FlexDirection::Column,
             padding: UiRect::all(px(20)),
             row_gap: px(14),

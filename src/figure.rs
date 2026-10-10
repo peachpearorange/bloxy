@@ -1,4 +1,4 @@
-use {crate::{player::{Eye, Me, Pilot},
+use {crate::{player::{Eye, Me, Pilot, View},
              protocol::{Avatar, Player, plays},
              skin::{PX, Part, Skin}},
      bevy::{camera::visibility::RenderLayers, prelude::*},
@@ -12,6 +12,9 @@ struct Figure {
 
 #[derive(Component)]
 pub struct Head;
+
+#[derive(Component)]
+struct Mirror;
 
 #[derive(Component)]
 pub struct Limb {
@@ -150,30 +153,76 @@ fn reskin(
   })
 }
 
+fn mirror(
+  pilot: Option<Res<Pilot>>,
+  view: Res<View>,
+  kit: Res<Kit>,
+  skins: Query<Ref<Skin>>,
+  mut mirrors: Query<(Entity, &mut Visibility), With<Mirror>>,
+  mut images: ResMut<Assets<Image>>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut commands: Commands
+) {
+  if let Some(pilot) = pilot
+    && let Ok(skin) = skins.get(pilot.me)
+  {
+    let shown = match *view {
+      View::Behind => Visibility::Inherited,
+      View::First => Visibility::Hidden
+    };
+    if skin.is_changed() || mirrors.is_empty() {
+      mirrors.iter().for_each(|(old, _)| commands.entity(old).despawn());
+      let clad = clothe(&skin, &mut images, &mut materials);
+      let mut figure = commands.spawn((
+        Mirror,
+        Figure { shown: pilot.at, stride: 0.0 },
+        Transform::from_translation(pilot.at),
+        shown
+      ));
+      assemble(&mut figure, &kit, &clad, RenderLayers::default());
+      figure.insert(clad);
+    }
+    mirrors.iter_mut().for_each(|(_, mut visibility)| {
+      visibility.set_if_neq(shown);
+    })
+  }
+}
+
 fn animate(
   time: Res<Time>,
-  mut figures: Query<(&Avatar, &mut Figure, &mut Transform, &Children), Without<Me>>,
+  pilot: Option<Res<Pilot>>,
+  mut figures: Query<
+    (Option<&Avatar>, Has<Mirror>, &mut Figure, &mut Transform, &Children),
+    Without<Me>
+  >,
   mut heads: Query<&mut Transform, (With<Head>, Without<Figure>, Without<Limb>)>,
   mut limbs: Query<(&Limb, &mut Transform), (Without<Figure>, Without<Head>)>
 ) {
   let dt = time.delta_secs();
-  figures.iter_mut().for_each(|(avatar, mut figure, mut transform, children)| {
-    let before = figure.shown;
-    figure.shown = before.lerp(avatar.at, (dt * 12.0).min(1.0));
-    let pace = (figure.shown - before).xz().length() / dt.max(1e-4);
-    figure.stride += pace * dt * 2.2;
-    let swing = (figure.stride.sin() * (pace / 4.3).min(1.0)) * 0.7;
-    *transform = Transform::from_translation(figure.shown)
-      .with_rotation(Quat::from_rotation_y(avatar.yaw));
-    children.iter().for_each(|child| {
-      if let Ok(mut head) = heads.get_mut(child) {
-        head.rotation = Quat::from_rotation_x(avatar.pitch)
-      }
-      if let Ok((limb, mut limb_transform)) = limbs.get_mut(child) {
-        limb_transform.rotation = Quat::from_rotation_x(swing * (limb.phase).cos())
-      }
-    })
-  })
+  figures.iter_mut().for_each(
+    |(avatar, mirrored, mut figure, mut transform, children)| {
+      let avatar = match mirrored {
+        true => pilot.as_ref().map_or_else(Avatar::default, |pilot| pilot.avatar()),
+        false => avatar.copied().unwrap_or_default()
+      };
+      let before = figure.shown;
+      let follow = if mirrored { 1.0 } else { (dt * 12.0).min(1.0) };
+      figure.shown = before.lerp(avatar.at, follow);
+      let pace = (figure.shown - before).xz().length() / dt.max(1e-4);
+      figure.stride += pace * dt * 2.2;
+      let swing = (figure.stride.sin() * (pace / 4.3).min(1.0)) * 0.7;
+      *transform = Transform::from_translation(figure.shown)
+        .with_rotation(Quat::from_rotation_y(avatar.yaw));
+      children.iter().for_each(|child| {
+        if let Ok(mut head) = heads.get_mut(child) {
+          head.rotation = Quat::from_rotation_x(avatar.pitch)
+        }
+        if let Ok((limb, mut limb_transform)) = limbs.get_mut(child) {
+          limb_transform.rotation = Quat::from_rotation_x(swing * (limb.phase).cos())
+        }
+      })
+    }
+  )
 }
 
 fn label(
@@ -223,6 +272,6 @@ impl Plugin for Figures {
       .add_observer(untag)
       .add_observer(undress)
       .add_systems(Startup, sew.run_if(plays))
-      .add_systems(Update, (dress, reskin, animate, label).chain().run_if(plays));
+      .add_systems(Update, (dress, mirror, reskin, animate, label).chain().run_if(plays));
   }
 }

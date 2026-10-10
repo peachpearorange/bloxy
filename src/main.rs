@@ -11,6 +11,7 @@ mod boat;
 mod chart;
 mod claim;
 mod crafting;
+mod crumble;
 mod editor;
 mod figure;
 mod fishing;
@@ -23,6 +24,7 @@ mod hud;
 mod identity;
 mod island;
 mod local;
+mod loose;
 mod menu;
 mod mesh;
 mod minimap;
@@ -44,6 +46,7 @@ mod stream;
 mod texture;
 mod trade;
 mod voxels;
+mod water;
 mod waystone;
 mod weather;
 
@@ -169,6 +172,8 @@ fn press(
       "Tab" => Ok(KeyCode::Tab),
       "Esc" => Ok(KeyCode::Escape),
       "E" => Ok(KeyCode::KeyE),
+      "Q" => Ok(KeyCode::KeyQ),
+      "V" => Ok(KeyCode::KeyV),
       digit => Ok(
         [
           KeyCode::Digit1,
@@ -255,7 +260,13 @@ fn main() {
       sign::Signs,
       trade::Trading
     ))
-    .add_plugins((fishing::Fishing, weather::Weathering, bird::Birds, claim::Claiming))
+    .add_plugins((
+      fishing::Fishing,
+      weather::Weathering,
+      bird::Birds,
+      claim::Claiming,
+      loose::Litter
+    ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
   app.add_plugins((net::server::ServerNet, admin::Admin));
@@ -281,6 +292,7 @@ fn main() {
         chart::Charting,
         fx::Sparkle
       ))
+      .add_plugins((crumble::Crumbles, water::Waters))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)
   };

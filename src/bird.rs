@@ -1,13 +1,15 @@
 use {crate::{authority::{Controller, player_of},
              beast::{Bone, Grain, Joint, Rest, Shapes, rig},
              block::Block,
-             folk::ray_box,
+             folk::{PUNCH, ray_box},
              generate,
              island::{Island, Kind, SEA, Wood},
+             loose::scatter,
              menu::Menu,
              noise::{hash, unit},
              player::{Pilot, captured},
-             protocol::{Avatar, EYE, Inventory, REACH, Strike, authority, plays},
+             protocol::{Avatar, EYE, Health, Inventory, REACH, Strike, authority,
+                        plays},
              voxels::Voxels},
      bevy::{platform::collections::HashSet,
             prelude::*,
@@ -177,6 +179,7 @@ fn hatch(voxels: &Voxels, breed: Breed, at: Vec3, mut flight: Flight) -> impl Bu
       yaw: flight.dice() * TAU,
       stance: if wet { Stance::Swim } else { Stance::Rest }
     },
+    Health(4),
     flight
   )
 }
@@ -338,10 +341,11 @@ fn fly(
 fn pluck(
   mut strikes: MessageReader<FromClient<Strike>>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
-  mut birds: Query<(&Bird, &mut Flight)>
+  mut birds: Query<(&Bird, &mut Flight, &mut Health)>,
+  mut commands: Commands
 ) {
   strikes.read().for_each(|&FromClient { client_id, message: Strike(target) }| {
-    if let Ok((bird, mut flight)) = birds.get_mut(target)
+    if let Ok((bird, mut flight, mut health)) = birds.get_mut(target)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(bird.at) <= REACH + 1.5
     {
@@ -352,7 +356,13 @@ fn pluck(
           inventory.add(Block::Feather);
         })
       }
-      flight.timer = 0.0
+      flight.timer = 0.0;
+      health.0 = health.0.saturating_sub(PUNCH);
+      if health.0 == 0 {
+        let feathers = 1 + (flight.dice() * 2.0) as u16;
+        scatter(&mut commands, Block::Feather, feathers, bird.at, Vec3::Y * 2.0, 0.4);
+        commands.entity(target).despawn()
+      }
     }
   })
 }

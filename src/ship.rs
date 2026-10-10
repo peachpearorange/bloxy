@@ -2,7 +2,7 @@ use {crate::{authority::Controller,
              beast::{Grain, Shapes},
              block::Block,
              boat::planked,
-             folk::{Raider, Vigour, hurt},
+             folk::{KNOCK, Raider, Vigour, hurt},
              generate,
              island::SEA,
              noise::unit,
@@ -372,7 +372,8 @@ fn fly(
   time: Res<Time>,
   mut voxels: ResMut<Voxels>,
   mut balls: Query<(Entity, &mut Cannonball, &mut Flight)>,
-  mut players: Query<(&Avatar, &mut Health, &mut Vigour)>,
+  mut players: Query<(&Controller, &Avatar, &mut Health, &mut Vigour)>,
+  mut knocks: MessageWriter<ToClients<Knock>>,
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -383,14 +384,24 @@ fn fly(
     let cell = at.floor().as_ivec3();
     let landed =
       voxels.ensure(cell).solid() || voxels.block(cell).is_some_and(Block::fluid);
-    let hit =
-      players.iter().any(|(avatar, ..)| (avatar.at + Vec3::Y * 0.9).distance(at) < 1.0);
+    let hit = players
+      .iter()
+      .any(|(_, avatar, ..)| (avatar.at + Vec3::Y * 0.9).distance(at) < 1.0);
     match landed || hit || flight.age > 6.0 {
       true => {
-        players.iter_mut().for_each(|(avatar, mut health, mut vigour)| {
-          let distance = (avatar.at + Vec3::Y * 0.9).distance(at);
+        players.iter_mut().for_each(|(controller, avatar, mut health, mut vigour)| {
+          let away = avatar.at + Vec3::Y * 0.9 - at;
+          let distance = away.length();
           if distance < BLAST {
-            hurt(&mut health, &mut vigour, (7.0 * (1.0 - distance / BLAST)).ceil() as u8)
+            let felt = 1.0 - distance / BLAST;
+            hurt(&mut health, &mut vigour, (7.0 * felt).ceil() as u8);
+            knocks.write(ToClients {
+              targets: SendTargets::Single(controller.client),
+              message: Knock(
+                away.with_y(0.0).normalize_or_zero() * KNOCK * (0.6 + felt)
+                  + Vec3::Y * 6.0 * felt
+              )
+            });
           }
         });
         commands.entity(entity).despawn()

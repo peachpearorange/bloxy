@@ -8,7 +8,10 @@ use {crate::{block::Block,
              recipe::{self, Recipe},
              stream::Palette,
              voxels::Voxels},
-     bevy::{prelude::*, window::PrimaryWindow}};
+     bevy::{input::mouse::{AccumulatedMouseScroll, MouseScrollUnit},
+            prelude::*,
+            ui::RelativeCursorPosition,
+            window::PrimaryWindow}};
 
 const CELL: f32 = 44.0;
 const GAP: f32 = 4.0;
@@ -40,6 +43,18 @@ struct Marks;
 
 #[derive(Component)]
 struct Tooltip;
+
+#[derive(Component)]
+struct Scrolled;
+
+fn scrolled(height: f32) -> impl Bundle {
+  (Scrolled, RelativeCursorPosition::default(), ScrollPosition::default(), Node {
+    flex_direction: FlexDirection::Column,
+    height: px(height),
+    overflow: Overflow::scroll_y(),
+    ..default()
+  })
+}
 
 #[derive(Resource, Default)]
 struct Nearby(Vec<Block>);
@@ -128,10 +143,10 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
         ));
       });
       columns.spawn(column(Some(HOTBAR as f32 * (CELL + GAP)))).with_children(|middle| {
-        middle.spawn((Recipes, Node {
+        middle.spawn(scrolled(300.0)).with_child((Recipes, Node {
           flex_direction: FlexDirection::Column,
           row_gap: px(8),
-          min_height: px(230),
+          flex_shrink: 0.0,
           ..default()
         }));
         middle.spawn(words("Backpack", 15.0, FAINT));
@@ -155,7 +170,9 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
             search.spawn(words("Search", 15.0, FAINT));
             field(search, Entry::Search, 260.0);
           });
-        right.spawn((Catalogue, grid()));
+        right
+          .spawn(scrolled(470.0))
+          .with_child((Catalogue, Node { flex_shrink: 0.0, ..grid() }));
         right.spawn(words(
           "Click an item for its recipes. Items you can craft here and now come first, \
          outlined in green. Crafting tables and furnaces count within reach.",
@@ -429,6 +446,36 @@ fn recipes(
   }
 }
 
+fn rewind(
+  chosen: Res<Chosen>,
+  containers: Query<&ChildOf, With<Recipes>>,
+  mut panes: Query<&mut ScrollPosition>
+) {
+  if chosen.is_changed() {
+    containers.iter().for_each(|parent| {
+      if let Ok(mut position) = panes.get_mut(parent.parent()) {
+        position.0 = Vec2::ZERO
+      }
+    })
+  }
+}
+
+fn scroll(
+  wheel: Res<AccumulatedMouseScroll>,
+  mut panes: Query<(&RelativeCursorPosition, &mut ScrollPosition), With<Scrolled>>
+) {
+  let lines = match wheel.unit {
+    MouseScrollUnit::Line => wheel.delta.y * 40.0,
+    MouseScrollUnit::Pixel => wheel.delta.y
+  };
+  if lines != 0.0 {
+    panes
+      .iter_mut()
+      .filter(|(cursor, _)| cursor.cursor_over())
+      .for_each(|(_, mut position)| position.0.y = (position.0.y - lines).max(0.0))
+  }
+}
+
 fn hint(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
@@ -527,7 +574,9 @@ impl Plugin for Crafting {
       .add_systems(Startup, tooltip.run_if(plays))
       .add_systems(
         Update,
-        (obey, survey, fill, catalogue, recipes, hint).chain().run_if(plays)
+        (obey, survey, fill, catalogue, recipes, rewind, scroll, hint)
+          .chain()
+          .run_if(plays)
       );
   }
 }

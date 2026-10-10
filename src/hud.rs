@@ -23,9 +23,6 @@ struct Count(usize);
 struct Status;
 
 #[derive(Component)]
-struct Breaking;
-
-#[derive(Component)]
 struct Outline;
 
 #[derive(Component)]
@@ -166,17 +163,6 @@ fn build(
           ..default()
         },
         BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.8))
-      ));
-      centre.spawn((
-        Breaking,
-        Node {
-          width: px(0),
-          height: px(4),
-          position_type: PositionType::Absolute,
-          top: percent(53),
-          ..default()
-        },
-        BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.85))
       ));
     });
   commands
@@ -330,8 +316,7 @@ fn aim(
   aim: Res<Aim>,
   voxels: Option<Res<Voxels>>,
   mut outline: Query<&mut Visibility, With<Outline>>,
-  mut edges: Query<(&Edge, &mut Transform)>,
-  mut breaking: Query<&mut Node, With<Breaking>>
+  mut edges: Query<(&Edge, &mut Transform)>
 ) {
   let bounds = aim.hit.as_ref().zip(voxels).map(|(hit, voxels)| {
     model::bounds(hit.block, voxels.seed, hit.at).map_or_else(
@@ -355,9 +340,6 @@ fn aim(
     edges.iter_mut().for_each(|(edge, mut transform)| {
       transform.set_if_neq(self::edge(edge.0, low, high));
     })
-  }
-  if let Ok(mut node) = breaking.single_mut() {
-    node.width = px(aim.progress * 60.0)
   }
 }
 
