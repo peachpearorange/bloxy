@@ -101,15 +101,15 @@ const PALM_SAPLING_BITS: &[Bit] = &[
 ];
 
 const RED_MUSHROOM_BITS: &[Bit] = &[
-  skin([7, 0, 7], [9, 3, 9], Tile::Stem),
-  skin([5, 3, 5], [11, 5, 11], Tile::RedCap),
-  skin([6, 5, 6], [10, 6, 10], Tile::RedCap)
+  skin([6, 0, 6], [10, 5, 10], Tile::Stem),
+  skin([3, 5, 3], [13, 8, 13], Tile::RedCap),
+  skin([4, 8, 4], [12, 10, 12], Tile::RedCap)
 ];
 
 const BROWN_MUSHROOM_BITS: &[Bit] = &[
-  skin([7, 0, 7], [9, 2, 9], Tile::Stem),
-  skin([4, 2, 4], [12, 3, 12], Tile::BrownCap),
-  skin([5, 3, 5], [11, 4, 11], Tile::BrownCap)
+  skin([6, 0, 6], [10, 4, 10], Tile::Stem),
+  skin([2, 4, 2], [14, 5, 14], Tile::BrownCap),
+  skin([3, 5, 3], [13, 6, 13], Tile::BrownCap)
 ];
 
 pub fn bits(block: Block) -> &'static [Bit] {
