@@ -39,7 +39,7 @@ fn dot() -> Image {
         let at = Vec2::new((index % SIZE) as f32, (index / SIZE) as f32) + 0.5;
         let away = (at / SIZE as f32 - 0.5).length() * 2.0;
         let level = ((1.0 - away).clamp(0.0, 1.0).powf(1.6) * 255.0) as u8;
-        [level, level, level, 255]
+        [level, level, level, level]
       })
       .collect(),
     TextureFormat::Rgba8Unorm,
@@ -92,7 +92,7 @@ fn ember() -> EffectAsset {
       (1.0, Vec4::new(0.6, 0.12, 0.02, 0.0))
     ])))
     .render(size(0.05, 0.015))
-    .render(OrientModifier::new(OrientMode::FaceCameraPosition))
+    .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
     .render(ParticleTextureModifier::new(slot))
 }
 
@@ -143,7 +143,7 @@ fn magic() -> EffectAsset {
       (1.0, Vec4::new(1.2, 0.3, 2.5, 0.0))
     ])))
     .render(size(0.07, 0.02))
-    .render(OrientModifier::new(OrientMode::FaceCameraPosition))
+    .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
     .render(ParticleTextureModifier::new(slot))
 }
 

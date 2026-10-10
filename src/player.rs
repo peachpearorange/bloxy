@@ -275,7 +275,7 @@ fn fly(
     && pilot.riding.is_none()
   {
     let pressed = |key: KeyCode| menu.idle() && keys.pressed(key);
-    let mining = aim.digging.is_some();
+    let mining = aim.digging.is_some() && (pilot.grounded || pilot.swimming);
     let held = |key: KeyCode| f32::from(u8::from(pressed(key) && !mining));
     let wish = Vec2::new(
       held(KeyCode::KeyD) - held(KeyCode::KeyA),

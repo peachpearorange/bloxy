@@ -829,6 +829,28 @@ const FEATHER: Art = [
   "................"
 ];
 
+const CHARCOAL: Art = [
+  "................",
+  "................",
+  "......1112......",
+  "....11002321....",
+  "...1000012221...",
+  "..100100001321..",
+  "..1000000012211.",
+  ".10010000001221.",
+  ".10000100000121.",
+  ".100000000100121",
+  "..1000010000011.",
+  "..10010000001...",
+  "...110000011....",
+  ".....111111.....",
+  "................",
+  "................"
+];
+
+const EMBERLESS: Palette =
+  [[0.06, 0.06, 0.07], [0.16, 0.15, 0.16], [0.28, 0.27, 0.28], [0.42, 0.41, 0.43]];
+
 const QUILL: Palette =
   [[0.3, 0.3, 0.32], [0.7, 0.72, 0.76], [0.86, 0.88, 0.9], [0.98, 0.98, 1.0]];
 
@@ -1104,6 +1126,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::Ladder => solid(&GROOVES, &RUNGS, y, x),
     Tile::Wool => wool(x, y),
     Tile::Feather => cutout(&FEATHER, &QUILL, x, y),
+    Tile::Charcoal => cutout(&CHARCOAL, &EMBERLESS, x, y),
     Tile::FishingRod => cutout(&ROD, &TACKLE, x, y),
     Tile::Cod | Tile::Salmon => cutout(&FISH, &fish(tile), x, y),
     Tile::TropicalFish => match shade_of(&FISH, x, y) {

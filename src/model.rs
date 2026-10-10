@@ -251,7 +251,7 @@ pub fn shift(block: Block, seed: u32, at: IVec3) -> Vec3 {
   }
 }
 
-const SIGN_BOUNDS: (Vec3, Vec3) = (Vec3::new(1.0, 0.0, 1.0), Vec3::new(15.0, 16.0, 15.0));
+const SIGN_BOUNDS: (Vec3, Vec3) = (Vec3::new(4.5, 0.0, 4.5), Vec3::new(11.5, 17.0, 11.5));
 
 pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
   let shift = shift(block, seed, at);

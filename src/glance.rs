@@ -227,6 +227,56 @@ fn target(
   )
 }
 
+const BLINK: f32 = 0.35;
+const FLUSH: Color = Color::srgb(1.0, 0.1, 0.08);
+
+#[derive(Component)]
+struct Blushing(Handle<StandardMaterial>);
+
+#[derive(Resource, Default)]
+struct Reddened(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
+
+fn blush(
+  time: Res<Time>,
+  wounds: Res<Wounds>,
+  creatures: Query<Entity, Or<(With<Beast>, With<Bird>)>>,
+  family: Query<&Children>,
+  mut meshes: Query<(&mut MeshMaterial3d<StandardMaterial>, Option<&Blushing>)>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut reddened: ResMut<Reddened>,
+  mut commands: Commands
+) {
+  let now = time.elapsed_secs();
+  creatures.iter().for_each(|creature| {
+    let hurt = wounds.0.get(&creature).is_some_and(|&(_, when, _)| now - when < BLINK);
+    family.iter_descendants(creature).for_each(|part| {
+      if let Ok((mut material, blushing)) = meshes.get_mut(part) {
+        match (hurt, blushing) {
+          (true, None) => {
+            let original = material.0.clone();
+            let red = reddened
+              .0
+              .entry(original.id())
+              .or_insert_with(|| {
+                let mut red = materials.get(&original).cloned().unwrap_or_default();
+                red.base_color = red.base_color.mix(&FLUSH, 0.7);
+                materials.add(red)
+              })
+              .clone();
+            material.0 = red;
+            commands.entity(part).insert(Blushing(original));
+          }
+          (false, Some(Blushing(original))) => {
+            material.0 = original.clone();
+            commands.entity(part).remove::<Blushing>();
+          }
+          _ => ()
+        }
+      }
+    })
+  })
+}
+
 pub struct Glances;
 
 impl Plugin for Glances {
@@ -234,10 +284,13 @@ impl Plugin for Glances {
     app
       .init_resource::<Wounds>()
       .init_resource::<Plated>()
+      .init_resource::<Reddened>()
       .add_observer(fell)
       .add_systems(
         Update,
-        (tally, target.run_if(resource_exists::<Pilot>), rise).chain().run_if(plays)
+        (tally, target.run_if(resource_exists::<Pilot>), rise, blush)
+          .chain()
+          .run_if(plays)
       );
   }
 }

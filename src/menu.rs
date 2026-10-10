@@ -20,7 +20,6 @@ pub const INK: Color = Color::srgb(0.93, 0.95, 0.93);
 pub const FAINT: Color = Color::srgb(0.62, 0.66, 0.66);
 pub const BUTTON: Color = Color::srgb(0.17, 0.19, 0.22);
 const HOVERED: Color = Color::srgb(0.25, 0.28, 0.32);
-const PANEL: Color = Color::srgba(0.07, 0.08, 0.1, 0.94);
 pub const EDGE: Color = Color::srgb(0.3, 0.33, 0.36);
 pub const LIT: Color = Color::srgb(0.95, 0.85, 0.45);
 const ESCAPE_GRACE: f32 = 0.3;
@@ -227,13 +226,16 @@ fn settings_page(page: &mut ChildSpawnerCommands) {
   ));
 }
 
-pub fn field(parent: &mut ChildSpawnerCommands, entry: Entry, width: f32) {
+pub fn field(parent: &mut ChildSpawnerCommands, entry: Entry, width: Val) {
   parent
     .spawn((
       Button,
       Act::Focus(entry),
       Node {
-        width: px(width),
+        width,
+        flex_grow: if width == Val::Auto { 1.0 } else { 0.0 },
+        flex_shrink: 0.0,
+        min_height: px(30),
         padding: UiRect::axes(px(6), px(3)),
         border: UiRect::all(px(2)),
         ..default()
@@ -247,11 +249,11 @@ pub fn field(parent: &mut ChildSpawnerCommands, entry: Entry, width: f32) {
 fn profile_page(page: &mut ChildSpawnerCommands) {
   page.spawn(words("Name", 15.0, FAINT));
   page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
-    field(row, Entry::Name, 360.0);
+    field(row, Entry::Name, px(360));
   });
   page.spawn(words("Password", 15.0, FAINT));
   page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
-    field(row, Entry::Password, 360.0);
+    field(row, Entry::Password, px(360));
     button(row, "New password", Act::Invent);
     if local::CAN_COPY {
       button(row, "Copy", Act::Copy)
@@ -285,7 +287,7 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
 
 fn sign_page(page: &mut ChildSpawnerCommands) {
   page.spawn(words("Write on the sign", 17.0, INK));
-  (0..sign::LINES as u8).for_each(|line| field(page, Entry::Line(line), 320.0));
+  (0..sign::LINES as u8).for_each(|line| field(page, Entry::Line(line), px(320)));
   page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
     button(row, "Done", Act::Resume);
   });
@@ -314,25 +316,20 @@ fn build(
         display: Display::None,
         ..default()
       },
-      BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+      BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
       GlobalZIndex(10)
     ))
     .with_children(|overlay| {
       overlay
-        .spawn((
-          Node {
-            width: percent(98),
-            height: percent(96),
-            overflow: Overflow::clip(),
-            flex_direction: FlexDirection::Column,
-            padding: UiRect::all(px(10)),
-            row_gap: px(8),
-            border: UiRect::all(px(2)),
-            ..default()
-          },
-          BorderColor::all(EDGE),
-          BackgroundColor(PANEL)
-        ))
+        .spawn((Node {
+          width: percent(100),
+          height: percent(100),
+          overflow: Overflow::clip(),
+          flex_direction: FlexDirection::Column,
+          padding: UiRect::all(px(10)),
+          row_gap: px(8),
+          ..default()
+        },))
         .with_children(|panel| {
           panel
             .spawn(Node {

@@ -70,7 +70,8 @@ fn flow(
   time: Res<Time>,
   mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
-  mut changes: MessageWriter<ToClients<Altered>>
+  mut changes: MessageWriter<ToClients<Altered>>,
+  mut commands: Commands
 ) {
   let now = time.elapsed_secs();
   let (ready, waiting): (Vec<_>, Vec<_>) =
@@ -90,6 +91,9 @@ fn flow(
     .collect();
   altered.into_iter().for_each(|(at, before, block)| {
     voxels.set(at, block);
+    if before.modelled() && !before.fluid() {
+      crate::loose::fall(&mut commands, before.drop(), at)
+    }
     changes
       .write(ToClients { targets: SendTargets::All, message: Altered { at, block } });
     let lava = [before, block]

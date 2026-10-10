@@ -7,6 +7,7 @@ use {crate::{block::{Block, Fluid},
 pub const HOTBAR: usize = 9;
 pub const BACKPACK: usize = 27;
 pub const SLOTS: usize = HOTBAR + BACKPACK;
+pub const CURSOR: usize = SLOTS;
 pub const REACH: f32 = 5.0;
 pub const EYE: f32 = 1.7;
 
@@ -103,18 +104,18 @@ pub struct Inventory {
 fn fitted<'de, D: serde::Deserializer<'de>>(
   slots: D
 ) -> Result<Vec<Option<Stack>>, D::Error> {
-  Vec::<Option<Stack>>::deserialize(slots)
-    .map(|slots| slots.into_iter().chain(std::iter::repeat(None)).take(SLOTS).collect())
+  Vec::<Option<Stack>>::deserialize(slots).map(|slots| {
+    slots.into_iter().chain(std::iter::repeat(None)).take(SLOTS + 1).collect()
+  })
 }
 
 impl Default for Inventory {
-  fn default() -> Self { Inventory { slots: vec![None; SLOTS] } }
+  fn default() -> Self { Inventory { slots: vec![None; SLOTS + 1] } }
 }
 
 impl Inventory {
   pub fn count(&self, block: Block) -> u32 {
-    self
-      .slots
+    self.slots[..SLOTS]
       .iter()
       .flatten()
       .filter(|stack| stack.block == block)
@@ -123,7 +124,7 @@ impl Inventory {
   }
 
   pub fn shuffle(&mut self, from: usize, to: usize) {
-    if from != to && from < SLOTS && to < SLOTS {
+    if from != to && from <= CURSOR && to <= CURSOR {
       match (self.slots[from], self.slots[to]) {
         (Some(moved), Some(kept)) if moved.block == kept.block => {
           let shifted = moved.count.min(kept.block.stack().saturating_sub(kept.count));
@@ -140,11 +141,10 @@ impl Inventory {
     let fits = |slot: &Option<Stack>| {
       slot.is_some_and(|stack| stack.block == block && stack.count < block.stack())
     };
-    match self
-      .slots
+    match self.slots[..SLOTS]
       .iter()
       .position(fits)
-      .or_else(|| self.slots.iter().position(Option::is_none))
+      .or_else(|| self.slots[..SLOTS].iter().position(Option::is_none))
     {
       Some(index) => {
         let slot = &mut self.slots[index];
@@ -156,8 +156,7 @@ impl Inventory {
   }
 
   pub fn take(&mut self, block: Block) -> bool {
-    match self
-      .slots
+    match self.slots[..SLOTS]
       .iter()
       .position(|slot| slot.is_some_and(|stack| stack.block == block))
     {
@@ -171,6 +170,49 @@ impl Inventory {
       None => false
     }
   }
+}
+
+impl Inventory {
+  pub fn halve(&mut self, slot: usize) {
+    if slot < SLOTS
+      && self.slots[CURSOR].is_none()
+      && let Some(stack) = self.slots[slot]
+    {
+      let taken = stack.count.div_ceil(2);
+      self.slots[CURSOR] = Some(Stack { count: taken, ..stack });
+      self.slots[slot] =
+        (stack.count > taken).then_some(Stack { count: stack.count - taken, ..stack })
+    }
+  }
+
+  pub fn drop_one(&mut self, slot: usize) {
+    if slot < SLOTS
+      && let Some(held) = self.slots[CURSOR]
+      && self.slots[slot]
+        .is_none_or(|stack| stack.block == held.block && stack.count < held.block.stack())
+    {
+      self.slots[slot] = Some(Stack {
+        count: self.slots[slot].map_or(0, |stack| stack.count) + 1,
+        ..held
+      });
+      self.slots[CURSOR] =
+        (held.count > 1).then_some(Stack { count: held.count - 1, ..held })
+    }
+  }
+
+  pub fn stow(&mut self) {
+    if let Some(held) = self.slots[CURSOR].take() {
+      let left = (0..held.count).filter(|_| !self.add(held.block)).count() as u16;
+      self.slots[CURSOR] = (left > 0).then_some(Stack { count: left, ..held })
+    }
+  }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pick {
+  Half(u8),
+  One(u8),
+  Stow
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Default, PartialEq, Debug)]
@@ -243,6 +285,9 @@ pub struct Shuffle {
 
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Craft(pub u16);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Picked(pub Pick);
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub struct Vessel {
@@ -461,6 +506,29 @@ impl Plugin for Protocol {
       .replicate::<Loose>()
       .add_client_message::<Tint>(Channel::Ordered)
       .add_client_message::<Say>(Channel::Ordered)
-      .add_server_message::<Said>(Channel::Ordered);
+      .add_server_message::<Said>(Channel::Ordered)
+      .add_client_message::<Picked>(Channel::Ordered);
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn the_cursor_splits_and_drops_stacks() {
+    let mut inventory = Inventory::default();
+    inventory.slots[3] = Some(Stack { block: Block::Planks, count: 9 });
+    inventory.halve(3);
+    assert_eq!(inventory.slots[CURSOR], Some(Stack { block: Block::Planks, count: 5 }));
+    assert_eq!(inventory.slots[3], Some(Stack { block: Block::Planks, count: 4 }));
+    inventory.drop_one(7);
+    inventory.drop_one(3);
+    assert_eq!(inventory.slots[7], Some(Stack { block: Block::Planks, count: 1 }));
+    assert_eq!(inventory.slots[3], Some(Stack { block: Block::Planks, count: 5 }));
+    assert_eq!(inventory.count(Block::Planks), 6);
+    inventory.stow();
+    assert_eq!(inventory.slots[CURSOR], None);
+    assert_eq!(inventory.count(Block::Planks), 9)
   }
 }

@@ -1,4 +1,5 @@
 use {crate::{block::Block,
+             menu::Menu,
              model,
              opts::opts,
              player::{Aim, Pilot, Selected},
@@ -22,6 +23,9 @@ struct Count(usize);
 
 #[derive(Component)]
 struct Status;
+
+#[derive(Component)]
+struct Hotbar;
 
 #[derive(Component)]
 struct Outline;
@@ -108,8 +112,17 @@ fn scale(
   })
 }
 
-fn crisp(mut fonts: Query<&mut TextFont, Added<TextFont>>) {
-  fonts.iter_mut().for_each(|mut font| font.font_smoothing = FontSmoothing::None)
+fn tuck(
+  menu: Res<Menu>,
+  mut bars: Query<&mut Visibility, Or<(With<Hotbar>, With<Status>)>>
+) {
+  bars.iter_mut().for_each(|mut visibility| {
+    visibility.set_if_neq(if menu.open {
+      Visibility::Hidden
+    } else {
+      Visibility::Inherited
+    });
+  })
 }
 
 fn build(
@@ -131,20 +144,16 @@ fn build(
     BackgroundColor(Color::srgba(0.8, 0.0, 0.0, 0.0))
   ));
   commands
-    .spawn(Node {
+    .spawn((Hotbar, Node {
       width: percent(100),
       position_type: PositionType::Absolute,
-      bottom: px(8.0 + SLOT + 6.0),
+      bottom: px(8.0 + SLOT + 4.0),
       justify_content: JustifyContent::Center,
       ..default()
-    })
+    }))
     .with_children(|row| {
       row
-        .spawn(Node {
-          width: px(SLOT * HOTBAR as f32 + 4.0),
-          column_gap: px(2),
-          ..default()
-        })
+        .spawn(Node { width: px(SLOT * HOTBAR as f32), column_gap: px(2), ..default() })
         .with_children(|hearts| {
           (0..Health::FULL / 2).for_each(|index| {
             hearts.spawn((
@@ -188,65 +197,63 @@ fn build(
       ));
     });
   commands
-    .spawn(Node {
+    .spawn((Hotbar, Node {
       width: percent(100),
       position_type: PositionType::Absolute,
       bottom: px(8),
       justify_content: JustifyContent::Center,
       ..default()
-    })
+    }))
     .with_children(|row| {
-      row
-        .spawn((
-          Node { padding: UiRect::all(px(2)), ..default() },
-          BackgroundColor(STRIP)
-        ))
-        .with_children(|bar| {
-          (0..HOTBAR).for_each(|index| {
-            bar
-              .spawn((
-                Slot(index),
+      row.spawn((Node::default(), BackgroundColor(STRIP))).with_children(|bar| {
+        (0..HOTBAR).for_each(|index| {
+          bar
+            .spawn((
+              Slot(index),
+              Node {
+                width: px(SLOT),
+                height: px(SLOT),
+                border: UiRect::all(px(2)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+              },
+              BorderColor::all(Color::NONE)
+            ))
+            .with_children(|slot| {
+              slot.spawn((
+                Icon(index),
+                ImageNode::new(palette.icons.clone()),
+                Node { width: px(ICON_SHOWN), height: px(ICON_SHOWN), ..default() },
+                Visibility::Hidden
+              ));
+              slot.spawn((
+                Count(index),
+                Text::new(""),
+                TextFont { font_size: FontSize::Px(16.0), ..default() },
+                crate::hud::SHADE,
                 Node {
-                  width: px(SLOT),
-                  height: px(SLOT),
-                  border: UiRect::all(px(2)),
-                  justify_content: JustifyContent::Center,
-                  align_items: AlignItems::Center,
+                  position_type: PositionType::Absolute,
+                  right: px(3),
+                  bottom: px(1),
                   ..default()
-                },
-                BorderColor::all(Color::NONE)
-              ))
-              .with_children(|slot| {
-                slot.spawn((
-                  Icon(index),
-                  ImageNode::new(palette.icons.clone()),
-                  Node { width: px(ICON_SHOWN), height: px(ICON_SHOWN), ..default() },
-                  Visibility::Hidden
-                ));
-                slot.spawn((
-                  Count(index),
-                  Text::new(""),
-                  TextFont { font_size: FontSize::Px(16.0), ..default() },
-                  crate::hud::SHADE,
-                  Node {
-                    position_type: PositionType::Absolute,
-                    right: px(3),
-                    bottom: px(1),
-                    ..default()
-                  }
-                ));
-              });
-          })
-        });
+                }
+              ));
+            });
+        })
+      });
     });
   commands
-    .spawn(Node {
-      width: percent(100),
-      position_type: PositionType::Absolute,
-      bottom: px(12.0 + SLOT + 40.0),
-      justify_content: JustifyContent::Center,
-      ..default()
-    })
+    .spawn((
+      Node {
+        width: percent(100),
+        position_type: PositionType::Absolute,
+        bottom: px(12.0 + SLOT + 40.0),
+        justify_content: JustifyContent::Center,
+        ..default()
+      },
+      GlobalZIndex(20)
+    ))
     .with_children(|row| {
       row.spawn((
         Announcement,
@@ -475,7 +482,7 @@ impl Plugin for Hud {
       .add_plugins(FrameTimeDiagnosticsPlugin::default())
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
       .add_systems(Update, (refresh, aim, status, vitals, announce).run_if(plays))
-      .add_systems(PostUpdate, crisp.run_if(plays))
+      .add_systems(PostUpdate, tuck.run_if(plays))
       .add_systems(PreUpdate, scale.run_if(plays));
   }
 }

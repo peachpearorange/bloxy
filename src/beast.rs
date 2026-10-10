@@ -1,15 +1,15 @@
 use {crate::{authority::{Controller, player_of},
              block::Block,
-             folk::PUNCH,
              folk::ray_box,
+             folk::{KNOCK, PUNCH, Vigour, hurt},
              generate,
              island::{Island, Kind, SEA},
              loose::scatter,
              menu::Menu,
              noise::{hash, unit},
              player::{Bulk, Marched, Pilot, captured, cells, march},
-             protocol::{Avatar, Beast, Breed, EYE, Fleece, Health, Inventory, Pose,
-                        REACH, Strike, authority, plays},
+             protocol::{Avatar, Beast, Breed, EYE, Fleece, Health, Inventory, Knock,
+                        Pose, REACH, Strike, authority, plays},
              voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
             image::ImageSampler,
@@ -23,13 +23,18 @@ use {crate::{authority::{Controller, player_of},
 const WAKE: f32 = 110.0;
 const SLEEP: f32 = 170.0;
 const GRAVITY: f32 = 30.0;
-const LEAP: f32 = 7.5;
+const LEAP: f32 = 9.2;
 const GRAZE: f32 = 1.1;
 const STROLL: f32 = 1.7;
 const DASH: f32 = 6.5;
 const PADDLE: f32 = 1.6;
 const SKITTISH: f32 = 6.0;
 const REGROW: f32 = 30.0;
+const GRUDGE: f32 = 12.0;
+const CHASE: f32 = 18.0;
+const JAWS: f32 = 1.5;
+const BITE: u8 = 2;
+const BITE_EVERY: f32 = 1.0;
 
 impl Breed {
   fn bulk(self) -> Bulk {
@@ -62,7 +67,8 @@ enum Mood {
   Dash,
   Swim,
   Landing,
-  Seaward
+  Seaward,
+  Hunt
 }
 
 #[derive(Component)]
@@ -75,6 +81,8 @@ pub struct Roam {
   ashore: f32,
   shorn: f32,
   stagger: f32,
+  grudge: f32,
+  bite: f32,
   luck: u32
 }
 
@@ -188,6 +196,8 @@ pub fn herd(breed: Breed, at: Vec3, home: IVec2, luck: u32) -> impl Bundle {
       ashore: 0.0,
       shorn: 0.0,
       stagger: 0.0,
+      grudge: 0.0,
+      bite: 0.0,
       luck
     }
   )
@@ -227,9 +237,16 @@ fn surface(voxels: &Voxels, cell: IVec3) -> f32 {
     .map_or(cell.y as f32 + 8.88, |rise| (cell.y + rise) as f32 + 0.88)
 }
 
-fn mood(roam: &mut Roam, breed: Breed, swimming: bool, fright: Option<Vec2>) -> Mood {
+fn mood(
+  roam: &mut Roam,
+  breed: Breed,
+  swimming: bool,
+  fright: Option<Vec2>,
+  prey: Option<Vec3>
+) -> Mood {
   let expired = roam.timer <= 0.0;
   let next = match (breed, roam.mood, swimming) {
+    (Breed::Lizard, ..) if prey.is_some() && roam.stagger <= 0.0 => Mood::Hunt,
     (Breed::Sheep(_), current, _) if !expired => current,
     (Breed::Sheep(_), ..) => match roam.dice() {
       roll if roll < 0.35 => Mood::Graze,
@@ -267,13 +284,16 @@ fn mood(roam: &mut Roam, breed: Breed, swimming: bool, fright: Option<Vec2>) -> 
 fn roam(
   time: Res<Time>,
   mut voxels: ResMut<Voxels>,
-  players: Query<&Avatar>,
-  mut beasts: Query<(&mut Beast, &mut Roam)>
+  mut players: Query<(Entity, &Controller, &Avatar, &mut Health, &mut Vigour)>,
+  mut beasts: Query<(&mut Beast, &mut Roam)>,
+  mut knocks: MessageWriter<ToClients<Knock>>
 ) {
   let dt = time.delta_secs().min(0.1);
   let seed = voxels.seed;
+  let spots: Vec<(Entity, Vec3)> =
+    players.iter().map(|(entity, _, avatar, ..)| (entity, avatar.at)).collect();
   let watched =
-    |at: Vec3| players.iter().any(|avatar| avatar.at.xz().distance(at.xz()) < SLEEP);
+    |at: Vec3| spots.iter().any(|(_, spot)| spot.xz().distance(at.xz()) < SLEEP);
   beasts.iter_mut().filter(|(beast, _)| watched(beast.at)).for_each(
     |(mut beast, mut roam)| {
       let Beast { breed, mut at, mut yaw, .. } = *beast;
@@ -296,20 +316,43 @@ fn roam(
       }
       let body = (at + Vec3::Y * 0.3).floor().as_ivec3();
       let swimming = wet(&voxels, body);
-      let fright = players
-        .iter()
-        .map(|avatar| at.xz() - avatar.at.xz())
-        .find(|away| away.length() < SKITTISH && breed == Breed::Lizard);
       roam.timer -= dt;
       roam.ashore -= dt;
       roam.shorn -= dt;
       roam.stagger -= dt;
+      roam.grudge -= dt;
+      roam.bite -= dt;
+      let prey = spots
+        .iter()
+        .filter(|(_, spot)| roam.grudge > 0.0 && spot.distance(at) < CHASE)
+        .min_by(|a, b| a.1.distance(at).total_cmp(&b.1.distance(at)))
+        .copied();
+      let fright = spots.iter().map(|(_, spot)| at.xz() - spot.xz()).find(|away| {
+        away.length() < SKITTISH && breed == Breed::Lizard && prey.is_none()
+      });
+      if let Some((victim, spot)) = prey
+        && spot.xz().distance(at.xz()) < JAWS
+        && (spot.y - at.y).abs() < 1.5
+        && roam.bite <= 0.0
+        && roam.stagger <= 0.0
+        && let Ok((_, controller, _, mut health, mut vigour)) = players.get_mut(victim)
+      {
+        roam.bite = BITE_EVERY;
+        hurt(&mut health, &mut vigour, BITE);
+        knocks.write(ToClients {
+          targets: SendTargets::Single(controller.client),
+          message: Knock(
+            (spot - at).with_y(0.0).normalize_or_zero() * KNOCK * 0.7 + Vec3::Y * 4.0
+          )
+        });
+      }
       let was = roam.mood;
-      roam.mood = mood(&mut roam, breed, swimming, fright);
+      roam.mood = mood(&mut roam, breed, swimming, fright, prey.map(|(_, spot)| spot));
       let turned = roam.mood != was || roam.timer <= 0.0;
       let island = Island::at(seed, roam.home);
       let homeward = island.map(|island| (island.centre - at.xz(), island.radius));
       yaw = match roam.mood {
+        Mood::Hunt if let Some((_, spot)) = prey => toward(spot.xz() - at.xz()),
         Mood::Dash if let Some(away) = fright => toward(-away),
         Mood::Landing => seek(&voxels, at, standable)
           .or(homeward.map(|(home, _)| toward(home)))
@@ -345,6 +388,12 @@ fn roam(
         Mood::Dash if matches!(breed, Breed::Sheep(_)) => STROLL * 2.0,
         Mood::Dash => DASH,
         Mood::Seaward => DASH * 0.85,
+        Mood::Hunt
+          if prey.is_some_and(|(_, spot)| spot.xz().distance(at.xz()) < JAWS * 0.8) =>
+        {
+          0.0
+        }
+        Mood::Hunt => DASH * 0.8,
         Mood::Swim => PADDLE,
         Mood::Landing => PADDLE * 1.4,
         Mood::Idle | Mood::Graze => 0.0
@@ -366,7 +415,7 @@ fn roam(
       roam.grounded = landed;
       let pose = match roam.mood {
         _ if swimming => Pose::Swim,
-        Mood::Dash | Mood::Seaward => Pose::Run,
+        Mood::Dash | Mood::Seaward | Mood::Hunt => Pose::Run,
         Mood::Graze => Pose::Graze,
         _ if pace > 0.0 => Pose::Walk,
         _ => Pose::Still
@@ -398,6 +447,9 @@ fn shear(
       roam.stagger = 0.35;
       roam.mood = Mood::Dash;
       roam.timer = 2.5;
+      if beast.breed == Breed::Lizard {
+        roam.grudge = GRUDGE
+      }
       beast.yaw = toward(away.xz());
       if health.0 == 0 {
         if sheep {

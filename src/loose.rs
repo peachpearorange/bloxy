@@ -16,6 +16,7 @@ const GRAVITY: f32 = 22.0;
 const THROW: f32 = 5.0;
 const GATHER: f32 = 1.6;
 const TOSSED_WAIT: f32 = 1.5;
+const DROPPED_WAIT: f32 = 0.4;
 const LASTS: f32 = 300.0;
 pub const SIZE: f32 = 0.25;
 const BULK: Bulk = Bulk { half: SIZE / 2.0, tall: SIZE };
@@ -40,6 +41,18 @@ pub fn scatter(
     wait,
     age: 0.0
   }));
+}
+
+pub fn fall(commands: &mut Commands, block: Block, at: IVec3) {
+  let spin = (at.x * 73 + at.y * 31 + at.z * 17) as f32;
+  scatter(
+    commands,
+    block,
+    1,
+    at.as_vec3() + Vec3::new(0.5, 0.3, 0.5),
+    Vec3::new(spin.sin(), 2.5, spin.cos()) * 1.2,
+    DROPPED_WAIT
+  )
 }
 
 fn toss(

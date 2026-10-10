@@ -219,6 +219,8 @@ impl Material for Cloud {
 
   fn alpha_mode(&self) -> AlphaMode { AlphaMode::Premultiplied }
 
+  fn depth_bias(&self) -> f32 { -1.0e6 }
+
   fn enable_prepass() -> bool { false }
 
   fn enable_shadows() -> bool { false }

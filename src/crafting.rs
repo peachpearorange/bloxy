@@ -3,8 +3,8 @@ use {crate::{block::Block,
              menu::{Act, BUTTON, EDGE, Entry, FAINT, Focus, INK, LIT, Menu, Pressed,
                     Search, Shaded, Tab, button, field, words},
              player::Pilot,
-             protocol::{Bookmarks, Craft, HOTBAR, Inventory, Mark, REACH, SLOTS,
-                        Shuffle, plays},
+             protocol::{Bookmarks, CURSOR, Craft, HOTBAR, Inventory, Mark, Pick,
+                        Picked, REACH, SLOTS, Shuffle, plays},
              recipe::{self, Recipe},
              stream::Palette,
              voxels::Voxels},
@@ -14,13 +14,10 @@ use {crate::{block::Block,
             window::PrimaryWindow}};
 
 const CELL: f32 = 46.0;
-const GAP: f32 = 2.0;
+const GAP: f32 = 0.0;
 const CAN: Color = Color::srgb(0.45, 0.85, 0.4);
 const SHORT: Color = Color::srgb(0.95, 0.42, 0.36);
 const SHADOW: TextShadow = crate::hud::SHADE;
-
-#[derive(Resource, Default)]
-struct Held(Option<usize>);
 
 #[derive(Resource, Default)]
 struct Chosen(Option<Block>);
@@ -166,23 +163,18 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
           row(middle, HOTBAR..SLOTS, palette);
           middle.spawn(words("Hotbar", 15.0, FAINT));
           row(middle, 0..HOTBAR, palette);
-          middle.spawn(words(
-            "Click a stack to pick it up, click a slot to put it there; whatever was \
-             there comes along on the cursor. E closes.",
-            13.0,
-            FAINT
-          ));
         });
       columns.spawn(column(None, 1.6)).with_children(|right| {
         right
           .spawn(Node {
             column_gap: px(10),
             align_items: AlignItems::Center,
+            width: percent(100),
             ..default()
           })
           .with_children(|search| {
             search.spawn(words("Search", 15.0, FAINT));
-            field(search, Entry::Search, 260.0);
+            field(search, Entry::Search, Val::Auto);
           });
         right
           .spawn(scrolled())
@@ -242,29 +234,20 @@ fn fill(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
-  mut held: ResMut<Held>,
-  mut slots: Query<(&Act, &mut BorderColor)>,
   mut icons: Query<(&SlotIcon, &mut ImageNode, &mut Visibility)>,
-  mut counts: Query<(&SlotCount, &mut Text)>
+  mut counts: Query<(&SlotCount, &mut Text)>,
+  mut picks: MessageWriter<Picked>,
+  mut was: Local<bool>
 ) {
-  if !menu.showing(Tab::Inventory) && held.0.is_some() {
-    held.0 = None
+  let inventory = carried(&pilot, &inventories);
+  let showing = menu.showing(Tab::Inventory);
+  if *was && !showing && inventory.slots[CURSOR].is_some() {
+    picks.write(Picked(Pick::Stow));
   }
-  if menu.showing(Tab::Inventory) {
-    let inventory = carried(&pilot, &inventories);
-    if held.0.is_some_and(|from| inventory.slots[from].is_none()) {
-      held.0 = None
-    }
-    slots.iter_mut().for_each(|(act, mut border)| {
-      if let &Act::Slot(index) = act {
-        border.set_if_neq(BorderColor::all(match held.0 == Some(index.into()) {
-          true => LIT,
-          false => EDGE
-        }));
-      }
-    });
+  *was = showing;
+  if showing {
     icons.iter_mut().for_each(|(icon, mut image, mut visibility)| {
-      match inventory.slots[icon.0].filter(|_| held.0 != Some(icon.0)) {
+      match inventory.slots[icon.0] {
         Some(stack) => {
           let rect = Some(icon_rect(stack.block));
           if image.rect != rect {
@@ -279,7 +262,7 @@ fn fill(
     });
     counts.iter_mut().for_each(|(count, mut text)| {
       let shown = inventory.slots[count.0]
-        .filter(|stack| stack.count > 1 && held.0 != Some(count.0))
+        .filter(|stack| stack.count > 1)
         .map_or(String::new(), |stack| stack.count.to_string());
       if text.0 != shown {
         text.0 = shown
@@ -569,7 +552,6 @@ fn hint(
 
 fn carry(
   menu: Res<Menu>,
-  held: Res<Held>,
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
   windows: Query<&Window, With<PrimaryWindow>>,
@@ -578,10 +560,8 @@ fn carry(
   mut images: Query<&mut ImageNode>,
   mut texts: Query<&mut Text>
 ) {
-  let stack = held
-    .0
-    .filter(|_| menu.showing(Tab::Inventory))
-    .and_then(|from| self::carried(&pilot, &inventories).slots[from]);
+  let stack = self::carried(&pilot, &inventories).slots[CURSOR]
+    .filter(|_| menu.showing(Tab::Inventory));
   let cursor =
     windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
   carried.iter_mut().for_each(|(mut node, mut visibility, children)| {
@@ -616,23 +596,31 @@ fn obey(
   mut pressed: MessageReader<Pressed>,
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
-  mut held: ResMut<Held>,
+  buttons: Res<ButtonInput<MouseButton>>,
+  hovered: Query<(&Interaction, &Act)>,
   mut chosen: ResMut<Chosen>,
   mut shuffles: MessageWriter<Shuffle>,
+  mut picks: MessageWriter<Picked>,
   mut crafts: MessageWriter<Craft>
 ) {
   let inventory = carried(&pilot, &inventories);
+  let holding = inventory.slots[CURSOR].is_some();
+  if buttons.just_pressed(MouseButton::Right)
+    && let Some(index) = hovered
+      .iter()
+      .filter(|(interaction, _)| **interaction != Interaction::None)
+      .find_map(|(_, act)| match *act {
+        Act::Slot(index) => Some(index),
+        _ => None
+      })
+  {
+    picks.write(Picked(if holding { Pick::One(index) } else { Pick::Half(index) }));
+  }
   pressed.read().for_each(|&Pressed(act)| match act {
     Act::Slot(index) => {
-      let index = usize::from(index);
-      held.0 = match held.0 {
-        None => inventory.slots[index].map(|_| index),
-        Some(from) if from == index => None,
-        Some(from) => {
-          shuffles.write(Shuffle { from: from as u8, to: index as u8 });
-          Some(from)
-        }
-      }
+      let (from, to) =
+        if holding { (CURSOR as u8, index) } else { (index, CURSOR as u8) };
+      shuffles.write(Shuffle { from, to });
     }
     Act::Inspect(block) => chosen.0 = Some(block),
     Act::Craft(index) => {
@@ -647,7 +635,6 @@ pub struct Crafting;
 impl Plugin for Crafting {
   fn build(&self, app: &mut App) {
     app
-      .init_resource::<Held>()
       .init_resource::<Chosen>()
       .init_resource::<Nearby>()
       .add_systems(Startup, tooltip.after(crate::stream::paint).run_if(plays))

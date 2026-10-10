@@ -32,14 +32,19 @@ pub struct Draft {
   pub touched: bool,
   raw: Handle<Image>,
   view: Handle<Image>,
-  material: Handle<StandardMaterial>
+  material: Handle<StandardMaterial>,
+  ghost: Handle<StandardMaterial>
 }
 
 #[derive(Clone, Copy)]
 enum Grip {
   Turning(Vec2),
+  Spinning { from: Vec2, start: Vec2 },
   Painting
 }
+
+#[derive(Component)]
+struct Ghostly;
 
 #[derive(Resource)]
 struct Orbit {
@@ -112,6 +117,13 @@ pub fn prepare(
     perceptual_roughness: 0.85,
     ..default()
   });
+  let ghost = materials.add(StandardMaterial {
+    base_color: Color::srgba(1.0, 1.0, 1.0, 0.12),
+    base_color_texture: Some(raw.clone()),
+    alpha_mode: AlphaMode::Blend,
+    perceptual_roughness: 0.85,
+    ..default()
+  });
   commands.insert_resource(Draft {
     view: images.add(Image::new_target_texture(
       VIEW.x,
@@ -121,6 +133,7 @@ pub fn prepare(
     )),
     raw,
     material,
+    ghost,
     skin,
     colour: 0,
     touched: false
@@ -211,9 +224,10 @@ pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
           );
           left.spawn((Unsaved, words("", 14.0, FAINT)));
           left.spawn(words(
-            "Left mouse paints on the figure; drag beside it to turn it around. Right-click a \
-             body part to hide it and reach what it covers. Middle-click picks a colour, the \
-             wheel zooms. Both arms share one pattern, as do both legs.",
+            "Left mouse paints on the figure. Right-drag (or left-drag beside it) turns it. \
+             Right-click a body part to fade it out and reach what it covers, again to bring \
+             it back. Middle-click picks a colour, the wheel zooms. Both arms share one \
+             pattern, as do both legs.",
             14.0,
             FAINT
           ));
@@ -248,44 +262,69 @@ fn brush(
   menu: Res<Menu>,
   windows: Query<&RelativeCursorPosition, With<Easel>>,
   viewers: Query<(&Camera, &GlobalTransform), With<Viewer>>,
-  mut pieces: Query<(&Piece, &mut Visibility)>,
+  pieces: Query<(Entity, &Piece, Has<Ghostly>)>,
   mut orbit: ResMut<Orbit>,
-  mut draft: ResMut<Draft>
+  mut draft: ResMut<Draft>,
+  mut commands: Commands
 ) {
   if menu.showing(Tab::Skin)
     && let Ok(cursor) = windows.single()
     && let Ok((camera, eye)) = viewers.single()
   {
     let spot = cursor.normalized.filter(|_| cursor.cursor_over);
-    let hit = spot
-      .and_then(|spot| camera.viewport_to_world(eye, (spot + 0.5) * VIEW.as_vec2()).ok())
-      .and_then(|ray| {
+    let ray = spot
+      .and_then(|spot| camera.viewport_to_world(eye, (spot + 0.5) * VIEW.as_vec2()).ok());
+    let nearest = |ghosts: bool| {
+      ray.and_then(|ray| {
         pieces
           .iter()
-          .enumerate()
-          .filter(|(_, (_, visibility))| **visibility != Visibility::Hidden)
-          .filter_map(|(index, (piece, _))| {
+          .filter(|&(.., ghostly)| ghosts || !ghostly)
+          .filter_map(|(entity, piece, ghostly)| {
             piece.struck(ray.origin, *ray.direction).and_then(|(distance, normal)| {
               piece
                 .texel(ray.origin + *ray.direction * distance, normal)
-                .map(|texel| (distance, index, texel))
+                .map(|texel| (distance, entity, ghostly, texel))
             })
           })
           .min_by(|a, b| a.0.total_cmp(&b.0))
-      });
-    if buttons.just_pressed(MouseButton::Left)
-      && let Some(spot) = spot
-    {
-      orbit.grip = Some(match hit {
-        Some(_) => Grip::Painting,
-        None => Grip::Turning(spot)
       })
+    };
+    let hit = nearest(false);
+    if let Some(spot) = spot {
+      if buttons.just_pressed(MouseButton::Left) {
+        orbit.grip = Some(match hit {
+          Some(_) => Grip::Painting,
+          None => Grip::Turning(spot)
+        })
+      }
+      if buttons.just_pressed(MouseButton::Right) {
+        orbit.grip = Some(Grip::Spinning { from: spot, start: spot })
+      }
     }
-    if !buttons.pressed(MouseButton::Left) {
+    if let Some(Grip::Spinning { start, .. }) = orbit.grip
+      && buttons.just_released(MouseButton::Right)
+      && spot.is_some_and(|spot| (spot - start).length() < 0.01)
+      && let Some((_, piece, ghostly, _)) = nearest(true)
+    {
+      match ghostly {
+        true => commands
+          .entity(piece)
+          .remove::<Ghostly>()
+          .insert(MeshMaterial3d(draft.material.clone())),
+        false => {
+          commands.entity(piece).insert((Ghostly, MeshMaterial3d(draft.ghost.clone())))
+        }
+      };
+    }
+    if !buttons.any_pressed([MouseButton::Left, MouseButton::Right]) {
       orbit.grip = None
     }
+    let turn = |orbit: &mut Orbit, moved: Vec2| {
+      orbit.yaw -= moved.x * 5.0;
+      orbit.pitch = (orbit.pitch + moved.y * 3.0).clamp(-1.3, 1.3)
+    };
     match (orbit.grip, spot, hit) {
-      (Some(Grip::Painting), _, Some((_, _, texel))) => {
+      (Some(Grip::Painting), _, Some((.., texel))) => {
         let colour = draft.colour;
         if draft.skin.get(texel) != colour {
           draft.skin.set(texel, colour);
@@ -293,22 +332,19 @@ fn brush(
         }
       }
       (Some(Grip::Turning(from)), Some(spot), _) => {
-        let moved = spot - from;
-        orbit.yaw -= moved.x * 5.0;
-        orbit.pitch = (orbit.pitch + moved.y * 3.0).clamp(-1.3, 1.3);
+        turn(&mut orbit, spot - from);
         orbit.grip = Some(Grip::Turning(spot))
+      }
+      (Some(Grip::Spinning { from, start }), Some(spot), _) => {
+        turn(&mut orbit, spot - from);
+        orbit.grip = Some(Grip::Spinning { from: spot, start })
       }
       _ => ()
     }
-    if let Some((_, index, texel)) = hit {
-      if buttons.just_pressed(MouseButton::Right)
-        && let Some((_, mut visibility)) = pieces.iter_mut().nth(index)
-      {
-        *visibility = Visibility::Hidden
-      }
-      if buttons.just_pressed(MouseButton::Middle) {
-        draft.colour = draft.skin.get(texel)
-      }
+    if let Some((.., texel)) = hit
+      && buttons.just_pressed(MouseButton::Middle)
+    {
+      draft.colour = draft.skin.get(texel)
     }
     let lines = match wheel.unit {
       MouseScrollUnit::Line => wheel.delta.y,
@@ -323,7 +359,8 @@ fn brush(
 fn obey(
   mut pressed: MessageReader<Pressed>,
   mut draft: ResMut<Draft>,
-  mut pieces: Query<&mut Visibility, With<Piece>>,
+  pieces: Query<Entity, With<Ghostly>>,
+  mut commands: Commands,
   mut paints: MessageWriter<Paint>
 ) {
   pressed.read().for_each(|&Pressed(act)| match act {
@@ -333,9 +370,12 @@ fn obey(
       draft.touched = true
     }
     Act::Revert => draft.touched = false,
-    Act::Unhide => {
-      pieces.iter_mut().for_each(|mut visibility| *visibility = Visibility::Inherited)
-    }
+    Act::Unhide => pieces.iter().for_each(|piece| {
+      commands
+        .entity(piece)
+        .remove::<Ghostly>()
+        .insert(MeshMaterial3d(draft.material.clone()));
+    }),
     Act::Wear => {
       paints.write(Paint(draft.skin.clone()));
     }
@@ -361,6 +401,7 @@ fn show(
       image.data = Some(draft.skin.pixels(false))
     }
     materials.get_mut(&draft.material);
+    materials.get_mut(&draft.ghost);
   }
   let visible = menu.showing(Tab::Skin);
   let turned = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);

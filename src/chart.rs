@@ -2,7 +2,7 @@ use {crate::{block::{Block, Fluid},
              claim::{Claim, MOST, Stake},
              generate,
              island::Island,
-             menu::{FAINT, INK, Menu, Tab, words},
+             menu::{INK, Menu, Tab, words},
              minimap::hue,
              player::{Me, Pilot},
              protocol::{Avatar, Player, Visited, plays},
@@ -10,13 +10,13 @@ use {crate::{block::{Block, Fluid},
      bevy::{asset::RenderAssetUsages,
             image::ImageSampler,
             input::mouse::AccumulatedMouseScroll,
-            platform::time::Instant,
+            platform::{collections::HashMap, time::Instant},
             prelude::*,
             render::render_resource::{Extent3d, TextureDimension, TextureFormat},
             ui::RelativeCursorPosition}};
 
-const WIDE: i32 = 960;
-const TALL: i32 = 540;
+const TILE: i32 = 64;
+const KEPT_TILES: usize = 900;
 const SCALES: [f32; 8] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
 const BUDGET: f32 = 0.006;
 const REDRAW_EVERY: f32 = 0.15;
@@ -29,10 +29,8 @@ pub struct Chart {
   hues: Vec<[f32; 3]>,
   centre: Vec2,
   zoom: usize,
-  drawn: Option<(Vec2, usize)>,
-  base: Vec<[u8; 4]>,
-  heights: Vec<i32>,
-  row: i32,
+  size: IVec2,
+  tiles: HashMap<(usize, IVec2), Vec<[u8; 4]>>,
   since: f32,
   grip: Option<(Vec2, Vec2)>,
   dragged: bool,
@@ -42,12 +40,30 @@ pub struct Chart {
 impl Chart {
   fn scale(&self) -> f32 { SCALES[self.zoom] }
 
-  fn world(&self, pixel: Vec2) -> Vec2 {
-    self.centre + (pixel - Vec2::new(WIDE as f32, TALL as f32) / 2.0) * self.scale()
+  fn origin(&self) -> Vec2 {
+    (self.centre / self.scale() - self.size.as_vec2() / 2.0).floor()
   }
 
-  fn pixel(&self, world: Vec2) -> Vec2 {
-    (world - self.centre) / self.scale() + Vec2::new(WIDE as f32, TALL as f32) / 2.0
+  fn world(&self, pixel: Vec2) -> Vec2 { (self.origin() + pixel) * self.scale() }
+
+  fn pixel(&self, world: Vec2) -> Vec2 { world / self.scale() - self.origin() }
+
+  fn wanted(&self) -> Vec<IVec2> {
+    let origin = self.origin().as_ivec2();
+    let (low, high) = (
+      origin.div_euclid(IVec2::splat(TILE)),
+      (origin + self.size).div_euclid(IVec2::splat(TILE))
+    );
+    let middle = (origin + self.size / 2).as_vec2() / TILE as f32;
+    let mut tiles: Vec<IVec2> = (low.y..=high.y)
+      .flat_map(|y| (low.x..=high.x).map(move |x| IVec2::new(x, y)))
+      .collect();
+    tiles.sort_by(|a, b| {
+      (a.as_vec2() + 0.5)
+        .distance(middle)
+        .total_cmp(&(b.as_vec2() + 0.5).distance(middle))
+    });
+    tiles
   }
 }
 
@@ -57,24 +73,30 @@ struct Canvas;
 #[derive(Component)]
 struct Legend;
 
-pub fn prepare(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+fn canvas_image(size: IVec2) -> Image {
   let mut image = Image::new_fill(
-    Extent3d { width: WIDE as u32, height: TALL as u32, depth_or_array_layers: 1 },
+    Extent3d {
+      width: size.x.max(1) as u32,
+      height: size.y.max(1) as u32,
+      depth_or_array_layers: 1
+    },
     TextureDimension::D2,
     &UNKNOWN,
     TextureFormat::Rgba8UnormSrgb,
     RenderAssetUsages::default()
   );
   image.sampler = ImageSampler::nearest();
+  image
+}
+
+pub fn prepare(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
   commands.insert_resource(Chart {
-    image: images.add(image),
+    image: images.add(canvas_image(IVec2::ONE)),
     hues: Block::ALL.map(hue).to_vec(),
     centre: Vec2::ZERO,
     zoom: 3,
-    drawn: None,
-    base: vec![UNKNOWN; (WIDE * TALL) as usize],
-    heights: vec![0; (WIDE * TALL) as usize],
-    row: 0,
+    size: IVec2::ONE,
+    tiles: HashMap::default(),
     since: REDRAW_EVERY,
     grip: None,
     dragged: false,
@@ -89,23 +111,15 @@ pub fn page(page: &mut ChildSpawnerCommands, chart: &Chart) {
     RelativeCursorPosition::default(),
     Interaction::default(),
     Node {
-      height: vh(62),
-      aspect_ratio: Some(WIDE as f32 / TALL as f32),
-      align_self: AlignSelf::Center,
-      border: UiRect::all(px(2)),
+      width: percent(100),
+      flex_grow: 1.0,
+      flex_basis: px(0),
+      min_height: px(0),
+      overflow: Overflow::clip(),
       ..default()
-    },
-    BorderColor::all(Color::srgb(0.3, 0.33, 0.36))
+    }
   ));
   page.spawn((Legend, words("", 16.0, INK)));
-  page.spawn(words(
-    format!(
-      "Wheel zooms, drag pans. Click a chunk to claim it or give it back (up to {MOST}). \
-       Claimed land is yours to build on and survives when the world is regenerated."
-    ),
-    14.0,
-    FAINT
-  ));
 }
 
 fn colour(chart: &Chart, block: Block, top: i32, floor: i32, north: i32) -> [u8; 4] {
@@ -129,32 +143,71 @@ fn colour(chart: &Chart, block: Block, top: i32, floor: i32, north: i32) -> [u8;
   [r, g, b, 255]
 }
 
+fn sample(chart: &Chart, seed: u32, tile: IVec2) -> Vec<[u8; 4]> {
+  let scale = chart.scale();
+  let at = |x: i32, y: i32| {
+    let world = ((tile * TILE + IVec2::new(x, y)).as_vec2() + 0.5) * scale;
+    generate::overview(seed, world.x.floor() as i32, world.y.floor() as i32)
+  };
+  let mut north: Vec<i32> = (0..TILE).map(|x| at(x, -1).1).collect();
+  (0..TILE)
+    .flat_map(|y| {
+      let row: Vec<[u8; 4]> = (0..TILE)
+        .map(|x| {
+          let (block, top, floor) = at(x, y);
+          let shown = colour(chart, block, top, floor, north[x as usize]);
+          north[x as usize] = top;
+          shown
+        })
+        .collect();
+      row
+    })
+    .collect()
+}
+
 fn survey(voxels: Option<Res<Voxels>>, menu: Res<Menu>, mut chart: ResMut<Chart>) {
   if let Some(voxels) = voxels
     && menu.showing(Tab::Map)
   {
-    let view = (chart.centre, chart.zoom);
-    if chart.drawn != Some(view) {
-      chart.drawn = Some(view);
-      chart.row = 0;
-      chart.base.fill(UNKNOWN)
+    let zoom = chart.zoom;
+    if chart.tiles.len() > KEPT_TILES {
+      let near: Vec<IVec2> = chart.wanted();
+      chart.tiles.retain(|(at_zoom, tile), _| *at_zoom == zoom && near.contains(tile))
     }
     let started = Instant::now();
-    while chart.row < TALL && started.elapsed().as_secs_f32() < BUDGET {
-      let row = chart.row;
-      (0..WIDE).for_each(|column| {
-        let world = chart
-          .world(Vec2::new(column as f32 + 0.5, row as f32 + 0.5))
-          .floor()
-          .as_ivec2();
-        let (block, top, floor) = generate::overview(voxels.seed, world.x, world.y);
-        let index = (row * WIDE + column) as usize;
-        let north = if row == 0 { top } else { chart.heights[index - WIDE as usize] };
-        chart.heights[index] = top;
-        chart.base[index] = colour(&chart, block, top, floor, north)
-      });
-      chart.row += 1
+    let missing: Vec<IVec2> = chart
+      .wanted()
+      .into_iter()
+      .filter(|&tile| !chart.tiles.contains_key(&(zoom, tile)))
+      .collect();
+    let made = missing
+      .into_iter()
+      .take_while(|_| started.elapsed().as_secs_f32() < BUDGET)
+      .map(|tile| (tile, sample(&chart, voxels.seed, tile)))
+      .collect::<Vec<_>>();
+    if !made.is_empty() {
+      chart.since = REDRAW_EVERY
     }
+    made.into_iter().for_each(|(tile, pixels)| {
+      chart.tiles.insert((zoom, tile), pixels);
+    })
+  }
+}
+
+fn fit(
+  menu: Res<Menu>,
+  canvas: Query<&ComputedNode, With<Canvas>>,
+  mut chart: ResMut<Chart>,
+  mut images: ResMut<Assets<Image>>
+) {
+  if menu.showing(Tab::Map)
+    && let Ok(node) = canvas.single()
+    && let size = node.size().as_ivec2().max(IVec2::ONE)
+    && size != chart.size
+  {
+    chart.size = size;
+    chart.since = REDRAW_EVERY;
+    images.insert(&chart.image, canvas_image(size)).ok();
   }
 }
 
@@ -181,7 +234,7 @@ fn steer(
     && let Ok(cursor) = canvas.single()
     && let Some(spot) = cursor.normalized
   {
-    let pixel = (spot + 0.5) * Vec2::new(WIDE as f32, TALL as f32);
+    let pixel = (spot + 0.5) * chart.size.as_vec2();
     let over = cursor.cursor_over;
     let wheel = scroll.delta.y;
     if over && wheel != 0.0 {
@@ -189,9 +242,9 @@ fn steer(
       let zoom =
         (chart.zoom as i32 - wheel.signum() as i32).clamp(0, SCALES.len() as i32 - 1);
       chart.zoom = zoom as usize;
-      chart.centre = (anchor
-        - (pixel - Vec2::new(WIDE as f32, TALL as f32) / 2.0) * chart.scale())
-      .floor()
+      chart.centre =
+        (anchor - (pixel - chart.size.as_vec2() / 2.0) * chart.scale()).floor();
+      chart.since = REDRAW_EVERY
     }
     if over && buttons.just_pressed(MouseButton::Left) {
       chart.grip = Some((pixel, chart.centre));
@@ -202,8 +255,9 @@ fn steer(
     {
       let moved = pixel - from;
       chart.dragged |= moved.length() > DRAG;
-      if chart.dragged {
-        chart.centre = (centre - moved * chart.scale()).floor()
+      if chart.dragged && chart.centre != (centre - moved * chart.scale()).floor() {
+        chart.centre = (centre - moved * chart.scale()).floor();
+        chart.since = REDRAW_EVERY
       }
     }
     if buttons.just_released(MouseButton::Left)
@@ -238,10 +292,24 @@ fn draw(
   {
     chart.since = 0.0;
     let me = names.single().map(|player| player.name.clone()).unwrap_or_default();
-    let mut pixels = chart.base.clone();
+    let (wide, tall) = (chart.size.x, chart.size.y);
+    let origin = chart.origin().as_ivec2();
+    let mut pixels = vec![UNKNOWN; (wide * tall) as usize];
+    chart.wanted().into_iter().for_each(|tile| {
+      if let Some(cached) = chart.tiles.get(&(chart.zoom, tile)) {
+        let corner = tile * TILE - origin;
+        (corner.y.max(0)..(corner.y + TILE).min(tall)).for_each(|y| {
+          let (from, to) = (corner.x.max(0), (corner.x + TILE).min(wide));
+          let source = ((y - corner.y) * TILE + from - corner.x) as usize;
+          let target = (y * wide + from) as usize;
+          let span = (to - from).max(0) as usize;
+          pixels[target..target + span].copy_from_slice(&cached[source..source + span])
+        })
+      }
+    });
     let mut paint = |pixel: IVec2, colour: [f32; 3], blend: f32| {
-      if pixel.cmpge(IVec2::ZERO).all() && pixel.cmplt(IVec2::new(WIDE, TALL)).all() {
-        let index = (pixel.y * WIDE + pixel.x) as usize;
+      if pixel.cmpge(IVec2::ZERO).all() && pixel.cmplt(IVec2::new(wide, tall)).all() {
+        let index = (pixel.y * wide + pixel.x) as usize;
         let [r, g, b, a] = pixels[index];
         let mix =
           |old: u8, new: f32| (old as f32 * (1.0 - blend) + new * 255.0 * blend) as u8;
@@ -253,8 +321,8 @@ fn draw(
       let low = chart.pixel(claim.column.as_vec2() * chunk).floor().as_ivec2();
       let high = chart.pixel((claim.column.as_vec2() + 1.0) * chunk).floor().as_ivec2();
       let colour = crate::protocol::hue(claim.hue).to_srgba().to_f32_array_no_alpha();
-      (low.y.max(0)..high.y.min(TALL)).for_each(|y| {
-        (low.x.max(0)..high.x.min(WIDE)).for_each(|x| {
+      (low.y.max(0)..high.y.min(tall)).for_each(|y| {
+        (low.x.max(0)..high.x.min(wide)).for_each(|x| {
           let edge = x == low.x || y == low.y || x == high.x - 1 || y == high.y - 1;
           paint(IVec2::new(x, y), colour, if edge { 0.9 } else { 0.35 })
         })
@@ -262,15 +330,14 @@ fn draw(
     });
     if chart.scale() <= 1.0 {
       let first = (chart.world(Vec2::ZERO) / chunk).floor().as_ivec2();
-      let last =
-        (chart.world(Vec2::new(WIDE as f32, TALL as f32)) / chunk).ceil().as_ivec2();
+      let last = (chart.world(chart.size.as_vec2()) / chunk).ceil().as_ivec2();
       (first.x..=last.x).for_each(|cx| {
         let x = chart.pixel(Vec2::new(cx as f32 * chunk, 0.0)).x as i32;
-        (0..TALL).step_by(2).for_each(|y| paint(IVec2::new(x, y), [0.0; 3], 0.25))
+        (0..tall).step_by(2).for_each(|y| paint(IVec2::new(x, y), [0.0; 3], 0.25))
       });
       (first.y..=last.y).for_each(|cz| {
         let y = chart.pixel(Vec2::new(0.0, cz as f32 * chunk)).y as i32;
-        (0..WIDE).step_by(2).for_each(|x| paint(IVec2::new(x, y), [0.0; 3], 0.25))
+        (0..wide).step_by(2).for_each(|x| paint(IVec2::new(x, y), [0.0; 3], 0.25))
       });
     }
     let dot = |paint: &mut dyn FnMut(IVec2, [f32; 3], f32),
@@ -325,9 +392,7 @@ fn draw(
       .ok()
       .filter(|cursor| cursor.cursor_over)
       .and_then(|cursor| cursor.normalized)
-      .map(|spot| {
-        chart.world((spot + 0.5) * Vec2::new(WIDE as f32, TALL as f32)).floor().as_ivec2()
-      });
+      .map(|spot| chart.world((spot + 0.5) * chart.size.as_vec2()).floor().as_ivec2());
     let mine = claims.iter().filter(|claim| claim.owner == me).count();
     let line = hovered.map_or(format!("Your claims: {mine}/{MOST}"), |at| {
       let column = (at.as_vec2() / SIZE as f32).floor().as_ivec2();
@@ -358,7 +423,7 @@ impl Plugin for Charting {
   fn build(&self, app: &mut App) {
     app.add_systems(Startup, prepare.run_if(plays)).add_systems(
       Update,
-      (steer, survey, draw).chain().run_if(resource_exists::<Chart>)
+      (fit, steer, survey, draw).chain().run_if(resource_exists::<Chart>)
     );
   }
 }

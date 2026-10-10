@@ -115,7 +115,8 @@ pub enum Block {
   BedHead,
   BedHeadEast,
   BedHeadSouth,
-  BedHeadWest
+  BedHeadWest,
+  Charcoal
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -207,11 +208,12 @@ pub enum Tile {
   Cod,
   Salmon,
   TropicalFish,
-  Pufferfish
+  Pufferfish,
+  Charcoal
 }
 
 impl Tile {
-  pub const ALL: [Tile; 88] = [
+  pub const ALL: [Tile; 89] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -299,7 +301,8 @@ impl Tile {
     Tile::Cod,
     Tile::Salmon,
     Tile::TropicalFish,
-    Tile::Pufferfish
+    Tile::Pufferfish,
+    Tile::Charcoal
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -364,7 +367,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 99] = [
+  pub const ALL: [Block; 100] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -463,7 +466,8 @@ impl Block {
     Block::BedHead,
     Block::BedHeadEast,
     Block::BedHeadSouth,
-    Block::BedHeadWest
+    Block::BedHeadWest,
+    Block::Charcoal
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -493,6 +497,7 @@ impl Block {
         | Block::LavaBucket
         | Block::Feather
         | Block::FishingRod
+        | Block::Charcoal
     ) || self.fish()
   }
 
@@ -791,6 +796,7 @@ impl Block {
       Block::Bed => "Bed",
       Block::Wool => "Wool",
       Block::Feather => "Feather",
+      Block::Charcoal => "Charcoal",
       Block::FishingRod => "Fishing Rod",
       Block::Cod => "Cod",
       Block::Salmon => "Salmon",
@@ -897,6 +903,7 @@ impl Block {
       Block::Bed => all(Tile::Bed),
       Block::Wool => all(Tile::Wool),
       Block::Feather => all(Tile::Feather),
+      Block::Charcoal => all(Tile::Charcoal),
       Block::FishingRod => all(Tile::FishingRod),
       Block::Cod => all(Tile::Cod),
       Block::Salmon => all(Tile::Salmon),

@@ -371,7 +371,8 @@ fn dig(
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
-  mut changes: MessageWriter<ToClients<Altered>>
+  mut changes: MessageWriter<ToClients<Altered>>,
+  mut commands: Commands
 ) {
   digs.read().for_each(|&FromClient { client_id, message: Dig { at } }| {
     let block = voxels.ensure(at);
@@ -385,18 +386,14 @@ fn dig(
     let account = account_of(&players, client_id);
     let allowed = account
       .is_some_and(|account| guarded(&claims, &mut notices, client_id, account, at));
-    let granted =
-      player_of(players.iter_mut(), client_id).is_some_and(|(avatar, mut inventory)| {
-        allowed && block.breakable() && within_reach(avatar, at) && {
-          inventory.add(block.drop());
-          perched.into_iter().for_each(|plant| {
-            inventory.add(plant);
-          });
-          true
-        }
-      });
+    let granted = player_of(players.iter_mut(), client_id).is_some_and(|(avatar, _)| {
+      allowed && block.breakable() && within_reach(avatar, at)
+    });
     match granted {
       true => {
+        std::iter::once(block.drop())
+          .chain(perched.map(Block::drop))
+          .for_each(|dropped| crate::loose::fall(&mut commands, dropped, at));
         voxels.set(at, Block::Air);
         flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
         partner.into_iter().for_each(|cell| {
@@ -564,6 +561,21 @@ fn shuffle(
   })
 }
 
+fn pick(
+  mut picks: MessageReader<FromClient<Picked>>,
+  mut players: Query<(&Controller, &mut Inventory)>
+) {
+  picks.read().for_each(|&FromClient { client_id, message: Picked(pick) }| {
+    if let Some(mut inventory) = player_of(players.iter_mut(), client_id) {
+      match pick {
+        Pick::Half(slot) => inventory.halve(slot.into()),
+        Pick::One(slot) => inventory.drop_one(slot.into()),
+        Pick::Stow => inventory.stow()
+      }
+    }
+  })
+}
+
 fn craft(
   mut crafts: MessageReader<FromClient<Craft>>,
   mut voxels: ResMut<Voxels>,
@@ -699,7 +711,7 @@ impl Plugin for Authority {
         PreUpdate,
         (
           sign_in, paint, tint, chat, follow, attune, travel, dig, put, scoop, pour,
-          shuffle, craft, mark, rest
+          shuffle, pick, craft, mark, rest
         )
           .chain()
           .after(ServerSystems::Receive)

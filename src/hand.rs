@@ -31,13 +31,16 @@ pub fn grip() -> impl Bundle {
 }
 
 fn hold(
-  mut grips: Query<(Entity, &Grip, &mut Transform, &mut Visibility), Changed<Grip>>,
+  mut grips: Query<
+    (Entity, &Grip, Has<Fist>, &mut Transform, &mut Visibility),
+    Changed<Grip>
+  >,
   palette: Res<Palette>,
   mut looks: ResMut<Looks>,
   mut meshes: ResMut<Assets<Mesh>>,
   mut commands: Commands
 ) {
-  grips.iter_mut().for_each(|(entity, grip, mut transform, mut visibility)| {
+  grips.iter_mut().for_each(|(entity, grip, fist, mut transform, mut visibility)| {
     match grip.0 {
       Some(block) => {
         let hand = Vec3::new(0.0, -12.0 * PX, -1.0 * PX);
@@ -47,7 +50,20 @@ fn hold(
               .with_rotation(Quat::from_rotation_y(PI / 4.0))
           }
           false => {
-            let turned = Quat::from_rotation_y(PI / 2.0);
+            let side = Quat::from_rotation_y(PI / 2.0);
+            let turned = match fist {
+              true => {
+                let arm = Quat::from_euler(EulerRot::YXZ, 0.12, 1.95, -0.12);
+                let shaft = Vec3::new(0.05, 0.5, -0.86).normalize();
+                let face = Vec3::new(0.35, 0.9, 0.26).reject_from(shaft).normalize();
+                let diagonal = Vec3::new(1.0, 1.0, 0.0).normalize();
+                let held = Mat3::from_cols(shaft, face, shaft.cross(face))
+                  * Mat3::from_cols(diagonal, Vec3::Z, diagonal.cross(Vec3::Z))
+                    .transpose();
+                arm.inverse() * Quat::from_mat3(&held)
+              }
+              false => side
+            };
             Transform::from_translation(hand + turned * Vec3::new(0.3, 0.3, 0.0) * FLAT)
               .with_rotation(turned)
           }
@@ -66,6 +82,9 @@ fn hold(
 
 #[derive(Component)]
 pub struct RodTip;
+
+#[derive(Component)]
+struct Fist;
 
 fn carve(
   eyes: Query<Entity, Added<Eye>>,
@@ -139,7 +158,7 @@ fn raise(
         Transform::from_translation(REST),
         ChildOf(eye)
       ))
-      .with_child(grip());
+      .with_child((grip(), Fist));
   }
 }
 
