@@ -342,6 +342,15 @@ pub struct Altered {
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Teleport(pub Avatar);
 
+#[derive(Message, Serialize, Deserialize, Clone)]
+pub struct Notice(pub String);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Rest(pub IVec3);
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Debug)]
+pub struct Bedside(pub Option<IVec3>);
+
 pub struct Protocol;
 
 impl Plugin for Protocol {
@@ -385,6 +394,8 @@ impl Plugin for Protocol {
       .replicate::<Health>()
       .replicate::<Cannonball>()
       .add_mapped_client_message::<Strike>(Channel::Ordered)
-      .add_mapped_client_message::<Trade>(Channel::Ordered);
+      .add_mapped_client_message::<Trade>(Channel::Ordered)
+      .add_server_message::<Notice>(Channel::Ordered)
+      .add_client_message::<Rest>(Channel::Ordered);
   }
 }

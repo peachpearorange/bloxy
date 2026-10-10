@@ -1,4 +1,4 @@
-use {crate::{protocol::{Avatar, Bookmarks, Inventory, Visited},
+use {crate::{protocol::{Avatar, Bedside, Bookmarks, Inventory, Visited},
              skin::Skin},
      bevy::prelude::*,
      serde::{Deserialize, Serialize},
@@ -19,7 +19,9 @@ pub struct Account {
   #[serde(default)]
   pub visited: Visited,
   #[serde(default)]
-  pub bookmarks: Bookmarks
+  pub bookmarks: Bookmarks,
+  #[serde(default)]
+  pub bedside: Bedside
 }
 
 pub fn random() -> u64 { RandomState::new().hash_one(std::time::SystemTime::now()) }
@@ -32,7 +34,8 @@ fn digest(salt: &str, password: &str) -> String {
   stretched.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-pub type Kept<'a> = (&'a Avatar, &'a Inventory, &'a Skin, &'a Visited, &'a Bookmarks);
+pub type Kept<'a> =
+  (&'a Avatar, &'a Inventory, &'a Skin, &'a Visited, &'a Bookmarks, &'a Bedside);
 
 impl Account {
   pub fn open(name: String, password: &str, inventory: Inventory) -> Account {
@@ -45,16 +48,18 @@ impl Account {
       inventory,
       skin: Skin::fresh(random()),
       visited: default(),
-      bookmarks: default()
+      bookmarks: default(),
+      bedside: default()
     }
   }
 
-  pub fn keep(&mut self, (&avatar, inventory, skin, visited, bookmarks): Kept) {
+  pub fn keep(&mut self, (&avatar, inventory, skin, visited, bookmarks, &bedside): Kept) {
     self.avatar = Some(avatar);
     self.inventory = inventory.clone();
     self.skin = skin.clone();
     self.visited = visited.clone();
-    self.bookmarks = bookmarks.clone()
+    self.bookmarks = bookmarks.clone();
+    self.bedside = bedside
   }
 
   pub fn admits(&self, password: &str) -> bool {

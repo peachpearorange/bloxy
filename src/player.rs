@@ -18,6 +18,8 @@ const JUMP: f32 = 8.6;
 const WALK: f32 = 4.3;
 const SPRINT: f32 = 6.2;
 const SWIM: f32 = 3.0;
+const CLIMB: f32 = 2.8;
+const SLIP: f32 = 1.6;
 const LOOK: f32 = 0.0022;
 const SKIN: f32 = 0.001;
 const STEP: f32 = 1.0 / 120.0;
@@ -274,10 +276,17 @@ fn fly(
       let swimming = voxels
         .block((pilot.at + Vec3::Y * 0.6).floor().as_ivec3())
         .is_some_and(Block::fluid);
-      let blend = if pilot.grounded { 0.35 } else { 0.06 };
+      let (low, high) = Bulk::PERSON.body(pilot.at);
+      let climbing = cells(low - Vec3::splat(0.05), high + Vec3::splat(0.05))
+        .any(|cell| voxels.block(cell).is_some_and(Block::ladder));
+      let blend = if pilot.grounded || climbing { 0.35 } else { 0.06 };
       let velocity = pilot.velocity;
       let horizontal = velocity.xz().lerp(walk.xz(), blend);
+      let rising = pressed(KeyCode::Space) || pressed(KeyCode::KeyW);
       let vertical = match (swimming, pressed(KeyCode::Space), pilot.grounded) {
+        _ if climbing && !swimming && rising => CLIMB,
+        _ if climbing && !swimming && pressed(KeyCode::KeyS) => -CLIMB,
+        _ if climbing && !swimming => (velocity.y - GRAVITY * STEP).max(-SLIP),
         (true, true, _) => (velocity.y + 20.0 * STEP).min(3.0),
         (true, false, _) => (velocity.y - 8.0 * STEP).max(-2.5),
         (false, true, true) => JUMP,
@@ -397,7 +406,11 @@ fn work(
     MessageWriter<Pour>
   ),
   (boats, folk): (Query<&Vessel>, Query<&Folk>),
-  (mut inscription, signs): (ResMut<Inscription>, Query<&Sign>),
+  (mut inscription, signs, mut rests): (
+    ResMut<Inscription>,
+    Query<&Sign>,
+    MessageWriter<Rest>
+  ),
   mut cooldown: Local<f32>
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
@@ -442,10 +455,12 @@ fn work(
     *cooldown = (*cooldown - time.delta_secs()).max(0.0);
     let stack =
       inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
-    let used = aim
-      .hit
-      .as_ref()
-      .filter(|hit| hit.block.waystone() || hit.block.station() || hit.block.sign());
+    let used = aim.hit.as_ref().filter(|hit| {
+      hit.block.waystone()
+        || hit.block.station()
+        || hit.block.sign()
+        || hit.block == Block::Bed
+    });
     if active
       && buttons.just_pressed(MouseButton::Right)
       && let Some(hit) = used
@@ -460,6 +475,9 @@ fn work(
             signs.iter().find(|sign| sign.at == hit.at).map(|sign| sign.text.as_str());
           inscription.begin(hit.at, text.unwrap_or_default());
           menu.show(Tab::Sign, time.elapsed_secs())
+        }
+        Block::Bed => {
+          rests.write(Rest(hit.at));
         }
         _ => menu.show(Tab::Inventory, time.elapsed_secs())
       }
@@ -491,12 +509,20 @@ fn work(
     {
       *cooldown = PLACE_EVERY;
       let at = hit.at + hit.normal;
+      let ahead = (pilot.facing() * Vec3::NEG_Z).xz();
+      let wall = match (hit.normal.y, ahead.x.abs() > ahead.y.abs()) {
+        (0, _) => -hit.normal,
+        (_, true) => IVec3::X * ahead.x.signum() as i32,
+        (_, false) => IVec3::Z * ahead.y.signum() as i32
+      };
+      let block = stack.block.against(wall);
       let (low, high) = Bulk::PERSON.body(pilot.at);
-      let inside = cells(low, high).any(|cell| cell == at);
-      if !inside && voxels.block(at).is_some_and(|block| !block.solid()) {
-        puts.write(Put { at, block: stack.block });
+      let inside = cells(low, high).any(|cell| cell == at) && block.solid();
+      let hung = block.wall().is_none_or(|wall| voxels.solid(at + wall));
+      if !inside && hung && voxels.block(at).is_some_and(|block| !block.solid()) {
+        puts.write(Put { at, block });
         if *role == Role::Guest {
-          voxels.set(at, stack.block)
+          voxels.set(at, block)
         }
         if stack.block.sign() && voxels.block(at - IVec3::Y).is_some_and(Block::solid) {
           inscription.begin(at, "");

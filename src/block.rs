@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use {bevy::math::IVec3,
+     serde::{Deserialize, Serialize}};
 
 #[derive(
   Clone,
@@ -94,7 +95,20 @@ pub enum Block {
   OakSign,
   BirchSign,
   SpruceSign,
-  PalmSign
+  PalmSign,
+  TallGrass,
+  Ladder,
+  LadderEast,
+  LadderSouth,
+  LadderWest,
+  Bed,
+  Wool,
+  Feather,
+  FishingRod,
+  Cod,
+  Salmon,
+  TropicalFish,
+  Pufferfish
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -176,11 +190,21 @@ pub enum Tile {
   OakSign,
   BirchSign,
   SpruceSign,
-  PalmSign
+  PalmSign,
+  TallGrass,
+  Ladder,
+  Bed,
+  Wool,
+  Feather,
+  FishingRod,
+  Cod,
+  Salmon,
+  TropicalFish,
+  Pufferfish
 }
 
 impl Tile {
-  pub const ALL: [Tile; 78] = [
+  pub const ALL: [Tile; 88] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -258,7 +282,17 @@ impl Tile {
     Tile::OakSign,
     Tile::BirchSign,
     Tile::SpruceSign,
-    Tile::PalmSign
+    Tile::PalmSign,
+    Tile::TallGrass,
+    Tile::Ladder,
+    Tile::Bed,
+    Tile::Wool,
+    Tile::Feather,
+    Tile::FishingRod,
+    Tile::Cod,
+    Tile::Salmon,
+    Tile::TropicalFish,
+    Tile::Pufferfish
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -323,7 +357,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 79] = [
+  pub const ALL: [Block; 92] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -402,7 +436,20 @@ impl Block {
     Block::OakSign,
     Block::BirchSign,
     Block::SpruceSign,
-    Block::PalmSign
+    Block::PalmSign,
+    Block::TallGrass,
+    Block::Ladder,
+    Block::LadderEast,
+    Block::LadderSouth,
+    Block::LadderWest,
+    Block::Bed,
+    Block::Wool,
+    Block::Feather,
+    Block::FishingRod,
+    Block::Cod,
+    Block::Salmon,
+    Block::TropicalFish,
+    Block::Pufferfish
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -417,18 +464,65 @@ impl Block {
   pub fn rock(self) -> bool { Block::ROCKS.iter().any(|&(stone, _)| stone == self) }
 
   pub fn item(self) -> bool {
-    self != Block::Air && !self.fluid() && self != Block::WaystoneTop
+    self != Block::Air
+      && !self.fluid()
+      && self != Block::WaystoneTop
+      && self.held() == self
   }
 
   pub fn tool(self) -> bool {
-    matches!(self, Block::Boat | Block::Bucket | Block::WaterBucket | Block::LavaBucket)
+    matches!(
+      self,
+      Block::Boat
+        | Block::Bucket
+        | Block::WaterBucket
+        | Block::LavaBucket
+        | Block::Feather
+        | Block::FishingRod
+    ) || self.fish()
+  }
+
+  pub const FISH: [Block; 4] =
+    [Block::Cod, Block::Salmon, Block::TropicalFish, Block::Pufferfish];
+
+  pub fn fish(self) -> bool { Block::FISH.contains(&self) }
+
+  pub const LADDERS: [(IVec3, Block); 4] = [
+    (IVec3::NEG_Z, Block::Ladder),
+    (IVec3::X, Block::LadderEast),
+    (IVec3::Z, Block::LadderSouth),
+    (IVec3::NEG_X, Block::LadderWest)
+  ];
+
+  pub fn ladder(self) -> bool { Block::LADDERS.iter().any(|&(_, ladder)| ladder == self) }
+
+  pub fn wall(self) -> Option<IVec3> {
+    Block::LADDERS.iter().find(|&&(_, ladder)| ladder == self).map(|&(wall, _)| wall)
+  }
+
+  pub fn against(self, wall: IVec3) -> Block {
+    match self.ladder() {
+      true => Block::LADDERS
+        .iter()
+        .find(|&&(side, _)| side == wall)
+        .map_or(self, |&(_, ladder)| ladder),
+      false => self
+    }
+  }
+
+  pub fn held(self) -> Block {
+    match self.ladder() {
+      true => Block::Ladder,
+      false => self
+    }
   }
 
   pub fn placeable(self) -> bool { self.item() && !self.tool() }
 
   pub fn stack(self) -> u16 {
     match self {
-      Block::WaterBucket | Block::LavaBucket | Block::Boat => 1,
+      Block::WaterBucket | Block::LavaBucket | Block::Boat | Block::FishingRod => 1,
+      Block::Bed => 1,
       Block::Bucket => 16,
       _ => 64
     }
@@ -502,9 +596,17 @@ impl Block {
     Block::BrownMushroom
   ];
 
-  pub fn modelled(self) -> bool { self.plant() || self == Block::Torch || self.sign() }
+  pub fn modelled(self) -> bool {
+    self.plant()
+      || self == Block::Torch
+      || self.sign()
+      || self.ladder()
+      || self == Block::Bed
+  }
 
-  pub fn plant(self) -> bool { (Block::Poppy..=Block::BrownMushroom).contains(&self) }
+  pub fn plant(self) -> bool {
+    (Block::Poppy..=Block::BrownMushroom).contains(&self) || self == Block::TallGrass
+  }
 
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
 
@@ -524,6 +626,8 @@ impl Block {
     match self {
       Block::Glass => 0.3,
       sign if sign.sign() => 0.6,
+      ladder if ladder.ladder() => 0.5,
+      Block::Bed => 0.4,
       model if model.modelled() => 0.05,
       leaves if leaves.leafy() => 0.3,
       Block::Dirt
@@ -543,6 +647,7 @@ impl Block {
       Block::Basalt | Block::Granite | Block::Diorite => 2.5,
       Block::Limestone | Block::LimestoneCobble => 1.6,
       Block::Lamp => 0.5,
+      Block::Wool => 0.5,
       Block::CraftingTable => 1.5,
       Block::Furnace => 2.5,
       Block::DiamondOre | Block::GoldOre => 3.0,
@@ -554,7 +659,7 @@ impl Block {
     Block::ROCKS.iter().find(|&&(stone, _)| stone == self).map_or(
       match self {
         Block::Grass | Block::Mycelium => Block::Dirt,
-        other => other
+        other => other.held()
       },
       |&(_, cobble)| cobble
     )
@@ -640,7 +745,20 @@ impl Block {
       Block::OakSign => "Oak Sign",
       Block::BirchSign => "Birch Sign",
       Block::SpruceSign => "Spruce Sign",
-      Block::PalmSign => "Palm Sign"
+      Block::PalmSign => "Palm Sign",
+      Block::TallGrass => "Tall Grass",
+      Block::Ladder => "Ladder",
+      Block::LadderEast => "Ladder",
+      Block::LadderSouth => "Ladder",
+      Block::LadderWest => "Ladder",
+      Block::Bed => "Bed",
+      Block::Wool => "Wool",
+      Block::Feather => "Feather",
+      Block::FishingRod => "Fishing Rod",
+      Block::Cod => "Cod",
+      Block::Salmon => "Salmon",
+      Block::TropicalFish => "Tropical Fish",
+      Block::Pufferfish => "Pufferfish"
     }
   }
 
@@ -726,7 +844,20 @@ impl Block {
       Block::OakSign => all(Tile::OakSign),
       Block::BirchSign => all(Tile::BirchSign),
       Block::SpruceSign => all(Tile::SpruceSign),
-      Block::PalmSign => all(Tile::PalmSign)
+      Block::PalmSign => all(Tile::PalmSign),
+      Block::TallGrass => all(Tile::TallGrass),
+      Block::Ladder => all(Tile::Ladder),
+      Block::LadderEast => all(Tile::Ladder),
+      Block::LadderSouth => all(Tile::Ladder),
+      Block::LadderWest => all(Tile::Ladder),
+      Block::Bed => all(Tile::Bed),
+      Block::Wool => all(Tile::Wool),
+      Block::Feather => all(Tile::Feather),
+      Block::FishingRod => all(Tile::FishingRod),
+      Block::Cod => all(Tile::Cod),
+      Block::Salmon => all(Tile::Salmon),
+      Block::TropicalFish => all(Tile::TropicalFish),
+      Block::Pufferfish => all(Tile::Pufferfish)
     }
   }
 }

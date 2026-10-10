@@ -1,15 +1,20 @@
-use {crate::{block::Block,
+use {crate::{authority::{Controller, player_of},
+             block::Block,
+             folk::ray_box,
              generate,
              island::{Island, Kind, SEA},
+             menu::Menu,
              noise::{hash, unit},
-             player::{Bulk, Marched, cells, march},
-             protocol::{Avatar, Beast, Breed, Fleece, Pose, authority, plays},
+             player::{Bulk, Marched, Pilot, captured, cells, march},
+             protocol::{Avatar, Beast, Breed, EYE, Fleece, Inventory, Pose, REACH,
+                        Strike, authority, plays},
              voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
             image::ImageSampler,
             platform::collections::{HashMap, HashSet},
             prelude::*,
-            render::render_resource::{Extent3d, TextureDimension, TextureFormat}},
+            render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+            window::{CursorOptions, PrimaryWindow}},
      bevy_replicon::prelude::*,
      std::f32::consts::{PI, TAU}};
 
@@ -22,6 +27,7 @@ const STROLL: f32 = 1.7;
 const DASH: f32 = 6.5;
 const PADDLE: f32 = 1.6;
 const SKITTISH: f32 = 6.0;
+const REGROW: f32 = 30.0;
 
 impl Breed {
   fn bulk(self) -> Bulk {
@@ -58,6 +64,7 @@ pub struct Roam {
   mood: Mood,
   timer: f32,
   ashore: f32,
+  shorn: f32,
   luck: u32
 }
 
@@ -158,6 +165,7 @@ fn muster(
             mood: if breed == Breed::Lizard { Mood::Swim } else { Mood::Idle },
             timer: 1.0 + unit(luck, 8, 0, 0) * 3.0,
             ashore: 0.0,
+            shorn: 0.0,
             luck
           }
         ));
@@ -274,6 +282,7 @@ fn roam(
         .find(|away| away.length() < SKITTISH && breed == Breed::Lizard);
       roam.timer -= dt;
       roam.ashore -= dt;
+      roam.shorn -= dt;
       let was = roam.mood;
       roam.mood = mood(&mut roam, breed, swimming, fright);
       let turned = roam.mood != was || roam.timer <= 0.0;
@@ -340,6 +349,62 @@ fn roam(
       beast.set_if_neq(Beast { breed, at: moved, yaw: yaw.rem_euclid(TAU), pose });
     }
   )
+}
+
+fn shear(
+  mut strikes: MessageReader<FromClient<Strike>>,
+  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  mut beasts: Query<(&Beast, &mut Roam)>
+) {
+  strikes.read().for_each(|&FromClient { client_id, message: Strike(target) }| {
+    if let Ok((beast, mut roam)) = beasts.get_mut(target)
+      && matches!(beast.breed, Breed::Sheep(_))
+      && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
+      && (avatar.at + Vec3::Y * EYE).distance(beast.at) <= REACH + 1.0
+    {
+      if roam.shorn <= 0.0 && inventory.add(Block::Wool) {
+        roam.shorn = REGROW
+      }
+      roam.mood = Mood::Stroll;
+      roam.timer = 2.0
+    }
+  })
+}
+
+pub fn struck(beast: &Beast, from: Vec3, toward: Vec3) -> Option<f32> {
+  let Bulk { half, tall } = beast.breed.bulk();
+  let extent = Vec3::new(half, tall, half) * beast.breed.size();
+  ray_box(from, toward, beast.at - extent.with_y(0.0), beast.at + extent.with_y(extent.y))
+}
+
+fn prod(
+  buttons: Res<ButtonInput<MouseButton>>,
+  cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+  menu: Res<Menu>,
+  pilot: Res<Pilot>,
+  voxels: Option<Res<Voxels>>,
+  beasts: Query<(Entity, &Beast)>,
+  mut strikes: MessageWriter<Strike>
+) {
+  if let Some(voxels) = voxels
+    && captured(&cursor, &menu)
+    && buttons.just_pressed(MouseButton::Left)
+  {
+    let (from, toward) = (pilot.eye(), pilot.facing() * Vec3::NEG_Z);
+    let blocked = voxels
+      .cast(from, toward, REACH)
+      .map_or(REACH, |hit| (hit.at.as_vec3() + 0.5).distance(from));
+    if let Some((target, _)) = beasts
+      .iter()
+      .filter_map(|(entity, beast)| {
+        struck(beast, from, toward).map(|near| (entity, near))
+      })
+      .filter(|&(_, near)| near <= blocked)
+      .min_by(|a, b| a.1.total_cmp(&b.1))
+    {
+      strikes.write(Strike(target));
+    }
+  }
 }
 
 #[derive(Resource, Default)]
@@ -434,7 +499,8 @@ pub enum Joint {
   Tail,
   TailTip,
   Leg(f32),
-  Arm(f32)
+  Arm(f32),
+  Wing(f32)
 }
 
 #[derive(Component)]
@@ -753,6 +819,7 @@ fn animate(
           Joint::Tail => (rest.0, tail),
           Joint::TailTip => (rest.0, tip),
           Joint::Leg(phase) => (rest.0, Quat::from_rotation_x(leg * phase.cos())),
+          Joint::Wing(_) => (rest.0, Quat::IDENTITY),
           Joint::Arm(phase) => {
             let (base, swing, spread) = arm;
             (
@@ -780,6 +847,8 @@ impl Plugin for Beasts {
         Update,
         (muster, roam).chain().run_if(authority).run_if(resource_exists::<Voxels>)
       )
-      .add_systems(Update, (dress, animate).chain().run_if(plays));
+      .add_systems(PreUpdate, shear.after(ServerSystems::Receive).run_if(authority))
+      .add_systems(Update, (dress, animate).chain().run_if(plays))
+      .add_systems(Update, prod.run_if(plays).run_if(resource_exists::<Pilot>));
   }
 }

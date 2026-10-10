@@ -253,21 +253,35 @@ fn mend(time: Res<Time>, mut players: Query<(&mut Health, &mut Vigour)>) {
 }
 
 fn perish(
-  voxels: Res<Voxels>,
-  mut players: Query<(Entity, &Controller, &mut Health, &mut Avatar, &mut Vigour)>,
+  mut voxels: ResMut<Voxels>,
+  mut players: Query<(
+    Entity,
+    &Controller,
+    &mut Health,
+    &mut Avatar,
+    &mut Vigour,
+    &Bedside
+  )>,
   mut boats: Query<&mut Vessel>,
   mut teleports: MessageWriter<ToClients<Teleport>>
 ) {
   players.iter_mut().filter(|(_, _, health, ..)| health.0 == 0).for_each(
-    |(entity, controller, mut health, mut avatar, mut vigour)| {
+    |(entity, controller, mut health, mut avatar, mut vigour, bedside)| {
       health.0 = Health::FULL;
       *vigour = Vigour::default();
       boats
         .iter_mut()
         .filter(|vessel| vessel.rider == Some(entity))
         .for_each(|mut vessel| vessel.rider = None);
-      let revived =
-        Avatar { at: generate::spawn_point(voxels.seed), yaw: FACING_STONE, pitch: 0.0 };
+      let bed = bedside
+        .0
+        .filter(|&at| voxels.ensure(at) == Block::Bed)
+        .map(|at| at.as_vec3() + Vec3::new(0.5, 0.05, 0.5));
+      let revived = Avatar {
+        at: bed.unwrap_or(generate::spawn_point(voxels.seed)),
+        yaw: FACING_STONE,
+        pitch: 0.0
+      };
       *avatar = revived;
       teleports.write(ToClients {
         targets: SendTargets::Single(controller.client),

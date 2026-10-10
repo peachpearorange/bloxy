@@ -388,6 +388,18 @@ fn bloom(seed: u32, x: i32, z: i32, ground: &Column) -> Option<Block> {
         unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
       })
       .map(|(block, _)| block)
+      .or_else(|| {
+        let lush = match (island.kind, ground.top) {
+          (Kind::Meadow, Block::Grass) => 0.45,
+          (Kind::Woods, Block::Grass) => 0.3,
+          (_, Block::Grass) => 0.2,
+          _ => 0.0
+        };
+        let sward =
+          fbm2(seed.wrapping_add(43), x as f32 / 11.0, z as f32 / 11.0, 2) + 0.5;
+        (unit(seed ^ 0xF13, x, 4, z) < lush * sward.clamp(0.0, 1.0))
+          .then_some(Block::TallGrass)
+      })
   })
 }
 

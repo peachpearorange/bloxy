@@ -2,7 +2,7 @@ use {crate::{block::Block,
              model,
              opts::opts,
              player::{Aim, Pilot, Selected},
-             protocol::{HOTBAR, Health, Inventory, Role, plays},
+             protocol::{HOTBAR, Health, Inventory, Notice, Role, plays},
              stream::{Palette, Progress},
              texture::{ICON, ICON_COLUMNS},
              voxels::Voxels},
@@ -36,6 +36,9 @@ struct Heart(u8);
 
 #[derive(Component)]
 struct Flash;
+
+#[derive(Component)]
+struct Announcement;
 
 const HEART: [&str; 7] =
   [".00.00.", "0220110", "0211110", "0111110", ".01110.", "..010..", "...0..."];
@@ -216,6 +219,23 @@ fn build(
             ));
           });
       })
+    });
+  commands
+    .spawn(Node {
+      width: percent(100),
+      position_type: PositionType::Absolute,
+      bottom: px(12.0 + SLOT + 40.0),
+      justify_content: JustifyContent::Center,
+      ..default()
+    })
+    .with_children(|row| {
+      row.spawn((
+        Announcement,
+        Text::new(""),
+        TextFont { font_size: FontSize::Px(18.0), ..default() },
+        TextColor(Color::srgba(1.0, 0.95, 0.75, 0.0)),
+        TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, 0.7) }
+      ));
     });
   commands.spawn((
     Status,
@@ -410,6 +430,28 @@ fn vitals(
     .for_each(|mut background| background.0 = Color::srgba(0.8, 0.0, 0.0, *redness))
 }
 
+const ANNOUNCED_FOR: f32 = 3.5;
+
+fn announce(
+  time: Res<Time>,
+  mut notices: MessageReader<Notice>,
+  mut texts: Query<(&mut Text, &mut TextColor), With<Announcement>>,
+  mut since: Local<f32>
+) {
+  let latest = notices.read().last().map(|notice| notice.0.clone());
+  *since = match latest {
+    Some(_) => 0.0,
+    None => *since + time.delta_secs()
+  };
+  let fade = (ANNOUNCED_FOR - *since).clamp(0.0, 1.0);
+  texts.iter_mut().for_each(|(mut text, mut color)| {
+    if let Some(line) = &latest {
+      text.0 = line.clone()
+    }
+    color.0.set_alpha(fade)
+  })
+}
+
 pub struct Hud;
 
 impl Plugin for Hud {
@@ -417,6 +459,6 @@ impl Plugin for Hud {
     app
       .add_plugins(FrameTimeDiagnosticsPlugin::default())
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
-      .add_systems(Update, (refresh, aim, status, vitals).run_if(plays));
+      .add_systems(Update, (refresh, aim, status, vitals, announce).run_if(plays));
   }
 }

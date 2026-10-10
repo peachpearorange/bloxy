@@ -3,11 +3,13 @@
 mod account;
 mod authority;
 mod beast;
+mod bird;
 mod block;
 mod boat;
 mod crafting;
 mod editor;
 mod figure;
+mod fishing;
 mod flow;
 mod folk;
 mod generate;
@@ -38,6 +40,7 @@ mod texture;
 mod trade;
 mod voxels;
 mod waystone;
+mod weather;
 
 use {bevy::{app::ScheduleRunnerPlugin,
             camera::{Viewport, visibility::RenderLayers},
@@ -241,6 +244,7 @@ fn main() {
       sign::Signs,
       trade::Trading
     ))
+    .add_plugins((fishing::Fishing, weather::Weathering, bird::Birds))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
   app.add_plugins(net::server::ServerNet);

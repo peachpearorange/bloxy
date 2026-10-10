@@ -20,7 +20,9 @@ impl Flows {
   }
 }
 
-fn replaceable(block: Block) -> bool { block == Block::Air || block.modelled() }
+fn replaceable(block: Block) -> bool {
+  block == Block::Air || (block.modelled() && !block.ladder() && block != Block::Bed)
+}
 
 fn next(voxels: &mut Voxels, at: IVec3) -> Option<Block> {
   let here = voxels.ensure(at);

@@ -28,6 +28,10 @@ fn starter(creative: bool) -> Inventory {
     Block::Furnace,
     Block::Boat,
     Block::Bucket,
+    Block::FishingRod,
+    Block::Ladder,
+    Block::Bed,
+    Block::Wool,
     Block::OakSign,
     Block::Log,
     Block::Stone,
@@ -61,7 +65,7 @@ fn embody(
   client: ClientId,
   account: usize
 ) -> Entity {
-  let Account { name, avatar, inventory, skin, visited, bookmarks, .. } =
+  let Account { name, avatar, inventory, skin, visited, bookmarks, bedside, .. } =
     accounts.0[account].clone();
   let at = generate::spawn_point(seed);
   let player = commands
@@ -74,6 +78,7 @@ fn embody(
       skin,
       visited,
       bookmarks,
+      bedside,
       Health(Health::FULL),
       folk::Vigour::default()
     ))
@@ -259,7 +264,8 @@ fn dig(
   digs.read().for_each(|&FromClient { client_id, message: Dig { at } }| {
     let block = voxels.ensure(at);
     let above = at + IVec3::Y;
-    let perched = Some(voxels.ensure(above)).filter(|block| block.modelled());
+    let perched =
+      Some(voxels.ensure(above)).filter(|block| block.modelled() && !block.ladder());
     let granted =
       player_of(players.iter_mut(), client_id).is_some_and(|(avatar, mut inventory)| {
         block.breakable() && within_reach(avatar, at) && {
@@ -312,15 +318,17 @@ fn put(
         (avatar.at - Vec3::new(0.3, 0.0, 0.3), avatar.at + Vec3::new(0.3, 1.8, 0.3));
       low.cmplt(cell.1).all() && high.cmpgt(cell.0).all()
     });
-    let footed =
-      block.solid() || (block.modelled() && voxels.ensure(at - IVec3::Y).solid());
-    if block.placeable()
+    let footed = match block.wall() {
+      Some(wall) => voxels.ensure(at + wall).solid(),
+      None => block.solid() || (block.modelled() && voxels.ensure(at - IVec3::Y).solid())
+    };
+    if block.held().placeable()
       && !(crowded && block.solid())
       && footed
       && !present.solid()
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
-      && inventory.take(block)
+      && inventory.take(block.held())
     {
       voxels.set(at, block);
       flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
@@ -499,6 +507,26 @@ fn mark(
   })
 }
 
+fn rest(
+  mut rests: MessageReader<FromClient<Rest>>,
+  mut voxels: ResMut<Voxels>,
+  mut players: Query<(&Controller, (&Avatar, &mut Bedside))>,
+  mut notices: MessageWriter<ToClients<Notice>>
+) {
+  rests.read().for_each(|&FromClient { client_id, message: Rest(at) }| {
+    if voxels.ensure(at) == Block::Bed
+      && let Some((avatar, mut bedside)) = player_of(players.iter_mut(), client_id)
+      && within_reach(avatar, at)
+    {
+      bedside.0 = Some(at);
+      notices.write(ToClients {
+        targets: SendTargets::Single(client_id),
+        message: Notice("Spawn point set at your bed".into())
+      });
+    }
+  })
+}
+
 pub struct Authority;
 
 impl Plugin for Authority {
@@ -509,7 +537,7 @@ impl Plugin for Authority {
         PreUpdate,
         (
           sign_in, paint, follow, attune, travel, dig, put, scoop, pour, shuffle, craft,
-          mark
+          mark, rest
         )
           .chain()
           .after(ServerSystems::Receive)

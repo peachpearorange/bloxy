@@ -8,7 +8,7 @@ use {crate::{block::{Block, Look, Tile},
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 10;
+pub const ROWS: u32 = 12;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -60,22 +60,22 @@ const STONE: Art = [
 ];
 
 const COBBLE: Art = [
-  "0001222200012220",
-  "0122332201233220",
-  "1233322212332221",
-  "1232222212222221",
-  "1222222101222210",
-  "0122221000111100",
-  "0011110012222100",
-  "0122210123332210",
-  "1233221123322221",
-  "1232222112222221",
-  "1222222101222210",
-  "0122221000111100",
-  "0011100122100122",
-  "2210012332101233",
-  "3221012322101232",
-  "2221001221000122"
+  "2222202222300000",
+  "0222203222022220",
+  "0003202222012320",
+  "2300023220322230",
+  "3211000000221201",
+  "2122022120022202",
+  "2313022221001022",
+  "1222022122100022",
+  "0000000122220000",
+  "2213030000002022",
+  "2220232222022002",
+  "1230223320232302",
+  "2220022320223202",
+  "2302002220223200",
+  "0032200000012120",
+  "2222220222002220"
 ];
 
 const DIRT: Art = [
@@ -530,13 +530,77 @@ static PEBBLES_OF_COBBLE: std::sync::LazyLock<Vec<u32>> =
     labels
   });
 
+static CRACKS_OF_COBBLE: std::sync::LazyLock<Vec<bool>> =
+  std::sync::LazyLock::new(|| {
+    let pebble = |x: i32, y: i32| {
+      let (x, y) = wrapped(x, y);
+      PEBBLES_OF_COBBLE[(y * PIXELS + x) as usize]
+    };
+    let sizes = (0..PIXELS * PIXELS).fold(
+      std::collections::BTreeMap::<u32, Vec<(i32, i32)>>::new(),
+      |mut sizes, at| {
+        let (x, y) = ((at % PIXELS) as i32, (at / PIXELS) as i32);
+        if pebble(x, y) != 0 {
+          sizes.entry(pebble(x, y)).or_default().push((x, y))
+        }
+        sizes
+      }
+    );
+    const TURNS: [(i32, i32); 8] =
+      [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
+    sizes
+      .iter()
+      .filter(|(label, cells)| {
+        cells.len() >= 14 && crate::noise::unit(0xC4A, **label as i32, 0, 0) < 0.6
+      })
+      .flat_map(|(&label, cells)| {
+        let edge: Vec<(i32, i32, usize)> = cells
+          .iter()
+          .filter_map(|&(x, y)| {
+            [4, 6, 0, 2]
+              .into_iter()
+              .find(|&turn| {
+                let (dx, dy) = TURNS[turn];
+                pebble(x + dx, y + dy) == 0
+              })
+              .map(|outward| (x, y, (outward + 4) % 8))
+          })
+          .collect();
+        let roll = |salt: i32| crate::noise::hash(0xC4B, label as i32, salt, 0);
+        let (x, y, inward) = edge[roll(0) as usize % edge.len().max(1)];
+        let length = 3 + roll(1) % 4;
+        (0..length)
+          .scan((x, y, inward), move |(x, y, heading), step| {
+            let here = (*x, *y);
+            let veer = [0, 1, 7, 0][(roll(step as i32 + 2) % 4) as usize];
+            *heading = (*heading + veer) % 8;
+            let (dx, dy) = TURNS[*heading];
+            *x += dx;
+            *y += dy;
+            Some(here)
+          })
+          .take_while(move |&(x, y)| pebble(x, y) == label)
+          .collect::<Vec<_>>()
+      })
+      .fold(vec![false; (PIXELS * PIXELS) as usize], |mut cracks, (x, y)| {
+        let (x, y) = wrapped(x, y);
+        cracks[(y * PIXELS + x) as usize] = true;
+        cracks
+      })
+  });
+
+fn cracked(x: i32, y: i32) -> bool {
+  let (x, y) = wrapped(x, y);
+  CRACKS_OF_COBBLE[(y * PIXELS + x) as usize]
+}
+
 const PEBBLE_TINTS: [[f32; 3]; 6] = [
   [1.0, 1.0, 1.0],
-  [1.08, 1.0, 0.9],
-  [0.92, 0.97, 1.08],
-  [0.97, 1.04, 0.94],
-  [1.12, 1.07, 1.02],
-  [0.86, 0.86, 0.88]
+  [1.05, 1.0, 0.94],
+  [0.96, 0.98, 1.04],
+  [0.99, 1.02, 0.97],
+  [1.07, 1.04, 1.0],
+  [0.9, 0.9, 0.91]
 ];
 
 fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
@@ -555,11 +619,16 @@ fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
     _ => 0.94 + (lattice(0xC0E, 8, x, y) - 0.5) * 0.18
   };
   let shade = shade_of(&COBBLE, x, y).map_or(0.0, |shade| (shade as f32 - 2.0) * 0.03);
+  let crack = match (cracked(x as i32, y as i32), cracked(x as i32, y as i32 - 1)) {
+    (true, _) => -0.42,
+    (false, true) => 0.1,
+    _ => 0.0
+  };
   let [r, g, b] = std::array::from_fn(|channel| {
     base[channel]
       * match pebble {
         0 => light,
-        _ => tint[channel] * bright * (light + shade)
+        _ => tint[channel] * bright * (light + shade + crack)
       }
   });
   Texel::rgb(r, g, b)
@@ -714,6 +783,109 @@ const SIGN: Art = [
   ".......120......",
   ".......000......"
 ];
+
+const FEATHER: Art = [
+  "................",
+  "............33..",
+  "...........3332.",
+  "..........33322.",
+  ".........333221.",
+  "........333221..",
+  ".......333221...",
+  "......333221....",
+  ".....333221.....",
+  "....333221......",
+  "....33221.......",
+  "...3221.........",
+  "...0............",
+  "..0.............",
+  ".0..............",
+  "................"
+];
+
+const QUILL: Palette =
+  [[0.3, 0.3, 0.32], [0.7, 0.72, 0.76], [0.86, 0.88, 0.9], [0.98, 0.98, 1.0]];
+
+const ROD: Art = [
+  "................",
+  ".............11.",
+  "............1.3.",
+  "...........1..3.",
+  "..........1...3.",
+  ".........1....3.",
+  "........1.....3.",
+  ".......1......3.",
+  "......1.......3.",
+  ".....1........3.",
+  "....0.........3.",
+  "...0.........222",
+  "..0...........2.",
+  ".0..............",
+  "................",
+  "................"
+];
+
+const TACKLE: Palette =
+  [[0.3, 0.2, 0.11], [0.52, 0.37, 0.2], [0.8, 0.18, 0.12], [0.85, 0.85, 0.82]];
+
+const FISH: Art = [
+  "................",
+  "................",
+  "................",
+  "......1111......",
+  "....11111111...1",
+  "...1122222211.11",
+  "..112022222221.1",
+  ".1122222222221.1",
+  "..2223333333221.",
+  "...22333333322.1",
+  "....222222222..1",
+  "......2222.....1",
+  "................",
+  "................",
+  "................",
+  "................"
+];
+
+const PUFFER: Art = [
+  "................",
+  ".......1........",
+  "...1..1111..1...",
+  "....11111111....",
+  "...1111111111...",
+  "..112011111111..",
+  "1.11111111111.11",
+  "..222222222221.1",
+  "..2333333333221.",
+  "1.23333333332..1",
+  "...233333332....",
+  "....2222222.....",
+  "...2...2...2....",
+  "................",
+  "................",
+  "................"
+];
+
+fn fish(tile: Tile) -> Palette {
+  match tile {
+    Tile::Salmon => {
+      [[0.1, 0.06, 0.06], [0.55, 0.22, 0.2], [0.85, 0.42, 0.34], [0.95, 0.72, 0.6]]
+    }
+    Tile::TropicalFish => {
+      [[0.05, 0.05, 0.08], [0.95, 0.45, 0.08], [0.98, 0.72, 0.15], [0.98, 0.95, 0.9]]
+    }
+    Tile::Pufferfish => {
+      [[0.08, 0.06, 0.03], [0.72, 0.6, 0.18], [0.9, 0.8, 0.3], [0.97, 0.94, 0.75]]
+    }
+    _ => [[0.06, 0.06, 0.05], [0.42, 0.38, 0.28], [0.62, 0.58, 0.44], [0.86, 0.84, 0.74]]
+  }
+}
+
+fn wool(x: u32, y: u32) -> Texel {
+  let curl = lattice(0x3A, 8, x, y) * 0.6 + lattice(0x3B, 16, x, y) * 0.4;
+  let tuft = (x + y / 3 * 2) % 4 == 0 && y % 3 == 0;
+  ramp(&WHITE, 0.25 + curl * 0.6 - if tuft { 0.25 } else { 0.0 })
+}
 
 pub fn timber(sign: Block) -> Palette {
   match sign {
@@ -904,6 +1076,18 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::WaterBucket => bucket(Some(Texel::rgb(0.2, 0.45, 0.85)), x, y),
     Tile::LavaBucket => bucket(Some(Texel::rgb(1.0, 0.5, 0.1).glowing(0.4)), x, y),
     Tile::Torch => model_icon(Block::Torch, x, y),
+    Tile::TallGrass => model_icon(Block::TallGrass, x, y),
+    Tile::Bed => model_icon(Block::Bed, x, y),
+    Tile::Ladder => solid(&GROOVES, &WOOD, y, x),
+    Tile::Wool => wool(x, y),
+    Tile::Feather => cutout(&FEATHER, &QUILL, x, y),
+    Tile::FishingRod => cutout(&ROD, &TACKLE, x, y),
+    Tile::Cod | Tile::Salmon => cutout(&FISH, &fish(tile), x, y),
+    Tile::TropicalFish => match shade_of(&FISH, x, y) {
+      Some(shade) if shade > 1 && (x == 6 || x == 10) => Texel::rgb(0.98, 0.95, 0.9),
+      _ => cutout(&FISH, &fish(tile), x, y)
+    },
+    Tile::Pufferfish => cutout(&PUFFER, &fish(tile), x, y),
     Tile::OakSign => cutout(&SIGN, &timber(Block::OakSign), x, y),
     Tile::BirchSign => cutout(&SIGN, &timber(Block::BirchSign), x, y),
     Tile::SpruceSign => cutout(&SIGN, &timber(Block::SpruceSign), x, y),
@@ -1073,6 +1257,7 @@ fn iso(block: Block, x: u32, y: u32) -> [f32; 4] {
 fn icon_texel(block: Block, x: u32, y: u32) -> [f32; 4] {
   match block.look() {
     Look::Opaque | Look::Cutout | Look::Log if block.item() => iso(block, x, y),
+    _ if block.ladder() => model_icon(block, x / 2, y / 2).color,
     _ => paint(block.tiles()[1], x / 2, y / 2).color
   }
 }

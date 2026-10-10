@@ -137,6 +137,72 @@ const WAYSTONE_TOP_BITS: &[Bit] = &[
   skin([5, 12, 5], [11, 14, 11], Tile::WaystoneTop)
 ];
 
+const BLADE: [f32; 3] = [0.34, 0.6, 0.2];
+const BLADE_DARK: [f32; 3] = [0.22, 0.45, 0.14];
+const BLADE_DRY: [f32; 3] = [0.5, 0.64, 0.26];
+
+const TALL_GRASS_BITS: &[Bit] = &[
+  bit([2, 0, 3], [3, 9, 4], BLADE),
+  bit([3, 6, 3], [4, 11, 4], BLADE),
+  bit([5, 0, 9], [6, 12, 10], BLADE_DARK),
+  bit([4, 9, 9], [5, 14, 10], BLADE_DARK),
+  bit([7, 0, 5], [8, 7, 6], BLADE_DRY),
+  bit([8, 0, 12], [9, 10, 13], BLADE),
+  bit([9, 7, 12], [10, 13, 13], BLADE),
+  bit([10, 0, 6], [11, 13, 7], BLADE_DARK),
+  bit([11, 10, 6], [12, 15, 7], BLADE_DARK),
+  bit([12, 0, 2], [13, 8, 3], BLADE_DRY),
+  bit([13, 0, 10], [14, 11, 11], BLADE),
+  bit([12, 8, 10], [13, 12, 11], BLADE),
+  bit([4, 0, 13], [5, 6, 14], BLADE_DRY),
+  bit([6, 0, 1], [7, 10, 2], BLADE),
+  bit([14, 0, 4], [15, 6, 5], BLADE_DARK)
+];
+
+const LADDER_BITS: [Bit; 6] = [
+  skin([2, 0, 0], [4, 16, 2], Tile::Ladder),
+  skin([12, 0, 0], [14, 16, 2], Tile::Ladder),
+  skin([4, 2, 0], [12, 3, 1], Tile::Ladder),
+  skin([4, 6, 0], [12, 7, 1], Tile::Ladder),
+  skin([4, 10, 0], [12, 11, 1], Tile::Ladder),
+  skin([4, 14, 0], [12, 15, 1], Tile::Ladder)
+];
+
+const fn turned(bits: [Bit; 6], quarters: u8) -> [Bit; 6] {
+  let mut turned = bits;
+  let mut index = 0;
+  while index < 6 {
+    let Bit { low: [lx, ly, lz], high: [hx, hy, hz], color, tile } = bits[index];
+    let (low, high) = match quarters {
+      1 => ([16 - hz, ly, lx], [16 - lz, hy, hx]),
+      2 => ([16 - hx, ly, 16 - hz], [16 - lx, hy, 16 - lz]),
+      3 => ([lz, ly, 16 - hx], [hz, hy, 16 - lx]),
+      _ => ([lx, ly, lz], [hx, hy, hz])
+    };
+    turned[index] = Bit { low, high, color, tile };
+    index += 1
+  }
+  turned
+}
+
+const LADDER_EAST_BITS: [Bit; 6] = turned(LADDER_BITS, 1);
+const LADDER_SOUTH_BITS: [Bit; 6] = turned(LADDER_BITS, 2);
+const LADDER_WEST_BITS: [Bit; 6] = turned(LADDER_BITS, 3);
+
+const BLANKET: [f32; 3] = [0.75, 0.16, 0.14];
+
+const BED_BITS: &[Bit] = &[
+  skin([0, 0, 1], [2, 3, 3], Tile::Planks),
+  skin([0, 0, 13], [2, 3, 15], Tile::Planks),
+  skin([14, 0, 1], [16, 3, 3], Tile::Planks),
+  skin([14, 0, 13], [16, 3, 15], Tile::Planks),
+  skin([0, 3, 1], [1, 13, 15], Tile::Planks),
+  skin([0, 3, 1], [16, 5, 15], Tile::Planks),
+  skin([1, 5, 2], [16, 8, 14], Tile::Wool),
+  skin([1, 8, 3], [5, 10, 13], Tile::Wool),
+  Bit { low: [5, 7, 1], high: [16, 9, 15], color: BLANKET, tile: Tile::Wool }
+];
+
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
     Block::Torch => TORCH_BITS,
@@ -152,6 +218,12 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::PalmSapling => PALM_SAPLING_BITS,
     Block::RedMushroom => RED_MUSHROOM_BITS,
     Block::BrownMushroom => BROWN_MUSHROOM_BITS,
+    Block::TallGrass => TALL_GRASS_BITS,
+    Block::Ladder => &LADDER_BITS,
+    Block::LadderEast => &LADDER_EAST_BITS,
+    Block::LadderSouth => &LADDER_SOUTH_BITS,
+    Block::LadderWest => &LADDER_WEST_BITS,
+    Block::Bed => BED_BITS,
     _ => &[]
   }
 }
