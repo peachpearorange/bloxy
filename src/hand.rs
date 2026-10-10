@@ -15,6 +15,7 @@ const REST: Vec3 = Vec3::new(0.42, -0.4, -0.34);
 
 const GRIP: Vec3 = Vec3::new(0.3, -0.3, -0.5);
 const HELD_LARGER: f32 = 1.6;
+const HELD_CUBE_LARGER: f32 = 1.2;
 const ROD_LENGTH: f32 = 1.3;
 
 #[derive(Component)]
@@ -72,8 +73,9 @@ fn hold(
           }
         };
         if fist {
-          transform.translation = hand + (transform.translation - hand) * HELD_LARGER;
-          transform.scale = Vec3::splat(HELD_LARGER)
+          let larger = if cubic(block) { HELD_CUBE_LARGER } else { HELD_LARGER };
+          transform.translation = hand + (transform.translation - hand) * larger;
+          transform.scale = Vec3::splat(larger)
         }
         *visibility = Visibility::Inherited;
         commands.entity(entity).insert((

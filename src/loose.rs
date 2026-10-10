@@ -18,8 +18,12 @@ const GATHER: f32 = 1.6;
 const TOSSED_WAIT: f32 = 1.5;
 const DROPPED_WAIT: f32 = 0.4;
 const LASTS: f32 = 300.0;
+const FLYING: f32 = 0.25;
 pub const SIZE: f32 = 0.25;
 const BULK: Bulk = Bulk { half: SIZE / 2.0, tall: SIZE };
+
+#[derive(Component)]
+struct Flying(f32);
 
 #[derive(Component)]
 pub struct Tumble {
@@ -136,16 +140,32 @@ fn gather(
   for (entity, mut loose, _) in
     loose.iter_mut().filter(|(_, _, tumble)| tumble.wait <= 0.0)
   {
-    if let Some((_, mut inventory)) = players
+    if let Some((avatar, mut inventory)) = players
       .iter_mut()
       .find(|(avatar, _)| (avatar.at + Vec3::Y * 0.9).distance(loose.at) < GATHER)
     {
       let kept = (0..loose.count).filter(|_| !inventory.add(loose.block)).count() as u16;
       match kept {
-        0 => commands.entity(entity).despawn(),
+        0 => {
+          loose.at = avatar.at + Vec3::Y * 1.1;
+          commands.entity(entity).remove::<Tumble>().insert((Gathered, Flying(FLYING)));
+        }
         kept if kept != loose.count => loose.count = kept,
         _ => ()
       }
+    }
+  }
+}
+
+fn land(
+  time: Res<Time>,
+  mut flying: Query<(Entity, &mut Flying)>,
+  mut commands: Commands
+) {
+  for (entity, mut flying) in flying.iter_mut() {
+    flying.0 -= time.delta_secs();
+    if flying.0 <= 0.0 {
+      commands.entity(entity).despawn()
     }
   }
 }
@@ -327,16 +347,24 @@ fn show(
   }
 }
 
-fn settle(time: Res<Time>, mut shown: Query<(&Loose, &mut Shown, &mut Transform)>) {
+fn settle(
+  time: Res<Time>,
+  mut shown: Query<(&Loose, Has<Gathered>, &mut Shown, &mut Transform)>
+) {
   let dt = time.delta_secs();
-  for (loose, mut shown, mut transform) in shown.iter_mut() {
+  for (loose, gathered, mut shown, mut transform) in shown.iter_mut() {
     shown.at = shown.at.lerp(loose.at, (dt * 15.0).min(1.0));
+    let shrink = match gathered {
+      true => (shown.at.distance(loose.at) * 1.5).min(1.0),
+      false => 1.0
+    };
     let lift = match cubic(loose.block) {
       true => 0.0,
       false => FLAT / PIXELS as f32 / 2.0 + 0.004
     };
-    *transform =
-      Transform::from_translation(shown.at + Vec3::Y * lift).with_rotation(shown.turned)
+    *transform = Transform::from_translation(shown.at + Vec3::Y * lift)
+      .with_rotation(shown.turned)
+      .with_scale(Vec3::splat(shrink))
   }
 }
 
@@ -348,7 +376,10 @@ impl Plugin for Litter {
       .add_systems(PreUpdate, toss.after(ServerSystems::Receive).run_if(authority))
       .add_systems(
         Update,
-        (tumble, gather).chain().run_if(authority).run_if(resource_exists::<Voxels>)
+        (tumble, gather, land)
+          .chain()
+          .run_if(authority)
+          .run_if(resource_exists::<Voxels>)
       )
       .init_resource::<Looks>()
       .add_systems(

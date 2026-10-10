@@ -455,6 +455,9 @@ pub struct Loose {
   pub at: Vec3
 }
 
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Gathered;
+
 pub struct Protocol;
 
 impl Plugin for Protocol {
@@ -507,7 +510,8 @@ impl Plugin for Protocol {
       .add_client_message::<Tint>(Channel::Ordered)
       .add_client_message::<Say>(Channel::Ordered)
       .add_server_message::<Said>(Channel::Ordered)
-      .add_client_message::<Picked>(Channel::Ordered);
+      .add_client_message::<Picked>(Channel::Ordered)
+      .replicate::<Gathered>();
   }
 }
 

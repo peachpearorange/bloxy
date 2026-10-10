@@ -1233,57 +1233,161 @@ pub fn glow() -> Image {
 pub const ICON: u32 = 32;
 pub const ICON_COLUMNS: u32 = 10;
 
-fn iso(block: Block, x: u32, y: u32) -> [f32; 4] {
-  let [top, side, _] = block.tiles();
-  let at = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
-  let half = ICON as f32 / 2.0;
-  let faces = [
-    (
-      top,
-      Vec2::new(half, 1.0),
-      Vec2::new(half - 1.0, 7.5),
-      Vec2::new(1.0 - half, 7.5),
-      1.0
-    ),
-    (side, Vec2::new(1.0, 8.5), Vec2::new(half - 1.0, 7.5), Vec2::new(0.0, 15.0), 0.8),
-    (
-      side,
-      Vec2::new(half, 16.0),
-      Vec2::new(half - 1.0, -7.5),
-      Vec2::new(0.0, 15.0),
-      0.62
-    )
-  ];
-  faces
-    .into_iter()
-    .find_map(|(tile, origin, across, down, shade)| {
-      let local = Mat2::from_cols(across, down).inverse() * (at - origin);
-      ((0.0..1.0).contains(&local.x) && (0.0..1.0).contains(&local.y))
-        .then(|| {
-          let [r, g, b, a] = paint(
-            tile,
-            (local.x * PIXELS as f32) as u32,
-            (local.y * PIXELS as f32) as u32
-          )
-          .color;
-          [r * shade, g * shade, b * shade, a]
-        })
-        .filter(|texel| texel[3] > 0.0)
-    })
-    .unwrap_or([0.0; 4])
+struct Brick {
+  low: Vec3,
+  high: Vec3,
+  faces: [Tile; 6],
+  tint: [f32; 3]
 }
 
-fn icon_texel(block: Block, x: u32, y: u32) -> [f32; 4] {
+const ICON_AXES: Mat3 = Mat3::from_cols(
+  Vec3::new(15.0, 7.5, 0.0),
+  Vec3::new(0.0, -15.0, 0.0),
+  Vec3::new(-15.0, 7.5, 0.0)
+);
+const ICON_SPAN: f32 = 30.0;
+const ICON_ZOOM: f32 = 2.4;
+const ICON_SAMPLES: u32 = 4;
+const FACE_SHADES: [f32; 6] = [0.7, 0.62, 0.5, 1.0, 0.6, 0.8];
+
+fn bricks(block: Block) -> Vec<Brick> {
+  let bits = model::bits(block);
+  match bits.is_empty() {
+    true => {
+      let [top, side, bottom] = block.tiles();
+      vec![Brick {
+        low: Vec3::ZERO,
+        high: Vec3::ONE,
+        faces: [side, side, bottom, top, side, side],
+        tint: [1.0; 3]
+      }]
+    }
+    false => bits
+      .iter()
+      .map(|bit| Brick {
+        low: Vec3::from(bit.low.map(f32::from)) / 16.0,
+        high: Vec3::from(bit.high.map(f32::from)) / 16.0,
+        faces: [bit.tile; 6],
+        tint: bit.color
+      })
+      .collect()
+  }
+}
+
+fn on_face(axis: usize, point: Vec3) -> (u32, u32) {
+  let (u, v) = match axis {
+    0 => (1.0 - point.z, 1.0 - point.y),
+    1 => (point.x, point.z),
+    _ => (point.x, 1.0 - point.y)
+  };
+  let texel =
+    |t: f32| ((t * PIXELS as f32).floor() as i32).clamp(0, PIXELS as i32 - 1) as u32;
+  (texel(u), texel(v))
+}
+
+fn iso(block: Block) -> impl Fn(u32, u32) -> [f32; 4] {
+  let bricks = bricks(block);
+  let painted: Vec<(Tile, Vec<[f32; 4]>)> =
+    bricks.iter().flat_map(|brick| brick.faces).fold(Vec::new(), |mut painted, tile| {
+      if !painted.iter().any(|(known, _)| *known == tile) {
+        painted.push((
+          tile,
+          (0..PIXELS * PIXELS)
+            .map(|index| paint(tile, index % PIXELS, index / PIXELS).color)
+            .collect()
+        ))
+      }
+      painted
+    });
+  let texel = move |tile: Tile, (u, v): (u32, u32)| {
+    painted
+      .iter()
+      .find(|(known, _)| *known == tile)
+      .map_or([0.0; 4], |(_, texels)| texels[(v * PIXELS + u) as usize])
+  };
+  let (low, high) =
+    bricks.iter().fold((Vec3::splat(1.0), Vec3::ZERO), |(low, high), brick| {
+      (low.min(brick.low), high.max(brick.high))
+    });
+  let corners: Vec<Vec2> = (0..8)
+    .map(|corner| {
+      let pick =
+        |bit: u32, axis: usize| if corner & bit == 0 { low[axis] } else { high[axis] };
+      (ICON_AXES * Vec3::new(pick(1, 0), pick(2, 1), pick(4, 2))).truncate()
+    })
+    .collect();
+  let (least, most) =
+    corners.iter().fold((Vec2::MAX, Vec2::MIN), |(least, most), &corner| {
+      (least.min(corner), most.max(corner))
+    });
+  let zoom = (ICON_SPAN / (most - least).max_element()).min(ICON_ZOOM);
+  let shift = Vec2::splat(ICON as f32 / 2.0) - (least + most) / 2.0 * zoom;
+  let across =
+    Mat2::from_cols(ICON_AXES.x_axis.truncate(), ICON_AXES.z_axis.truncate()).inverse();
+  let sample = move |spot: Vec2| -> [f32; 4] {
+    let flat = across * ((spot - shift) / zoom);
+    let start = Vec3::new(flat.x, 0.0, flat.y);
+    let mut hits: Vec<(f32, usize, &Brick)> = bricks
+      .iter()
+      .flat_map(|brick| {
+        let near = brick.high - start;
+        let far = brick.low - start;
+        let enter = near.min_element();
+        let leave = far.max_element();
+        let entered = (0..3).find(|&axis| near[axis] == enter).unwrap_or(0);
+        let left = (0..3).find(|&axis| far[axis] == leave).unwrap_or(0);
+        (leave < enter)
+          .then_some([(enter, entered * 2 + 1, brick), (leave, left * 2, brick)])
+          .into_iter()
+          .flatten()
+      })
+      .collect();
+    hits.sort_by(|a, b| b.0.total_cmp(&a.0));
+    hits
+      .iter()
+      .find_map(|&(t, face, brick)| {
+        let point = start + Vec3::splat(t);
+        let [r, g, b, a] = texel(brick.faces[face], on_face(face / 2, point));
+        let shade = FACE_SHADES[face];
+        let [tr, tg, tb] = brick.tint;
+        (a > 0.0).then_some([r * tr * shade, g * tg * shade, b * tb * shade, a])
+      })
+      .unwrap_or([0.0; 4])
+  };
+  move |x, y| {
+    let total = (0..ICON_SAMPLES * ICON_SAMPLES).fold([0.0; 4], |sum, index| {
+      let offset = Vec2::new(
+        (index % ICON_SAMPLES) as f32 + 0.5,
+        (index / ICON_SAMPLES) as f32 + 0.5
+      ) / ICON_SAMPLES as f32;
+      let [r, g, b, a] = sample(Vec2::new(x as f32, y as f32) + offset);
+      [sum[0] + r * a, sum[1] + g * a, sum[2] + b * a, sum[3] + a]
+    });
+    let coverage = total[3] / (ICON_SAMPLES * ICON_SAMPLES) as f32;
+    match total[3] > 0.0 {
+      true => [total[0] / total[3], total[1] / total[3], total[2] / total[3], coverage],
+      false => [0.0; 4]
+    }
+  }
+}
+
+fn icon_painter(block: Block) -> Box<dyn Fn(u32, u32) -> [f32; 4]> {
   match block.look() {
-    Look::Opaque | Look::Cutout | Look::Log if block.item() => iso(block, x, y),
-    _ if block.ladder() => model_icon(block, x / 2, y / 2).color,
-    _ => paint(block.tiles()[1], x / 2, y / 2).color
+    _ if block.ladder() || block.sign() => Box::new(move |x, y| match block.ladder() {
+      true => model_icon(block, x / 2, y / 2).color,
+      false => paint(block.tiles()[1], x / 2, y / 2).color
+    }),
+    Look::Opaque | Look::Cutout | Look::Log if block.item() => Box::new(iso(block)),
+    _ if block.modelled() => Box::new(iso(block)),
+    _ => Box::new(move |x, y| paint(block.tiles()[1], x / 2, y / 2).color)
   }
 }
 
 pub fn icons() -> Image {
   let rows = Block::ALL.len() as u32 / ICON_COLUMNS + 1;
   let (wide, tall) = (ICON_COLUMNS * ICON, rows * ICON);
+  let painters: Vec<Box<dyn Fn(u32, u32) -> [f32; 4]>> =
+    Block::ALL.iter().map(|&block| icon_painter(block)).collect();
   let mut image = Image::new(
     Extent3d { width: wide, height: tall, depth_or_array_layers: 1 },
     TextureDimension::D2,
@@ -1291,16 +1395,16 @@ pub fn icons() -> Image {
       .flat_map(|index| {
         let (x, y) = (index % wide, index / wide);
         let cell = (y / ICON) * ICON_COLUMNS + x / ICON;
-        Block::ALL
+        painters
           .get(cell as usize)
-          .map_or([0.0; 4], |&block| icon_texel(block, x % ICON, y % ICON))
+          .map_or([0.0; 4], |painter| painter(x % ICON, y % ICON))
           .map(to_srgb)
       })
       .collect(),
     TextureFormat::Rgba8UnormSrgb,
     RenderAssetUsages::default()
   );
-  image.sampler = ImageSampler::nearest();
+  image.sampler = ImageSampler::linear();
   image
 }
 
@@ -1343,5 +1447,27 @@ mod tests {
     let mut file = format!("P6 {} {} 255\n", width * zoom, height * zoom).into_bytes();
     file.extend(pixels);
     std::fs::write("screenshots/atlas.ppm", file).unwrap()
+  }
+
+  #[test]
+  #[ignore]
+  fn icon_sheet() {
+    let image = icons();
+    let (width, height, zoom) = (image.width(), image.height(), 3);
+    let data = image.data.unwrap();
+    let pixels: Vec<u8> = (0..width * zoom * height * zoom)
+      .flat_map(|index| {
+        let (x, y) = (index % (width * zoom) / zoom, index / (width * zoom) / zoom);
+        let at = ((y * width + x) * 4) as usize;
+        let alpha = data[at + 3] as f32 / 255.0;
+        let backdrop = if (x / 4 + y / 4) % 2 == 0 { 90.0 } else { 120.0 };
+        [0, 1, 2].map(|channel| {
+          (data[at + channel] as f32 * alpha + backdrop * (1.0 - alpha)) as u8
+        })
+      })
+      .collect();
+    let mut file = format!("P6 {} {} 255\n", width * zoom, height * zoom).into_bytes();
+    file.extend(pixels);
+    std::fs::write("screenshots/icons.ppm", file).unwrap()
   }
 }

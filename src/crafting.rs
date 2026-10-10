@@ -46,15 +46,64 @@ struct Scrolled;
 #[derive(Component)]
 struct Carried;
 
-fn scrolled() -> impl Bundle {
-  (Scrolled, RelativeCursorPosition::default(), ScrollPosition::default(), Node {
-    flex_direction: FlexDirection::Column,
-    flex_grow: 1.0,
-    flex_basis: px(0),
-    min_height: px(0),
-    overflow: Overflow::scroll_y(),
-    ..default()
-  })
+#[derive(Component)]
+struct Track(Entity);
+
+#[derive(Component)]
+struct Thumb;
+
+const TRACK: f32 = 10.0;
+const TRACK_COLOR: Color = Color::srgba(1.0, 1.0, 1.0, 0.06);
+const THUMB_COLOR: Color = Color::srgba(1.0, 1.0, 1.0, 0.35);
+
+fn scrolled(parent: &mut ChildSpawnerCommands, content: impl Bundle) {
+  parent
+    .spawn(Node {
+      flex_grow: 1.0,
+      flex_basis: px(0),
+      min_height: px(0),
+      column_gap: px(4),
+      width: percent(100),
+      ..default()
+    })
+    .with_children(|frame| {
+      let pane = frame
+        .spawn((
+          Scrolled,
+          RelativeCursorPosition::default(),
+          ScrollPosition::default(),
+          Node {
+            flex_direction: FlexDirection::Column,
+            flex_grow: 1.0,
+            min_height: px(0),
+            overflow: Overflow::scroll_y(),
+            ..default()
+          }
+        ))
+        .with_child(content)
+        .id();
+      frame
+        .spawn((
+          Track(pane),
+          RelativeCursorPosition::default(),
+          Node { width: px(TRACK), flex_shrink: 0.0, ..default() },
+          BackgroundColor(TRACK_COLOR)
+        ))
+        .with_child((
+          Thumb,
+          Node {
+            position_type: PositionType::Absolute,
+            width: percent(100),
+            ..default()
+          },
+          BackgroundColor(THUMB_COLOR)
+        ));
+    });
+}
+
+fn reach(computed: &ComputedNode) -> f32 {
+  (computed.content_size.y - computed.size.y + computed.scrollbar_size.y).max(0.0)
+    * computed.inverse_scale_factor
 }
 
 #[derive(Resource, Default)]
@@ -147,7 +196,7 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
     .with_children(|columns| {
       columns.spawn(column(None, 1.0)).with_children(|left| {
         left.spawn(words("Bookmarks", 15.0, FAINT));
-        left.spawn(scrolled()).with_child((Marks, Node { flex_shrink: 0.0, ..grid() }));
+        scrolled(left, (Marks, Node { flex_shrink: 0.0, ..grid() }));
         left.spawn(words(
           "Press A over an item to bookmark it or take it off.",
           13.0,
@@ -157,12 +206,15 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
       columns
         .spawn(column(Some(HOTBAR as f32 * (CELL + GAP) + 180.0), 0.0))
         .with_children(|middle| {
-          middle.spawn(scrolled()).with_child((Recipes, Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: px(4),
-            flex_shrink: 0.0,
-            ..default()
-          }));
+          scrolled(
+            middle,
+            (Recipes, Node {
+              flex_direction: FlexDirection::Column,
+              row_gap: px(4),
+              flex_shrink: 0.0,
+              ..default()
+            })
+          );
           middle.spawn(words("Backpack", 15.0, FAINT));
           row(middle, HOTBAR..SLOTS, palette);
           middle.spawn(words("Hotbar", 15.0, FAINT));
@@ -180,9 +232,7 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
             search.spawn(words("Search", 15.0, FAINT));
             field(search, Entry::Search, Val::Auto);
           });
-        right
-          .spawn(scrolled())
-          .with_child((Catalogue, Node { flex_shrink: 0.0, ..grid() }));
+        scrolled(right, (Catalogue, Node { flex_shrink: 0.0, ..grid() }));
         right.spawn(words(
           "Click an item for its recipes. Items you can craft here and now come first, \
          outlined in green. Crafting tables and furnaces count within reach.",
@@ -486,15 +536,76 @@ fn rewind(
 
 fn scroll(
   wheel: Res<AccumulatedMouseScroll>,
-  mut panes: Query<(&RelativeCursorPosition, &mut ScrollPosition), With<Scrolled>>
+  buttons: Res<ButtonInput<MouseButton>>,
+  mut panes: Query<
+    (&RelativeCursorPosition, &ComputedNode, &mut ScrollPosition),
+    With<Scrolled>
+  >,
+  mut tracks: Query<(
+    Entity,
+    &Track,
+    &RelativeCursorPosition,
+    &Children,
+    &mut Visibility
+  )>,
+  mut thumbs: Query<&mut Node, With<Thumb>>,
+  mut dragging: Local<Option<(Entity, f32)>>
 ) {
   let lines = match wheel.unit {
     MouseScrollUnit::Line => wheel.delta.y * 40.0,
     MouseScrollUnit::Pixel => wheel.delta.y
   };
-  if lines != 0.0 {
-    for (_, mut position) in panes.iter_mut().filter(|(cursor, _)| cursor.cursor_over()) {
-      position.0.y = (position.0.y - lines).max(0.0)
+  for (cursor, computed, mut position) in panes.iter_mut() {
+    let most = reach(computed);
+    let wanted = match cursor.cursor_over() {
+      true => position.0.y - lines,
+      false => position.0.y
+    }
+    .clamp(0.0, most);
+    if position.0.y != wanted {
+      position.0.y = wanted
+    }
+  }
+  if !buttons.pressed(MouseButton::Left) {
+    *dragging = None
+  }
+  for (track, &Track(pane), cursor, children, mut visibility) in tracks.iter_mut() {
+    if let Ok((_, computed, mut position)) = panes.get_mut(pane) {
+      let content = (computed.content_size.y * computed.inverse_scale_factor).max(1.0);
+      let shown = (computed.size.y * computed.inverse_scale_factor / content).min(1.0);
+      let top = position.0.y / content;
+      let pointer = cursor.normalized.map(|at| at.y + 0.5);
+      if buttons.just_pressed(MouseButton::Left)
+        && cursor.cursor_over()
+        && shown < 1.0
+        && let Some(pointer) = pointer
+      {
+        let grab = match (top..top + shown).contains(&pointer) {
+          true => pointer - top,
+          false => shown / 2.0
+        };
+        *dragging = Some((track, grab))
+      }
+      if let Some((held, grab)) = *dragging
+        && held == track
+        && let Some(pointer) = pointer
+      {
+        position.0.y = ((pointer - grab) * content).clamp(0.0, reach(computed))
+      }
+      for child in children.iter() {
+        if let Ok(mut node) = thumbs.get_mut(child) {
+          let top = percent(position.0.y / content * 100.0);
+          let tall = percent(shown * 100.0);
+          if node.top != top || node.height != tall {
+            node.top = top;
+            node.height = tall
+          }
+        }
+      }
+      visibility.set_if_neq(match shown < 1.0 {
+        true => Visibility::Inherited,
+        false => Visibility::Hidden
+      });
     }
   }
 }
