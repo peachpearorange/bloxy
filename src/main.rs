@@ -22,6 +22,7 @@ mod folk;
 mod fx;
 mod generate;
 mod glance;
+mod ground;
 mod hand;
 mod hud;
 mod identity;
@@ -304,6 +305,7 @@ fn main() {
       .add_plugins((
         crumble::Crumbles,
         water::Waters,
+        ground::Grounds,
         glance::Glances,
         console::Console,
         plate::Plates,

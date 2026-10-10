@@ -84,7 +84,7 @@ pub fn daylight(hour: f32) -> Daylight {
   }
 }
 
-pub fn lens(settings: &crate::settings::Settings) -> impl Bundle {
+pub fn lens() -> impl Bundle {
   let Daylight { ev100, haze, .. } = daylight(opts().hour);
   (
     AtmosphereSettings::default(),
@@ -96,7 +96,7 @@ pub fn lens(settings: &crate::settings::Settings) -> impl Bundle {
       color: Color::srgb(haze.x, haze.y, haze.z),
       directional_light_color: Color::srgba(1.0, 0.92, 0.75, 0.5),
       directional_light_exponent: 24.0,
-      falloff: settings.fog(),
+      falloff: FogFalloff::Exponential { density: 0.0 },
       ..default()
     },
     Msaa::Off

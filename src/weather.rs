@@ -3,7 +3,6 @@ use {crate::{island::{Island, Kind},
              opts::opts,
              player::{Eye, Pilot},
              protocol::{Role, authority, plays},
-             settings::Settings,
              sky::daylight,
              voxels::Voxels},
      bevy::{asset::embedded_asset,
@@ -19,6 +18,7 @@ use {crate::{island::{Island, Kind},
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
 
+const RAIN_FOG: f32 = 0.008;
 const CLOUD_HEIGHT: f32 = 170.0;
 const CLOUD_THICK: f32 = 80.0;
 const CLOUD_SPAN: f32 = 5200.0;
@@ -372,7 +372,6 @@ fn fall(
 
 fn darken(
   time: Res<Time>,
-  settings: Res<Settings>,
   pilot: Res<Pilot>,
   weathers: Query<&Weather>,
   gear: Res<Gear>,
@@ -435,13 +434,7 @@ fn darken(
   for mut fog in fogs.iter_mut() {
     let haze = day.haze * (1.0 - wet * 0.35);
     fog.color = Color::srgb(haze.x, haze.y, haze.z);
-    fog.falloff = match settings.fog() {
-      FogFalloff::Linear { start, end } => FogFalloff::Linear {
-        start: start * (1.0 - wet * 0.75),
-        end: end * (1.0 - wet * 0.45)
-      },
-      other => other
-    }
+    fog.falloff = FogFalloff::Exponential { density: wet * RAIN_FOG }
   }
 }
 

@@ -1,6 +1,5 @@
-use {crate::{local, opts::opts, player::Eye, protocol::plays, stream::CHUNK_METRES},
-     bevy::{pbr::{DistanceFog, FogFalloff},
-            prelude::*},
+use {crate::{local, opts::opts, player::Eye, protocol::plays},
+     bevy::prelude::*,
      serde::{Deserialize, Serialize}};
 
 const KEY: &str = "bloxy.settings";
@@ -71,23 +70,14 @@ impl Settings {
       Knob::Invert => if self.invert { "On" } else { "Off" }.into()
     }
   }
-
-  pub fn fog(&self) -> FogFalloff {
-    let far = (self.reach as f32 - 0.5) * CHUNK_METRES;
-    FogFalloff::Linear { start: far * 0.55, end: far }
-  }
 }
 
-fn apply(
-  settings: Res<Settings>,
-  mut eyes: Query<(&mut Projection, &mut DistanceFog), With<Eye>>
-) {
+fn apply(settings: Res<Settings>, mut eyes: Query<&mut Projection, With<Eye>>) {
   if settings.is_changed() {
-    for (mut projection, mut fog) in eyes.iter_mut() {
+    for mut projection in eyes.iter_mut() {
       if let Projection::Perspective(perspective) = projection.as_mut() {
         perspective.fov = settings.fov.to_radians()
       }
-      fog.falloff = settings.fog()
     }
     if opts().shot.is_none()
       && let Ok(text) = serde_json::to_string(&*settings)

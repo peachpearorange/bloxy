@@ -1,4 +1,5 @@
 use {crate::{block::Block,
+             ground::Concealed,
              mesh::{Corner, lone},
              noise::unit,
              player::{Aim, Pilot},
@@ -12,6 +13,7 @@ use {crate::{block::Block,
 
 const GRID: f32 = 8.0;
 const CENTRE: Vec3 = Vec3::splat(0.5);
+const FINISHING: f32 = 0.4;
 
 type Shard = ([Corner; 3], f32);
 
@@ -147,8 +149,17 @@ fn crumble(
   aim: Res<Aim>,
   voxels: Option<Res<Voxels>>,
   mut meshes: ResMut<Assets<Mesh>>,
-  mut shells: Query<(&mut Crumbling, &mut Transform, &mut Visibility)>
+  mut shells: Query<(&mut Crumbling, &mut Transform, &mut Visibility)>,
+  mut concealed: ResMut<Concealed>,
+  mut finishing: Local<(f32, f32)>
 ) {
+  let (last, grace) = *finishing;
+  let grace = match aim.digging.is_none() && last > 0.0 {
+    true if last + time.delta_secs() * 3.0 >= 0.9 => FINISHING,
+    _ => (grace - time.delta_secs()).max(0.0)
+  };
+  *finishing = (aim.progress, grace);
+  let voxels = voxels.as_deref();
   let digging =
     aim.digging.zip(voxels).filter(|_| aim.progress > 0.0).and_then(|(at, voxels)| {
       voxels
@@ -156,13 +167,18 @@ fn crumble(
         .filter(|block| !block.fluid() && !block.sign())
         .map(|block| (at, block, voxels))
     });
+  let hidden = digging.map(|(at, ..)| at).or(concealed.0.filter(|&cell| {
+    grace > 0.0 || voxels.is_some_and(|voxels| voxels.block(cell) == Some(Block::Air))
+  }));
+  concealed.set_if_neq(Concealed(hidden));
   for (mut shell, mut transform, mut visibility) in shells.iter_mut() {
-    match &digging {
+    match digging {
       Some((at, block, voxels)) => {
-        if shell.shape.as_ref().is_none_or(|(was, made, _)| was != at || made != block) {
-          let torches = voxels.torches_near(chunk_of(*at));
+        if shell.shape.as_ref().is_none_or(|(was, made, _)| *was != at || *made != block)
+        {
+          let torches = voxels.torches_near(chunk_of(at));
           shell.shape =
-            Some((*at, *block, shatter(lone(*block, *at, voxels.seed, &torches), *at)))
+            Some((at, block, shatter(lone(block, at, voxels.seed, &torches), at)))
         }
         if let Some((.., shards)) = &shell.shape
           && let Some(mut mesh) = meshes.get_mut(&shell.mesh)

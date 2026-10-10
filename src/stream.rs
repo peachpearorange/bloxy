@@ -1,9 +1,9 @@
-use {crate::{mesh::{self, Meshes, Padded},
+use {crate::{ground::{Concealed, EMERGING, Emerge, Ground, born, settled},
+             mesh::{self, Meshes, Padded},
              player::Pilot,
              protocol::plays,
              texture,
-             voxels::{Chunk, LAYERS, SIZE, Voxels, chunk_of, generated, in_world,
-                      origin_of},
+             voxels::{Chunk, LAYERS, Voxels, chunk_of, generated, in_world, origin_of},
              water::{self, Water}},
      bevy::{light::NotShadowCaster,
             platform::collections::HashMap,
@@ -19,6 +19,7 @@ const GLOW: f32 = 6.0;
 #[derive(Resource)]
 pub struct Palette {
   pub solid: Handle<StandardMaterial>,
+  pub ground: Handle<Ground>,
   pub liquid: Handle<Water>,
   pub icons: Handle<Image>
 }
@@ -27,7 +28,8 @@ pub struct Palette {
 struct Streaming {
   generating: HashMap<IVec3, Task<Chunk>>,
   meshing: HashMap<IVec3, Task<Meshes>>,
-  shown: HashMap<IVec3, Vec<Entity>>
+  shown: HashMap<IVec3, Vec<Entity>>,
+  emerging: Vec<(Entity, f32, bool)>
 }
 
 #[derive(Resource, Default)]
@@ -39,11 +41,12 @@ pub fn paint(
   mut commands: Commands,
   mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
+  mut grounds: ResMut<Assets<Ground>>,
   mut waters: ResMut<Assets<Water>>
 ) {
   let atlas = images.add(texture::albedo());
   let glow = images.add(texture::glow());
-  let solid = materials.add(StandardMaterial {
+  let base = StandardMaterial {
     base_color_texture: Some(atlas),
     emissive_texture: Some(glow.clone()),
     emissive: LinearRgba::rgb(GLOW, GLOW, GLOW),
@@ -51,9 +54,17 @@ pub fn paint(
     reflectance: 0.25,
     alpha_mode: AlphaMode::Mask(0.5),
     ..default()
-  });
-  let liquid = waters.add(water::water());
-  commands.insert_resource(Palette { solid, liquid, icons: images.add(texture::icons()) })
+  };
+  let solid = materials.add(base.clone());
+  let ground = grounds
+    .add(Ground { base, extension: Emerge { born: settled(), hidden: Vec4::ZERO } });
+  let liquid = waters.add(water::water(settled()));
+  commands.insert_resource(Palette {
+    solid,
+    ground,
+    liquid,
+    icons: images.add(texture::icons())
+  })
 }
 
 fn wanted(centre: IVec3, reach: i32) -> impl Iterator<Item = IVec3> {
@@ -73,6 +84,26 @@ fn horizontal(key: IVec3, centre: IVec3) -> i32 {
   offset.length_squared()
 }
 
+fn settle(
+  time: Res<Time>,
+  palette: Res<Palette>,
+  mut streaming: ResMut<Streaming>,
+  mut commands: Commands
+) {
+  let now = time.elapsed_secs_wrapped();
+  streaming.emerging.retain(|&(entity, birth, liquid)| {
+    let emerging = now >= birth && now - birth < EMERGING + 0.2;
+    if !emerging {
+      let mut chunk = commands.entity(entity);
+      match liquid {
+        true => chunk.try_insert(MeshMaterial3d(palette.liquid.clone())),
+        false => chunk.try_insert(MeshMaterial3d(palette.ground.clone()))
+      };
+    }
+    emerging
+  })
+}
+
 fn stream(
   mut commands: Commands,
   mut streaming: ResMut<Streaming>,
@@ -81,7 +112,13 @@ fn stream(
   pilot: Option<Res<Pilot>>,
   palette: Res<Palette>,
   settings: Res<crate::settings::Settings>,
-  mut meshes: ResMut<Assets<Mesh>>
+  mut meshes: ResMut<Assets<Mesh>>,
+  (time, concealed, mut grounds, mut waters): (
+    Res<Time>,
+    Res<Concealed>,
+    ResMut<Assets<Ground>>,
+    ResMut<Assets<Water>>
+  )
 ) {
   if let Some(mut voxels) = voxels
     && let Some(pilot) = pilot
@@ -155,25 +192,46 @@ fn stream(
     for (key, built) in built.into_iter() {
       streaming.meshing.remove(&key);
       let placed = Transform::from_translation(origin_of(key).as_vec3());
+      let fresh = !streaming.shown.contains_key(&key);
+      let birth = born(&time);
+      let ground = match fresh {
+        true => grounds
+          .get(&palette.ground)
+          .map(|shared| Ground {
+            base: shared.base.clone(),
+            extension: Emerge {
+              born: Vec4::new(birth, 0.0, 0.0, 0.0),
+              hidden: concealed.hidden()
+            }
+          })
+          .map_or(palette.ground.clone(), |ground| grounds.add(ground)),
+        false => palette.ground.clone()
+      };
+      let liquid_material = match fresh {
+        true => waters.add(water::water(Vec4::new(birth, 0.0, 0.0, 0.0))),
+        false => palette.liquid.clone()
+      };
       let solid = built.solid.map(|mesh| {
-        commands
-          .spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(palette.solid.clone()),
-            placed
-          ))
-          .id()
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(ground), placed)).id()
       });
       let liquid = built.liquid.map(|mesh| {
         commands
           .spawn((
             Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(palette.liquid.clone()),
+            MeshMaterial3d(liquid_material),
             NotShadowCaster,
             placed
           ))
           .id()
       });
+      if fresh {
+        streaming.emerging.extend(
+          solid
+            .map(|entity| (entity, birth, false))
+            .into_iter()
+            .chain(liquid.map(|entity| (entity, birth, true)))
+        )
+      }
       let shown: Vec<Entity> = solid.into_iter().chain(liquid).collect();
       for old in streaming.shown.insert(key, shown).into_iter().flatten() {
         commands.entity(old).despawn()
@@ -209,8 +267,6 @@ pub fn ready_around(voxels: &Voxels, at: Vec3) -> bool {
   })
 }
 
-pub const CHUNK_METRES: f32 = SIZE as f32;
-
 pub struct Stream;
 
 impl Plugin for Stream {
@@ -219,6 +275,6 @@ impl Plugin for Stream {
       .init_resource::<Streaming>()
       .init_resource::<Progress>()
       .add_systems(Startup, paint.run_if(plays))
-      .add_systems(Update, stream.run_if(plays));
+      .add_systems(Update, (stream, settle).chain().run_if(plays));
   }
 }

@@ -130,7 +130,7 @@ fn spawn_eye(mut commands: Commands, settings: Res<Settings>) {
       near: 0.05,
       ..default()
     }),
-    crate::sky::lens(&settings),
+    crate::sky::lens(),
     Transform::default()
   ));
 }

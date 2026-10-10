@@ -10,6 +10,7 @@ struct Swell {
     scale: f32,
     speed: f32,
     glint: f32,
+    born: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> swell: Swell;
@@ -55,6 +56,13 @@ fn surface(at: vec2<f32>, time: f32) -> vec3<f32> {
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     let at = in.world_position.xyz;
+    let texel = floor(at.xz * 16.0);
+    let p = vec2<u32>(texel - floor(texel / 4.0) * 4.0);
+    let table = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+    let speck = fract(sin(dot(floor(at - in.world_normal * 0.01), vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
+    if (globals.time - swell.born.x) / 1.1 < (table[p.y * 4u + p.x] + 0.5) / 16.0 * 0.55 + speck * 0.45 {
+        discard;
+    }
     let distance = length(view.world_position.xyz - at);
     let fade = swell.strength / (1.0 + distance * 0.06);
     let shape = surface(at.xz, globals.time);
