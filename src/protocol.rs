@@ -27,16 +27,58 @@ pub fn authority(role: Res<Role>) -> bool { role.authority() }
 
 pub fn plays(role: Res<Role>) -> bool { role.plays() }
 
+pub const HUES: [[u8; 3]; 16] = [
+  [255, 255, 255],
+  [255, 85, 85],
+  [255, 150, 60],
+  [255, 215, 70],
+  [190, 240, 80],
+  [85, 220, 110],
+  [70, 225, 200],
+  [90, 200, 255],
+  [100, 140, 255],
+  [165, 115, 255],
+  [225, 110, 255],
+  [255, 120, 185],
+  [205, 165, 120],
+  [170, 170, 175],
+  [255, 190, 160],
+  [160, 255, 220]
+];
+
+pub fn hue(index: u8) -> Color {
+  let [r, g, b] = HUES[usize::from(index) % HUES.len()];
+  Color::srgb_u8(r, g, b)
+}
+
 #[derive(Component, Serialize, Deserialize, Clone)]
 pub struct Player {
-  pub name: String
+  pub name: String,
+  pub hue: u8
 }
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Tint(pub u8);
+
+#[derive(Message, Serialize, Deserialize, Clone)]
+pub struct Say(pub String);
+
+#[derive(Message, Serialize, Deserialize, Clone)]
+pub struct Said {
+  pub name: String,
+  pub hue: u8,
+  pub text: String
+}
+
+pub const LONGEST_SAYING: usize = 200;
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Default, PartialEq)]
 pub struct Avatar {
   pub at: Vec3,
   pub yaw: f32,
-  pub pitch: f32
+  pub pitch: f32,
+  #[serde(default)]
+  pub held: Option<Block>
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -416,6 +458,9 @@ impl Plugin for Protocol {
       .add_client_message::<Rest>(Channel::Ordered)
       .add_server_message::<Knock>(Channel::Ordered)
       .add_client_message::<Toss>(Channel::Ordered)
-      .replicate::<Loose>();
+      .replicate::<Loose>()
+      .add_client_message::<Tint>(Channel::Ordered)
+      .add_client_message::<Say>(Channel::Ordered)
+      .add_server_message::<Said>(Channel::Ordered);
   }
 }

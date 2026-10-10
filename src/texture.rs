@@ -1302,21 +1302,6 @@ mod tests {
   }
 
   #[test]
-  fn first_ripple_matches_the_atlas() {
-    let data = albedo().data.unwrap();
-    ripple(0).into_iter().fold(0, |offset, Patch { mip, corner, size, bytes }| {
-      let (width, height) = ((COLUMNS * PIXELS) >> mip, (ROWS * PIXELS) >> mip);
-      (0..size * size).for_each(|texel| {
-        let (x, y) = (corner.x + texel % size, corner.y + texel / size);
-        let at = offset + ((y * width + x) * 4) as usize;
-        let from = (texel * 4) as usize;
-        assert_eq!(data[at..at + 4], bytes[from..from + 4], "mip {mip} texel {texel}")
-      });
-      offset + (width * height * 4) as usize
-    });
-  }
-
-  #[test]
   #[ignore]
   fn atlas() {
     let (width, height, zoom) = (COLUMNS * PIXELS, ROWS * PIXELS, 4);

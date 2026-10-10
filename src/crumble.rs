@@ -1,118 +1,129 @@
-use {crate::{block::{Block, Look},
-             generate,
+use {crate::{block::Block,
+             mesh::{Corner, lone},
              noise::unit,
              player::{Aim, Pilot},
              protocol::plays,
              stream::Palette,
-             texture::uv_corner,
-             voxels::Voxels},
+             voxels::{Voxels, chunk_of}},
      bevy::{asset::RenderAssetUsages,
             light::NotShadowCaster,
             mesh::{Indices, PrimitiveTopology},
             prelude::*}};
 
-const GRID: u32 = 8;
-const SKY_FALLOFF: f32 = 7.0;
-const CAVE_DARK: f32 = 0.05;
+const GRID: f32 = 8.0;
+const CENTRE: Vec3 = Vec3::splat(0.5);
+
+type Shard = ([Corner; 3], f32);
 
 #[derive(Component)]
-struct Crumbling(Handle<Mesh>);
-
-struct Side {
-  normal: Vec3,
-  across: Vec3,
-  up: Vec3,
-  slot: usize
+struct Crumbling {
+  mesh: Handle<Mesh>,
+  shape: Option<(IVec3, Block, Vec<Shard>)>
 }
 
-const SIDES: [Side; 6] = [
-  Side { normal: Vec3::Y, across: Vec3::X, up: Vec3::NEG_Z, slot: 0 },
-  Side { normal: Vec3::NEG_Y, across: Vec3::X, up: Vec3::Z, slot: 2 },
-  Side { normal: Vec3::X, across: Vec3::NEG_Z, up: Vec3::Y, slot: 1 },
-  Side { normal: Vec3::NEG_X, across: Vec3::Z, up: Vec3::Y, slot: 1 },
-  Side { normal: Vec3::Z, across: Vec3::X, up: Vec3::Y, slot: 1 },
-  Side { normal: Vec3::NEG_Z, across: Vec3::NEG_X, up: Vec3::Y, slot: 1 }
-];
+fn between(a: Corner, b: Corner, c: Corner, s: f32, t: f32) -> Corner {
+  let r = 1.0 - s - t;
+  let color = [0, 1, 2, 3]
+    .map(|channel| a.color[channel] * r + b.color[channel] * s + c.color[channel] * t);
+  Corner {
+    position: a.position * r + b.position * s + c.position * t,
+    normal: a.normal,
+    uv: a.uv * r + b.uv * s + c.uv * t,
+    color
+  }
+}
 
-fn bulge(point: Vec3, progress: f32, now: f32) -> Vec3 {
+fn shatter(triangles: Vec<[Corner; 3]>, at: IVec3) -> Vec<Shard> {
+  triangles
+    .into_iter()
+    .flat_map(|[a, b, c]| {
+      let longest = [(a, b), (b, c), (c, a)]
+        .iter()
+        .map(|(from, to)| from.position.distance(to.position))
+        .fold(0.0, f32::max);
+      let parts = (longest * GRID).ceil().clamp(1.0, GRID) as u32;
+      let step = 1.0 / parts as f32;
+      let point =
+        move |i: u32, j: u32| between(a, b, c, i as f32 * step, j as f32 * step);
+      (0..parts).flat_map(move |j| {
+        (0..parts - j).flat_map(move |i| {
+          let up = [point(i, j), point(i + 1, j), point(i, j + 1)];
+          let down = (i + j + 1 < parts)
+            .then(|| [point(i + 1, j), point(i + 1, j + 1), point(i, j + 1)]);
+          std::iter::once(up).chain(down)
+        })
+      })
+    })
+    .map(|shard| {
+      let middle = (shard[0].position + shard[1].position + shard[2].position) / 3.0;
+      let cell = (middle * GRID - shard[0].normal * 0.01).floor().as_ivec3();
+      let side = shard[0].normal.dot(Vec3::new(1.0, 2.0, 4.0)).round() as i32;
+      let crack = unit(
+        at.x as u32 ^ (side as u32) << 20,
+        at.y + cell.x * 31,
+        at.z + cell.y * 17,
+        cell.z
+      );
+      (shard, crack)
+    })
+    .collect()
+}
+
+fn contort(point: Vec3, progress: f32, now: f32) -> Vec3 {
   let wave = (point.x * 7.1 + now * 9.0).sin()
     * (point.y * 6.3 - now * 7.0).sin()
     * (point.z * 8.7 + now * 11.0).sin();
-  let swell = 0.012 + progress * (0.05 + 0.04 * wave);
-  let centre = Vec3::splat(0.5);
-  centre + (point - centre) * (1.0 + swell * 2.0)
+  let swell = 0.02 + progress * (0.12 + 0.08 * wave);
+  let beat = (now * 13.0).sin() * 0.5 + 0.5;
+  let twist = progress * 0.12 * (now * 6.0 + point.y * 3.0).sin();
+  let stretch = Vec3::new(
+    (1.0 + progress * 0.16 * (1.0 - beat)) * (1.0 + twist.abs()),
+    1.0 + progress * 0.16 * beat,
+    (1.0 + progress * 0.16 * (1.0 - beat)) * (1.0 + twist.abs())
+  );
+  CENTRE + Quat::from_rotation_y(twist) * ((point - CENTRE) * stretch * (1.0 + swell))
 }
 
-fn crumbled(block: Block, at: IVec3, light: f32, progress: f32, now: f32) -> Mesh {
-  let tiles = block.tiles();
+fn crumbled(shards: &[Shard], progress: f32, now: f32) -> Mesh {
   let shake = Vec3::new((now * 53.0).sin(), (now * 61.0).sin(), (now * 47.0).sin())
-    * 0.008
+    * 0.02
     * progress;
-  let quads: Vec<([Vec3; 4], [Vec2; 4], Vec3, f32)> = SIDES
+  let corners: Vec<(Vec3, Vec3, Vec2, [f32; 4])> = shards
     .iter()
-    .enumerate()
-    .flat_map(|(side_index, side)| {
-      (0..GRID * GRID).map(move |cell| {
-        let (i, j) = ((cell % GRID) as f32, (cell / GRID) as f32);
-        let corner = |a: f32, b: f32| {
-          let (u, v) = ((i + a) / GRID as f32, (j + b) / GRID as f32);
-          let point = Vec3::splat(0.5)
-            + side.normal * 0.5
-            + side.across * (u - 0.5)
-            + side.up * (v - 0.5);
-          (point, uv_corner(tiles[side.slot], Vec2::new(u, 1.0 - v)))
-        };
-        let corners =
-          [corner(0.0, 0.0), corner(1.0, 0.0), corner(1.0, 1.0), corner(0.0, 1.0)];
-        let crack =
-          unit(at.x as u32 ^ (side_index as u32) << 20, at.y, at.z, cell as i32);
-        let shade = match crack < progress * 0.55 {
-          true => 0.3 + crack,
-          false => 1.0
-        };
-        (
-          corners.map(|(point, _)| bulge(point, progress, now) + shake),
-          corners.map(|(_, uv)| uv),
-          side.normal,
-          shade * light
-        )
+    .flat_map(|&(shard, crack)| {
+      let broken = crack < progress * 0.8;
+      let (shade, pop) = match broken {
+        true => (0.15 + crack * 0.6, 0.02 + progress * 0.05 * (1.0 - crack)),
+        false => (1.0, 0.0)
+      };
+      shard.map(|Corner { position, normal, uv, color: [r, g, b, a] }| {
+        (contort(position, progress, now) + shake + normal * pop, normal, uv, [
+          r * shade,
+          g * shade,
+          b * shade,
+          a
+        ])
       })
     })
     .collect();
   Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
     .with_inserted_attribute(
       Mesh::ATTRIBUTE_POSITION,
-      quads
-        .iter()
-        .flat_map(|(points, ..)| points.map(|point| point.to_array()))
-        .collect::<Vec<_>>()
+      corners.iter().map(|(position, ..)| position.to_array()).collect::<Vec<_>>()
     )
     .with_inserted_attribute(
       Mesh::ATTRIBUTE_NORMAL,
-      quads
-        .iter()
-        .flat_map(|&(_, _, normal, _)| [normal.to_array(); 4])
-        .collect::<Vec<_>>()
+      corners.iter().map(|(_, normal, ..)| normal.to_array()).collect::<Vec<_>>()
     )
     .with_inserted_attribute(
       Mesh::ATTRIBUTE_UV_0,
-      quads
-        .iter()
-        .flat_map(|(_, uvs, ..)| uvs.map(|uv| uv.to_array()))
-        .collect::<Vec<_>>()
+      corners.iter().map(|(.., uv, _)| uv.to_array()).collect::<Vec<_>>()
     )
     .with_inserted_attribute(
       Mesh::ATTRIBUTE_COLOR,
-      quads
-        .iter()
-        .flat_map(|&(.., shade)| [[shade, shade, shade, 1.0]; 4])
-        .collect::<Vec<_>>()
+      corners.iter().map(|&(.., color)| color).collect::<Vec<_>>()
     )
-    .with_inserted_indices(Indices::U32(
-      (0..quads.len() as u32)
-        .flat_map(|quad| [0, 1, 2, 0, 2, 3].map(|corner| quad * 4 + corner))
-        .collect()
-    ))
+    .with_inserted_indices(Indices::U32((0..corners.len() as u32).collect()))
 }
 
 fn prepare(
@@ -120,9 +131,9 @@ fn prepare(
   palette: Res<Palette>,
   mut meshes: ResMut<Assets<Mesh>>
 ) {
-  let mesh = meshes.add(crumbled(Block::Stone, IVec3::ZERO, 1.0, 0.0, 0.0));
+  let mesh = meshes.add(Cuboid::default());
   commands.spawn((
-    Crumbling(mesh.clone()),
+    Crumbling { mesh: mesh.clone(), shape: None },
     Mesh3d(mesh),
     MeshMaterial3d(palette.solid.clone()),
     NotShadowCaster,
@@ -136,29 +147,36 @@ fn crumble(
   aim: Res<Aim>,
   voxels: Option<Res<Voxels>>,
   mut meshes: ResMut<Assets<Mesh>>,
-  mut shells: Query<(&Crumbling, &mut Transform, &mut Visibility)>
+  mut shells: Query<(&mut Crumbling, &mut Transform, &mut Visibility)>
 ) {
   let digging =
     aim.digging.zip(voxels).filter(|_| aim.progress > 0.0).and_then(|(at, voxels)| {
       voxels
         .block(at)
-        .filter(|block| matches!(block.look(), Look::Opaque | Look::Cutout | Look::Log))
-        .map(|block| (at, block, voxels.seed))
+        .filter(|block| !block.fluid() && !block.sign())
+        .map(|block| (at, block, voxels))
     });
-  shells.iter_mut().for_each(|(shell, mut transform, mut visibility)| match digging {
-    Some((at, block, seed)) => {
-      let depth = generate::height(seed, at.x, at.z) - at.y;
-      let light = (1.0 - depth as f32 / SKY_FALLOFF).clamp(CAVE_DARK, 1.0);
-      if let Some(mut mesh) = meshes.get_mut(&shell.0) {
-        *mesh = crumbled(block, at, light, aim.progress, time.elapsed_secs())
+  shells.iter_mut().for_each(
+    |(mut shell, mut transform, mut visibility)| match &digging {
+      Some((at, block, voxels)) => {
+        if shell.shape.as_ref().is_none_or(|(was, made, _)| was != at || made != block) {
+          let torches = voxels.torches_near(chunk_of(*at));
+          shell.shape =
+            Some((*at, *block, shatter(lone(*block, *at, voxels.seed, &torches), *at)))
+        }
+        if let Some((.., shards)) = &shell.shape
+          && let Some(mut mesh) = meshes.get_mut(&shell.mesh)
+        {
+          *mesh = crumbled(shards, aim.progress, time.elapsed_secs())
+        }
+        transform.translation = at.as_vec3();
+        visibility.set_if_neq(Visibility::Inherited);
       }
-      transform.translation = at.as_vec3();
-      visibility.set_if_neq(Visibility::Inherited);
+      None => {
+        visibility.set_if_neq(Visibility::Hidden);
+      }
     }
-    None => {
-      visibility.set_if_neq(Visibility::Hidden);
-    }
-  })
+  )
 }
 
 pub struct Crumbles;
@@ -168,5 +186,25 @@ impl Plugin for Crumbles {
     app
       .add_systems(Startup, prepare.after(crate::stream::paint).run_if(plays))
       .add_systems(Update, crumble.run_if(plays).run_if(resource_exists::<Pilot>));
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn logs_crumble_as_octagons() {
+    let at = IVec3::new(5, 80, 9);
+    let triangles = lone(Block::Log, at, 1, &[]);
+    let corners = || triangles.iter().flat_map(|triangle| triangle.iter());
+    assert!(corners().any(|corner| {
+      let Vec3 { x, z, .. } = corner.position;
+      x > 0.01 && x < 0.99 && (z < 0.01 || z > 0.99)
+    }));
+    assert!(
+      !corners().any(|corner| corner.position.x < 0.01 && corner.position.z < 0.01)
+    );
+    assert!(!shatter(triangles.clone(), at).is_empty())
   }
 }

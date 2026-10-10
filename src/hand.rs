@@ -1,9 +1,11 @@
 use {crate::{block::Block,
              figure::{Clad, Kit, clothe},
+             loose::{FLAT, Looks, SIZE, cubic},
              menu::Menu,
              player::{Aim, Eye, Gait, Pilot, Selected, View},
              protocol::{Inventory, plays},
-             skin::Skin},
+             skin::{PX, Skin},
+             stream::Palette},
      bevy::{light::NotShadowCaster, prelude::*},
      std::f32::consts::PI};
 
@@ -20,6 +22,47 @@ struct Hand {
 
 #[derive(Component)]
 struct Rod;
+
+#[derive(Component, Default, PartialEq)]
+pub struct Grip(pub Option<Block>);
+
+pub fn grip() -> impl Bundle {
+  (Grip::default(), Transform::from_xyz(0.0, -12.0 * PX, 0.0), Visibility::Hidden)
+}
+
+fn hold(
+  mut grips: Query<(Entity, &Grip, &mut Transform, &mut Visibility), Changed<Grip>>,
+  palette: Res<Palette>,
+  mut looks: ResMut<Looks>,
+  mut meshes: ResMut<Assets<Mesh>>,
+  mut commands: Commands
+) {
+  grips.iter_mut().for_each(|(entity, grip, mut transform, mut visibility)| {
+    match grip.0 {
+      Some(block) => {
+        let hand = Vec3::new(0.0, -12.0 * PX, -1.0 * PX);
+        *transform = match cubic(block) {
+          true => {
+            Transform::from_translation(hand + Vec3::new(0.0, -SIZE * 0.55, -SIZE * 0.25))
+              .with_rotation(Quat::from_rotation_y(PI / 4.0))
+          }
+          false => {
+            let turned = Quat::from_rotation_y(PI / 2.0);
+            Transform::from_translation(hand + turned * Vec3::new(0.3, 0.3, 0.0) * FLAT)
+              .with_rotation(turned)
+          }
+        };
+        *visibility = Visibility::Inherited;
+        commands.entity(entity).insert((
+          Mesh3d(looks.mesh(block, &mut meshes)),
+          MeshMaterial3d(palette.solid.clone()),
+          NotShadowCaster
+        ));
+      }
+      None => *visibility = Visibility::Hidden
+    }
+  })
+}
 
 #[derive(Component)]
 pub struct RodTip;
@@ -86,14 +129,17 @@ fn raise(
     && let Ok(eye) = eyes.single()
   {
     let clad = clothe(skin, &mut images, &mut materials);
-    commands.entity(eye).with_child((
-      Hand { swung: SWING },
-      Mesh3d(kit.arm.clone()),
-      MeshMaterial3d(clad.material.clone()),
-      clad,
-      NotShadowCaster,
-      Transform::from_translation(REST)
-    ));
+    commands
+      .spawn((
+        Hand { swung: SWING },
+        Mesh3d(kit.arm.clone()),
+        MeshMaterial3d(clad.material.clone()),
+        clad,
+        NotShadowCaster,
+        Transform::from_translation(REST),
+        ChildOf(eye)
+      ))
+      .with_child(grip());
   }
 }
 
@@ -127,8 +173,14 @@ fn swing(
   view: Res<View>,
   inventories: Query<&Inventory>,
   mut hands: Query<(&mut Hand, &mut Transform, &mut Visibility), Without<Rod>>,
-  mut rods: Query<(&mut Transform, &mut Visibility), With<Rod>>
+  mut rods: Query<(&mut Transform, &mut Visibility), With<Rod>>,
+  mut grips: Query<(&mut Grip, &ChildOf)>
 ) {
+  grips.iter_mut().filter(|(_, parent)| hands.contains(parent.parent())).for_each(
+    |(mut grip, _)| {
+      grip.set_if_neq(Grip(pilot.held.filter(|&block| block != Block::FishingRod)));
+    }
+  );
   let fishing = inventories
     .get(pilot.me)
     .ok()
@@ -177,7 +229,7 @@ impl Plugin for Hands {
   fn build(&self, app: &mut App) {
     app.add_systems(
       Update,
-      (raise, reskin, carve, swing.run_if(resource_exists::<Pilot>))
+      (raise, reskin, carve, swing.run_if(resource_exists::<Pilot>), hold)
         .chain()
         .run_if(plays)
     );

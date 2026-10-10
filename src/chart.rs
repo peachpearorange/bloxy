@@ -4,7 +4,6 @@ use {crate::{block::{Block, Fluid},
              island::Island,
              menu::{FAINT, INK, Menu, Tab, words},
              minimap::hue,
-             noise::hash,
              player::{Me, Pilot},
              protocol::{Avatar, Player, Visited, plays},
              voxels::{SIZE, Voxels}},
@@ -90,8 +89,9 @@ pub fn page(page: &mut ChildSpawnerCommands, chart: &Chart) {
     RelativeCursorPosition::default(),
     Interaction::default(),
     Node {
-      width: px(WIDE as f32),
-      height: px(TALL as f32),
+      height: vh(62),
+      aspect_ratio: Some(WIDE as f32 / TALL as f32),
+      align_self: AlignSelf::Center,
       border: UiRect::all(px(2)),
       ..default()
     },
@@ -154,30 +154,6 @@ fn survey(voxels: Option<Res<Voxels>>, menu: Res<Menu>, mut chart: ResMut<Chart>
         chart.base[index] = colour(&chart, block, top, floor, north)
       });
       chart.row += 1
-    }
-  }
-}
-
-fn tint(owner: &str, mine: bool) -> [f32; 3] {
-  match mine {
-    true => [1.0, 0.82, 0.25],
-    false => {
-      let pick = hash(
-        0xC1A1,
-        owner
-          .bytes()
-          .fold(7i32, |sum, byte| sum.wrapping_mul(31).wrapping_add(i32::from(byte))),
-        0,
-        0
-      );
-      [
-        [0.9, 0.3, 0.3],
-        [0.3, 0.6, 1.0],
-        [0.6, 0.35, 0.95],
-        [0.25, 0.85, 0.75],
-        [0.95, 0.5, 0.15],
-        [0.95, 0.4, 0.75]
-      ][(pick % 6) as usize]
     }
   }
 }
@@ -249,7 +225,7 @@ fn draw(
   canvas: Query<&RelativeCursorPosition, With<Canvas>>,
   claims: Query<&Claim>,
   names: Query<&Player, With<Me>>,
-  others: Query<&Avatar, Without<Me>>,
+  others: Query<(&Avatar, &Player), Without<Me>>,
   visits: Query<&Visited>,
   mut chart: ResMut<Chart>,
   mut images: ResMut<Assets<Image>>,
@@ -276,7 +252,7 @@ fn draw(
     claims.iter().for_each(|claim| {
       let low = chart.pixel(claim.column.as_vec2() * chunk).floor().as_ivec2();
       let high = chart.pixel((claim.column.as_vec2() + 1.0) * chunk).floor().as_ivec2();
-      let colour = tint(&claim.owner, claim.owner == me);
+      let colour = crate::protocol::hue(claim.hue).to_srgba().to_f32_array_no_alpha();
       (low.y.max(0)..high.y.min(TALL)).for_each(|y| {
         (low.x.max(0)..high.x.min(WIDE)).for_each(|x| {
           let edge = x == low.x || y == low.y || x == high.x - 1 || y == high.y - 1;
@@ -313,7 +289,14 @@ fn draw(
         }
       }
     );
-    others.iter().for_each(|avatar| dot(&mut paint, avatar.at.xz(), 2, [1.0, 1.0, 1.0]));
+    others.iter().for_each(|(avatar, player)| {
+      dot(
+        &mut paint,
+        avatar.at.xz(),
+        2,
+        crate::protocol::hue(player.hue).to_srgba().to_f32_array_no_alpha()
+      )
+    });
     let facing = (pilot.facing() * Vec3::NEG_Z).xz().normalize_or(Vec2::NEG_Y);
     let across = facing.perp();
     let centre = chart.pixel(pilot.at.xz());

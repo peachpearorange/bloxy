@@ -3,6 +3,7 @@ use {crate::{beast,
              folk,
              hud::SHADE,
              menu::Menu,
+             plate::{Plate, plate},
              player::{Eye, Pilot},
              protocol::{Band, Beast, Breed, Folk, Health, plays},
              voxels::Voxels},
@@ -12,12 +13,9 @@ const SIGHT: f32 = 24.0;
 const RISE: f32 = 0.9;
 const RISE_FOR: f32 = 0.9;
 const RECENT: f32 = 2.0;
-const BAR: f32 = 160.0;
 const WOUND: Color = Color::srgb(1.0, 0.25, 0.2);
 const HOSTILE: Color = Color::srgb(1.0, 0.45, 0.4);
 const TAME: Color = Color::srgb(0.95, 0.95, 0.95);
-const FULL: Color = Color::srgb(0.35, 0.85, 0.35);
-const LOW: Color = Color::srgb(0.9, 0.25, 0.2);
 
 struct Sighted {
   name: &'static str,
@@ -73,15 +71,6 @@ struct Rising {
   age: f32
 }
 
-#[derive(Component)]
-struct Target;
-
-#[derive(Component)]
-struct TargetName;
-
-#[derive(Component)]
-struct TargetFill;
-
 fn rising(commands: &mut Commands, amount: u8, at: Vec3) {
   commands.spawn((
     Rising { at, age: 0.0 },
@@ -136,6 +125,7 @@ fn fell(
 fn rise(
   time: Res<Time>,
   eyes: Query<(&Camera, &GlobalTransform), With<Eye>>,
+  scale: Res<UiScale>,
   mut numbers: Query<(Entity, &mut Rising, &mut Node, &mut TextColor, &mut Visibility)>,
   mut commands: Commands
 ) {
@@ -147,7 +137,8 @@ fn rise(
       let spot = eyes
         .single()
         .ok()
-        .and_then(|(camera, eye)| camera.world_to_viewport(eye, lifted).ok());
+        .and_then(|(camera, eye)| camera.world_to_viewport(eye, lifted).ok())
+        .map(|spot| spot / scale.0);
       match (rising.age > RISE_FOR, spot) {
         (true, _) => commands.entity(entity).despawn(),
         (false, Some(spot)) => {
@@ -162,50 +153,19 @@ fn rise(
   )
 }
 
-fn panel(mut commands: Commands) {
-  commands
-    .spawn((
-      Target,
-      Node {
-        width: percent(100),
-        position_type: PositionType::Absolute,
-        top: px(8),
-        flex_direction: FlexDirection::Column,
-        align_items: AlignItems::Center,
-        row_gap: px(3),
-        ..default()
-      },
-      Visibility::Hidden
-    ))
-    .with_children(|target| {
-      target.spawn((
-        TargetName,
-        Text::new(""),
-        TextFont { font_size: FontSize::Px(16.0), ..default() },
-        TextColor(TAME),
-        SHADE
-      ));
-      target
-        .spawn((
-          Node { width: px(BAR), height: px(6), ..default() },
-          BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.7))
-        ))
-        .with_child((
-          TargetFill,
-          Node { width: percent(100), height: percent(100), ..default() },
-          BackgroundColor(FULL)
-        ));
-    });
-}
+#[derive(Resource, Default)]
+struct Plated(HashMap<Entity, Entity>);
 
 fn target(
+  time: Res<Time>,
   pilot: Res<Pilot>,
   menu: Res<Menu>,
   voxels: Option<Res<Voxels>>,
-  creatures: Query<(&Health, Option<&Folk>, Option<&Beast>, Option<&Bird>)>,
-  mut panels: Query<&mut Visibility, With<Target>>,
-  mut names: Query<(&mut Text, &mut TextColor), With<TargetName>>,
-  mut fills: Query<(&mut Node, &mut BackgroundColor), With<TargetFill>>
+  wounds: Res<Wounds>,
+  creatures: Query<(Entity, &Health, Option<&Folk>, Option<&Beast>, Option<&Bird>)>,
+  mut plated: ResMut<Plated>,
+  mut plates: Query<&mut Plate>,
+  mut commands: Commands
 ) {
   let (from, toward) = (pilot.eye(), pilot.facing() * Vec3::NEG_Z);
   let blocked = voxels
@@ -213,39 +173,58 @@ fn target(
     .map_or(SIGHT, |hit| (hit.at.as_vec3() + 0.5).distance(from));
   let seen = creatures
     .iter()
-    .filter_map(|(health, folk, beast, bird)| {
+    .filter_map(|(entity, _, folk, beast, bird)| {
       let near = match (folk, beast, bird) {
         (Some(folk), ..) => folk::struck(folk.at, from, toward),
         (_, Some(beast), _) => beast::struck(beast, from, toward),
         (.., Some(bird)) => bird::struck(bird, from, toward),
         _ => None
       };
-      near
-        .filter(|&near| near <= blocked)
-        .zip(sighted(folk, beast, bird).map(|sighted| (health.0, sighted)))
+      near.filter(|&near| near <= blocked).map(|near| (near, entity))
     })
     .min_by(|a, b| a.0.total_cmp(&b.0))
-    .map(|(_, seen)| seen)
+    .map(|(_, entity)| entity)
     .filter(|_| !menu.open);
-  panels.iter_mut().for_each(|mut visibility| {
-    visibility.set_if_neq(match seen {
-      Some(_) => Visibility::Inherited,
-      None => Visibility::Hidden
-    });
-  });
-  if let Some((health, Sighted { name, full, hostile, .. })) = seen {
-    names.iter_mut().for_each(|(mut text, mut color)| {
-      if text.0 != name {
-        text.0 = name.to_string()
-      }
-      color.set_if_neq(TextColor(if hostile { HOSTILE } else { TAME }));
-    });
-    let share = (f32::from(health) / f32::from(full.max(1))).clamp(0.0, 1.0);
-    fills.iter_mut().for_each(|(mut node, mut fill)| {
-      node.width = percent(share * 100.0);
-      fill.set_if_neq(BackgroundColor(LOW.mix(&FULL, share)));
+  let now = time.elapsed_secs();
+  let wanted: HashMap<Entity, (u8, Sighted)> = creatures
+    .iter()
+    .filter(|(entity, ..)| {
+      seen == Some(*entity)
+        || wounds.0.get(entity).is_some_and(|&(_, when, _)| now - when < RECENT)
     })
-  }
+    .filter_map(|(entity, health, folk, beast, bird)| {
+      sighted(folk, beast, bird).map(|sighted| (entity, (health.0, sighted)))
+    })
+    .collect();
+  plated.0.retain(|creature, plate| {
+    let kept = wanted.contains_key(creature);
+    if !kept {
+      commands.entity(*plate).despawn()
+    }
+    kept
+  });
+  wanted.into_iter().for_each(
+    |(creature, (health, Sighted { name, top, full, hostile }))| {
+      let color = if hostile { HOSTILE } else { TAME };
+      let share = (f32::from(health) / f32::from(full.max(1))).clamp(0.0, 1.0);
+      let at = top + Vec3::Y * 0.15;
+      match plated.0.get(&creature).and_then(|&plate| plates.get_mut(plate).ok()) {
+        Some(mut plate) => {
+          plate.at = at;
+          if plate.health != Some(share) {
+            plate.health = Some(share)
+          }
+        }
+        None => {
+          let plate = commands
+            .spawn(plate(name, color, at))
+            .insert(Plate { text: name.into(), color, health: Some(share), at })
+            .id();
+          plated.0.insert(creature, plate);
+        }
+      }
+    }
+  )
 }
 
 pub struct Glances;
@@ -254,8 +233,8 @@ impl Plugin for Glances {
   fn build(&self, app: &mut App) {
     app
       .init_resource::<Wounds>()
+      .init_resource::<Plated>()
       .add_observer(fell)
-      .add_systems(Startup, panel.run_if(plays))
       .add_systems(
         Update,
         (tally, target.run_if(resource_exists::<Pilot>), rise).chain().run_if(plays)

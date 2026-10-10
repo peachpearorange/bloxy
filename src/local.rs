@@ -58,11 +58,10 @@ mod web {
     let heard =
       Closure::<dyn FnMut(web_sys::MouseEvent)>::new(|event: web_sys::MouseEvent| {
         if event.button() == 0
-          && CAPTURING.with(Cell::get)
           && let Some(document) = web_sys::window().and_then(|window| window.document())
           && let Some(canvas) = document.query_selector("canvas").ok().flatten()
         {
-          if document.pointer_lock_element().is_none() {
+          if CAPTURING.with(Cell::get) && document.pointer_lock_element().is_none() {
             canvas.request_pointer_lock()
           }
           if document.fullscreen_element().is_none() {

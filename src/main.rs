@@ -9,6 +9,7 @@ mod bird;
 mod block;
 mod boat;
 mod chart;
+mod chat;
 mod claim;
 mod console;
 mod crafting;
@@ -34,6 +35,7 @@ mod model;
 mod net;
 mod noise;
 mod opts;
+mod plate;
 mod player;
 mod protocol;
 mod recipe;
@@ -298,7 +300,14 @@ fn main() {
         chart::Charting,
         fx::Sparkle
       ))
-      .add_plugins((crumble::Crumbles, water::Waters, glance::Glances, console::Console))
+      .add_plugins((
+        crumble::Crumbles,
+        water::Waters,
+        glance::Glances,
+        console::Console,
+        plate::Plates,
+        chat::Chat
+      ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)
   };

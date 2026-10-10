@@ -20,7 +20,8 @@ const REFRESH_EVERY: f32 = 5.0;
 #[derive(Component, Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Claim {
   pub column: IVec2,
-  pub owner: String
+  pub owner: String,
+  pub hue: u8
 }
 
 #[derive(Component)]
@@ -105,7 +106,11 @@ pub fn settle(commands: &mut Commands, accounts: &Accounts, deeds: &[Deed]) {
   deeds.iter().filter(|deed| deed.account < accounts.0.len()).for_each(|deed| {
     commands.spawn((
       Replicated,
-      Claim { column: deed.column, owner: accounts.0[deed.account].name.clone() },
+      Claim {
+        column: deed.column,
+        owner: accounts.0[deed.account].name.clone(),
+        hue: accounts.0[deed.account].hue()
+      },
       Holding {
         account: deed.account,
         snapshot: deed.snapshot.as_ref().map(|text| Arc::new(decode(text)))
@@ -154,7 +159,7 @@ fn stake(
           made.push((column, account));
           commands.spawn((
             Replicated,
-            Claim { column, owner: player.name.clone() },
+            Claim { column, owner: player.name.clone(), hue: player.hue },
             Holding { account, snapshot: None }
           ));
           format!("Claimed chunk {} {} ({}/{MOST})", column.x, column.y, mine + 1)
@@ -176,9 +181,13 @@ fn rename(
     claims
       .iter_mut()
       .filter(|(claim, holding)| {
-        holding.account == controller.account && claim.owner != player.name
+        holding.account == controller.account
+          && (claim.owner != player.name || claim.hue != player.hue)
       })
-      .for_each(|(mut claim, _)| claim.owner = player.name.clone())
+      .for_each(|(mut claim, _)| {
+        claim.owner = player.name.clone();
+        claim.hue = player.hue
+      })
   })
 }
 
@@ -244,8 +253,12 @@ pub fn regen(world: &mut World, seed: Option<u32>) -> String {
   world.insert_resource(Colonies::default());
   world.write_message(ToClients { targets: SendTargets::All, message: welcome });
   if seed != old {
-    let arrival =
-      Avatar { at: generate::spawn_point(seed), yaw: FACING_STONE, pitch: 0.0 };
+    let arrival = Avatar {
+      at: generate::spawn_point(seed),
+      yaw: FACING_STONE,
+      pitch: 0.0,
+      held: None
+    };
     let players: Vec<(Entity, ClientId)> = world
       .query::<(Entity, &Controller)>()
       .iter(world)

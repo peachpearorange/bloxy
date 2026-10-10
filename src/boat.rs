@@ -171,9 +171,9 @@ fn row(
     && let Some(mut riding) = pilot.riding
     && ready_around(&voxels, pilot.at)
   {
-    let pressed = |key: KeyCode| !menu.open && keys.pressed(key);
+    let pressed = |key: KeyCode| menu.idle() && keys.pressed(key);
     let held = |key: KeyCode| f32::from(u8::from(pressed(key)));
-    match !menu.open && keys.just_pressed(KeyCode::ShiftLeft) {
+    match menu.idle() && keys.just_pressed(KeyCode::ShiftLeft) {
       true => {
         leaves.write(Disembark);
         pilot.riding = None;

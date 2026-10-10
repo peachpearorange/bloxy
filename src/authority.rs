@@ -66,6 +66,7 @@ fn embody(
   client: ClientId,
   account: usize
 ) -> Entity {
+  let hue = accounts.0[account].hue();
   let Account { name, avatar, inventory, skin, visited, bookmarks, bedside, .. } =
     accounts.0[account].clone();
   let at = generate::spawn_point(seed);
@@ -73,8 +74,8 @@ fn embody(
     .spawn((
       Replicated,
       Controller { client, account },
-      Player { name },
-      avatar.unwrap_or(Avatar { at, yaw: FACING_STONE, pitch: 0.0 }),
+      Player { name, hue },
+      avatar.unwrap_or(Avatar { at, yaw: FACING_STONE, pitch: 0.0, held: None }),
       inventory,
       skin,
       visited,
@@ -196,7 +197,9 @@ fn sign_in(
         (owner, Some((mine, entity))) if owner.is_none_or(|owner| owner == mine) => {
           accounts.0[mine].name = name.clone();
           accounts.0[mine].lock(password);
-          commands.entity(entity).insert(Player { name: name.clone() });
+          commands
+            .entity(entity)
+            .insert(Player { name: name.clone(), hue: accounts.0[mine].hue() });
           Ok(name)
         }
         (Some(owner), _) if playing.contains(&owner) => {
@@ -250,6 +253,47 @@ fn paint(
       .for_each(|(entity, _)| {
         commands.entity(entity).insert(paint.message.0.clone());
       })
+  })
+}
+
+fn tint(
+  mut tints: MessageReader<FromClient<Tint>>,
+  mut accounts: ResMut<Accounts>,
+  mut players: Query<(&Controller, &mut Player)>
+) {
+  tints.read().filter(|tint| usize::from(tint.message.0) < HUES.len()).for_each(|tint| {
+    players
+      .iter_mut()
+      .filter(|(controller, _)| controller.client == tint.client_id)
+      .for_each(|(controller, mut player)| {
+        accounts.0[controller.account].hue = Some(tint.message.0);
+        player.hue = tint.message.0
+      })
+  })
+}
+
+fn chat(
+  mut sayings: MessageReader<FromClient<Say>>,
+  players: Query<(&Controller, &Player)>,
+  mut said: MessageWriter<ToClients<Said>>
+) {
+  sayings.read().for_each(|FromClient { client_id, message: Say(text) }| {
+    let text: String =
+      text.chars().filter(|c| !c.is_control()).take(LONGEST_SAYING).collect();
+    if let Some((_, player)) =
+      players.iter().find(|(controller, _)| controller.client == *client_id)
+      && !text.trim().is_empty()
+    {
+      info!("{}: {}", player.name, text.trim());
+      said.write(ToClients {
+        targets: SendTargets::All,
+        message: Said {
+          name: player.name.clone(),
+          hue: player.hue,
+          text: text.trim().into()
+        }
+      });
+    }
   })
 }
 
@@ -498,7 +542,8 @@ fn travel(
         .map(|lift| arrival.floor().as_ivec3() + IVec3::Y * lift)
         .find(|&at| !voxels.ensure(at).solid() && !voxels.ensure(at + IVec3::Y).solid())
         .map_or(arrival.y, |at| at.y as f32 + 0.05);
-      let moved = Avatar { at: arrival.with_y(feet), yaw: FACING_STONE, pitch: 0.0 };
+      let moved =
+        Avatar { at: arrival.with_y(feet), yaw: FACING_STONE, pitch: 0.0, ..*avatar };
       *avatar = moved;
       teleports.write(ToClients {
         targets: SendTargets::Single(client_id),
@@ -653,8 +698,8 @@ impl Plugin for Authority {
       .add_systems(
         PreUpdate,
         (
-          sign_in, paint, follow, attune, travel, dig, put, scoop, pour, shuffle, craft,
-          mark, rest
+          sign_in, paint, tint, chat, follow, attune, travel, dig, put, scoop, pour,
+          shuffle, craft, mark, rest
         )
           .chain()
           .after(ServerSystems::Receive)

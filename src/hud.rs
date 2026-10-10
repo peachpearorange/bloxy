@@ -7,7 +7,8 @@ use {crate::{block::Block,
              texture::{ICON, ICON_COLUMNS},
              voxels::Voxels},
      bevy::{diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-            prelude::*},
+            prelude::*,
+            window::PrimaryWindow},
      bevy_replicon::prelude::*};
 
 #[derive(Component)]
@@ -88,11 +89,24 @@ fn hearts() -> Image {
 
 const EDGE: f32 = 0.012;
 
-const SLOT: f32 = 36.0;
+const SLOT: f32 = 46.0;
+const ICON_SHOWN: f32 = 40.0;
 const STRIP: Color = Color::srgba(0.42, 0.42, 0.44, 0.7);
 const PICKED: Color = Color::srgb(0.95, 0.95, 0.95);
 
 pub const SHADE: TextShadow = TextShadow { offset: Vec2::ONE, color: Color::BLACK };
+
+fn scale(
+  windows: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
+  mut scale: ResMut<UiScale>
+) {
+  windows.iter().for_each(|window| {
+    let fitted = ((window.height() / 720.0) * 4.0).floor().max(4.0) / 4.0;
+    if scale.0 != fitted {
+      scale.0 = fitted
+    }
+  })
+}
 
 fn crisp(mut fonts: Query<&mut TextFont, Added<TextFont>>) {
   fonts.iter_mut().for_each(|mut font| font.font_smoothing = FontSmoothing::None)
@@ -139,7 +153,7 @@ fn build(
                 rect: Some(Rect::new(0.0, 0.0, HEART_SIZE as f32, HEART_SIZE as f32)),
                 ..ImageNode::new(heart.clone())
               },
-              Node { width: px(18), height: px(18), ..default() }
+              Node { width: px(22), height: px(22), ..default() }
             ));
           })
         });
@@ -206,13 +220,13 @@ fn build(
                 slot.spawn((
                   Icon(index),
                   ImageNode::new(palette.icons.clone()),
-                  Node { width: px(32), height: px(32), ..default() },
+                  Node { width: px(ICON_SHOWN), height: px(ICON_SHOWN), ..default() },
                   Visibility::Hidden
                 ));
                 slot.spawn((
                   Count(index),
                   Text::new(""),
-                  TextFont { font_size: FontSize::Px(14.0), ..default() },
+                  TextFont { font_size: FontSize::Px(16.0), ..default() },
                   crate::hud::SHADE,
                   Node {
                     position_type: PositionType::Absolute,
@@ -461,6 +475,7 @@ impl Plugin for Hud {
       .add_plugins(FrameTimeDiagnosticsPlugin::default())
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
       .add_systems(Update, (refresh, aim, status, vitals, announce).run_if(plays))
-      .add_systems(PostUpdate, crisp.run_if(plays));
+      .add_systems(PostUpdate, crisp.run_if(plays))
+      .add_systems(PreUpdate, scale.run_if(plays));
   }
 }

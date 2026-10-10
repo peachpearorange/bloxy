@@ -1,18 +1,29 @@
 use {crate::{account::random,
-             figure::{Clad, Kit, assemble},
-             menu::{Act, BUTTON, FAINT, INK, Menu, Pressed, Tab, button, words},
+             figure::Kit,
+             menu::{Act, BUTTON, FAINT, Menu, Pressed, Tab, button, words},
              player::Pilot,
              protocol::{Paint, plays},
-             skin::{PALETTE, Part, Skin, TALL, WIDE, used}},
+             skin::{PALETTE, PX, Part, Skin}},
      bevy::{camera::{RenderTarget, visibility::RenderLayers},
             core_pipeline::tonemapping::Tonemapping,
+            input::mouse::{AccumulatedMouseScroll, MouseScrollUnit},
             prelude::*,
             render::render_resource::TextureFormat,
             ui::RelativeCursorPosition}};
 
-const SCALE: f32 = 8.0;
 const PREVIEW: usize = 3;
-const VIEW: UVec2 = UVec2::new(260, 380);
+const VIEW: UVec2 = UVec2::new(600, 640);
+const PIVOT: Vec3 = Vec3::new(0.0, 0.95, 0.0);
+const NEAREST: f32 = 1.6;
+const FARTHEST: f32 = 5.0;
+const PIECES: [(Part, Vec3, f32); 6] = [
+  (Part::Head, Vec3::new(0.0, 24.0, 0.0), 4.0),
+  (Part::Body, Vec3::new(0.0, 18.0, 0.0), 0.0),
+  (Part::Arm, Vec3::new(6.0, 24.0, 0.0), -6.0),
+  (Part::Arm, Vec3::new(-6.0, 24.0, 0.0), -6.0),
+  (Part::Leg, Vec3::new(2.0, 12.0, 0.0), -6.0),
+  (Part::Leg, Vec3::new(-2.0, 12.0, 0.0), -6.0)
+];
 
 #[derive(Resource)]
 pub struct Draft {
@@ -20,22 +31,74 @@ pub struct Draft {
   pub colour: u8,
   pub touched: bool,
   raw: Handle<Image>,
-  canvas: Handle<Image>,
   view: Handle<Image>,
   material: Handle<StandardMaterial>
 }
 
+#[derive(Clone, Copy)]
+enum Grip {
+  Turning(Vec2),
+  Painting
+}
+
+#[derive(Resource)]
+struct Orbit {
+  yaw: f32,
+  pitch: f32,
+  distance: f32,
+  grip: Option<Grip>
+}
+
 #[derive(Component)]
-struct Canvas;
+struct Piece {
+  part: Part,
+  centre: Vec3
+}
+
+impl Piece {
+  fn half(&self) -> Vec3 { self.part.size().as_vec3() * PX / 2.0 }
+
+  fn struck(&self, from: Vec3, toward: Vec3) -> Option<(f32, Vec3)> {
+    let (low, high) = (self.centre - self.half(), self.centre + self.half());
+    let (near, far) = ((low - from) / toward, (high - from) / toward);
+    let (entry, exit) = (near.min(far), near.max(far));
+    let (enter, leave) = (entry.max_element(), exit.min_element());
+    let axis = (0..3).find(|&axis| entry[axis] == enter).unwrap_or(0);
+    let mut normal = Vec3::ZERO;
+    normal[axis] = -toward[axis].signum();
+    (enter <= leave && enter > 0.0).then_some((enter, normal))
+  }
+
+  fn texel(&self, point: Vec3, normal: Vec3) -> Option<UVec2> {
+    let size = self.part.size().as_vec3() * PX;
+    let extent = |axis: Vec3| axis.abs().dot(size);
+    let offset = point - self.centre;
+    self.part.faces().into_iter().find(|(face, _)| face.axes().0 == normal).map(
+      |(face, rect)| {
+        let (_, across, down) = face.axes();
+        let spot =
+          Vec2::new(offset.dot(across) / extent(across), offset.dot(down) / extent(down))
+            + 0.5;
+        (rect.min.as_vec2() + spot * rect.size().as_vec2())
+          .floor()
+          .as_uvec2()
+          .clamp(rect.min, rect.max - 1)
+      }
+    )
+  }
+}
 
 #[derive(Component)]
 struct Unsaved;
 
 #[derive(Component)]
-struct Turntable;
+struct Easel;
 
 #[derive(Component)]
 struct Viewer;
+
+#[derive(Component)]
+struct Lamp;
 
 pub fn prepare(
   mut commands: Commands,
@@ -50,11 +113,10 @@ pub fn prepare(
     ..default()
   });
   commands.insert_resource(Draft {
-    canvas: images.add(skin.image(true)),
     view: images.add(Image::new_target_texture(
       VIEW.x,
       VIEW.y,
-      TextureFormat::Rgba16Float,
+      TextureFormat::Rgba8UnormSrgb,
       None
     )),
     raw,
@@ -62,7 +124,8 @@ pub fn prepare(
     skin,
     colour: 0,
     touched: false
-  })
+  });
+  commands.insert_resource(Orbit { yaw: 0.6, pitch: 0.15, distance: 4.0, grip: None })
 }
 
 fn stage(mut commands: Commands, draft: Res<Draft>, kit: Res<Kit>) {
@@ -82,97 +145,91 @@ fn stage(mut commands: Commands, draft: Res<Draft>, kit: Res<Kit>) {
       ..default()
     }),
     Tonemapping::AcesFitted,
-    AmbientLight { brightness: 700.0, ..default() },
+    bevy::camera::Exposure { ev100: 13.0 },
+    AmbientLight { brightness: 2200.0, ..default() },
     layers.clone(),
-    Transform::from_xyz(0.0, 1.2, -4.3).looking_at(Vec3::new(0.0, 0.93, 0.0), Vec3::Y)
+    Transform::default()
   ));
   commands.spawn((
-    DirectionalLight { illuminance: 6000.0, shadow_maps_enabled: false, ..default() },
+    Lamp,
+    DirectionalLight { illuminance: 6500.0, shadow_maps_enabled: false, ..default() },
     layers.clone(),
-    Transform::from_xyz(-2.0, 3.0, -3.0).looking_at(Vec3::ZERO, Vec3::Y)
+    Transform::default()
   ));
-  let clad = Clad { material: draft.material.clone(), image: draft.raw.clone() };
-  let mut figure = commands.spawn((
-    Turntable,
-    Transform::default(),
-    Visibility::default(),
-    layers.clone()
-  ));
-  assemble(&mut figure, &kit, &clad, layers);
+  PIECES.into_iter().for_each(|(part, at, lift)| {
+    let mesh = match part {
+      Part::Head => kit.head.clone(),
+      Part::Body => kit.body.clone(),
+      Part::Arm => kit.arm.clone(),
+      Part::Leg => kit.leg.clone()
+    };
+    commands.spawn((
+      Piece { part, centre: (at + Vec3::Y * lift) * PX },
+      Mesh3d(mesh),
+      MeshMaterial3d(draft.material.clone()),
+      layers.clone(),
+      Transform::from_translation(at * PX),
+      Visibility::default()
+    ));
+  });
 }
 
 pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
-  page.spawn(Node { column_gap: px(20), ..default() }).with_children(|row| {
-    row
-      .spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(6), ..default() })
-      .with_children(|left| {
-        left
-          .spawn((
-            Canvas,
-            ImageNode::new(draft.canvas.clone()),
-            RelativeCursorPosition::default(),
-            Node {
-              width: px(WIDE as f32 * SCALE),
-              height: px(TALL as f32 * SCALE),
-              ..default()
-            }
-          ))
-          .with_children(|canvas| {
-            Part::ALL.into_iter().for_each(|part| {
-              let corner = part.origin().as_vec2() * SCALE;
-              canvas.spawn((words(part.name(), 12.0, INK), Node {
-                position_type: PositionType::Absolute,
-                left: px(corner.x + 2.0),
-                top: px(corner.y + 1.0),
-                ..default()
-              }));
-            })
-          });
-        left.spawn(Node { flex_wrap: FlexWrap::Wrap, width: px(WIDE as f32 * SCALE), ..default() }).with_children(
-          |palette| {
-            PALETTE.iter().enumerate().for_each(|(index, &[r, g, b])| {
-              palette.spawn((
-                Button,
-                Act::Swatch(index as u8),
-                Node {
-                  width: px(32),
-                  height: px(28),
-                  border: UiRect::all(px(2)),
-                  ..default()
-                },
-                BorderColor::all(BUTTON),
-                BackgroundColor(Color::srgb_u8(r, g, b))
-              ));
-            })
-          }
-        );
-        left.spawn(words(
-          "Left mouse paints, right mouse picks a colour. Arms and legs share one pattern.",
-          13.0,
-          FAINT
-        ));
-      });
-    row
-      .spawn(Node {
-        flex_direction: FlexDirection::Column,
-        row_gap: px(6),
-        align_items: AlignItems::Center,
-        ..default()
-      })
-      .with_children(|right| {
-        right.spawn((ImageNode::new(draft.view.clone()), Node {
-          width: px(VIEW.x as f32),
-          height: px(VIEW.y as f32),
+  page
+    .spawn(Node { column_gap: px(20), flex_grow: 1.0, min_height: px(0), ..default() })
+    .with_children(|row| {
+      row
+        .spawn(Node {
+          flex_direction: FlexDirection::Column,
+          row_gap: px(8),
+          width: px(380),
+          flex_shrink: 0.0,
           ..default()
-        }));
-        right.spawn(Node { column_gap: px(8), ..default() }).with_children(|buttons| {
-          button(buttons, "Random", Act::Randomize);
-          button(buttons, "Undo all", Act::Revert);
-          button(buttons, "Wear", Act::Wear);
+        })
+        .with_children(|left| {
+          left.spawn(words("Colours", 15.0, FAINT));
+          left.spawn(Node { flex_wrap: FlexWrap::Wrap, width: px(380), ..default() }).with_children(
+            |palette| {
+              PALETTE.iter().enumerate().for_each(|(index, &[r, g, b])| {
+                palette.spawn((
+                  Button,
+                  Act::Swatch(index as u8),
+                  Node { width: px(46), height: px(36), border: UiRect::all(px(3)), ..default() },
+                  BorderColor::all(BUTTON),
+                  BackgroundColor(Color::srgb_u8(r, g, b))
+                ));
+              })
+            }
+          );
+          left.spawn(Node { column_gap: px(8), row_gap: px(6), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(
+            |buttons| {
+              button(buttons, "Random", Act::Randomize);
+              button(buttons, "Undo all", Act::Revert);
+              button(buttons, "Show all parts", Act::Unhide);
+              button(buttons, "Wear", Act::Wear);
+            }
+          );
+          left.spawn((Unsaved, words("", 14.0, FAINT)));
+          left.spawn(words(
+            "Left mouse paints on the figure; drag beside it to turn it around. Right-click a \
+             body part to hide it and reach what it covers. Middle-click picks a colour, the \
+             wheel zooms. Both arms share one pattern, as do both legs.",
+            14.0,
+            FAINT
+          ));
         });
-        right.spawn((Unsaved, words("", 14.0, FAINT)));
-      });
-  });
+      row.spawn((
+        Easel,
+        ImageNode::new(draft.view.clone()),
+        RelativeCursorPosition::default(),
+        Interaction::default(),
+        Node {
+          height: percent(100),
+          aspect_ratio: Some(VIEW.x as f32 / VIEW.y as f32),
+          ..default()
+        }
+      ));
+    });
 }
 
 fn follow(mut draft: ResMut<Draft>, pilot: Option<Res<Pilot>>, skins: Query<&Skin>) {
@@ -185,28 +242,80 @@ fn follow(mut draft: ResMut<Draft>, pilot: Option<Res<Pilot>>, skins: Query<&Ski
   }
 }
 
-fn paint(
+fn brush(
   buttons: Res<ButtonInput<MouseButton>>,
+  wheel: Res<AccumulatedMouseScroll>,
   menu: Res<Menu>,
-  canvas: Query<&RelativeCursorPosition, With<Canvas>>,
+  windows: Query<&RelativeCursorPosition, With<Easel>>,
+  viewers: Query<(&Camera, &GlobalTransform), With<Viewer>>,
+  mut pieces: Query<(&Piece, &mut Visibility)>,
+  mut orbit: ResMut<Orbit>,
   mut draft: ResMut<Draft>
 ) {
   if menu.showing(Tab::Skin)
-    && let Ok(cursor) = canvas.single()
-    && cursor.cursor_over
-    && let Some(spot) = cursor.normalized
-    && let size = Vec2::new(WIDE as f32, TALL as f32)
-    && let texel =
-      ((spot + 0.5) * size).floor().as_uvec2().min(UVec2::new(WIDE - 1, TALL - 1))
-    && used(texel)
+    && let Ok(cursor) = windows.single()
+    && let Ok((camera, eye)) = viewers.single()
   {
-    let colour = draft.colour;
-    if buttons.pressed(MouseButton::Left) && draft.skin.get(texel) != colour {
-      draft.skin.set(texel, colour);
-      draft.touched = true
+    let spot = cursor.normalized.filter(|_| cursor.cursor_over);
+    let hit = spot
+      .and_then(|spot| camera.viewport_to_world(eye, (spot + 0.5) * VIEW.as_vec2()).ok())
+      .and_then(|ray| {
+        pieces
+          .iter()
+          .enumerate()
+          .filter(|(_, (_, visibility))| **visibility != Visibility::Hidden)
+          .filter_map(|(index, (piece, _))| {
+            piece.struck(ray.origin, *ray.direction).and_then(|(distance, normal)| {
+              piece
+                .texel(ray.origin + *ray.direction * distance, normal)
+                .map(|texel| (distance, index, texel))
+            })
+          })
+          .min_by(|a, b| a.0.total_cmp(&b.0))
+      });
+    if buttons.just_pressed(MouseButton::Left)
+      && let Some(spot) = spot
+    {
+      orbit.grip = Some(match hit {
+        Some(_) => Grip::Painting,
+        None => Grip::Turning(spot)
+      })
     }
-    if buttons.just_pressed(MouseButton::Right) {
-      draft.colour = draft.skin.get(texel)
+    if !buttons.pressed(MouseButton::Left) {
+      orbit.grip = None
+    }
+    match (orbit.grip, spot, hit) {
+      (Some(Grip::Painting), _, Some((_, _, texel))) => {
+        let colour = draft.colour;
+        if draft.skin.get(texel) != colour {
+          draft.skin.set(texel, colour);
+          draft.touched = true
+        }
+      }
+      (Some(Grip::Turning(from)), Some(spot), _) => {
+        let moved = spot - from;
+        orbit.yaw -= moved.x * 5.0;
+        orbit.pitch = (orbit.pitch + moved.y * 3.0).clamp(-1.3, 1.3);
+        orbit.grip = Some(Grip::Turning(spot))
+      }
+      _ => ()
+    }
+    if let Some((_, index, texel)) = hit {
+      if buttons.just_pressed(MouseButton::Right)
+        && let Some((_, mut visibility)) = pieces.iter_mut().nth(index)
+      {
+        *visibility = Visibility::Hidden
+      }
+      if buttons.just_pressed(MouseButton::Middle) {
+        draft.colour = draft.skin.get(texel)
+      }
+    }
+    let lines = match wheel.unit {
+      MouseScrollUnit::Line => wheel.delta.y,
+      MouseScrollUnit::Pixel => wheel.delta.y / 40.0
+    };
+    if spot.is_some() && lines != 0.0 {
+      orbit.distance = (orbit.distance * 0.9f32.powf(lines)).clamp(NEAREST, FARTHEST)
     }
   }
 }
@@ -214,6 +323,7 @@ fn paint(
 fn obey(
   mut pressed: MessageReader<Pressed>,
   mut draft: ResMut<Draft>,
+  mut pieces: Query<&mut Visibility, With<Piece>>,
   mut paints: MessageWriter<Paint>
 ) {
   pressed.read().for_each(|&Pressed(act)| match act {
@@ -223,6 +333,9 @@ fn obey(
       draft.touched = true
     }
     Act::Revert => draft.touched = false,
+    Act::Unhide => {
+      pieces.iter_mut().for_each(|mut visibility| *visibility = Visibility::Inherited)
+    }
     Act::Wear => {
       paints.write(Paint(draft.skin.clone()));
     }
@@ -233,11 +346,11 @@ fn obey(
 fn show(
   draft: Res<Draft>,
   menu: Res<Menu>,
-  time: Res<Time>,
+  orbit: Res<Orbit>,
   mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
-  mut viewers: Query<&mut Camera, With<Viewer>>,
-  mut tables: Query<&mut Transform, With<Turntable>>,
+  mut viewers: Query<(&mut Camera, &mut Transform), (With<Viewer>, Without<Lamp>)>,
+  mut lamps: Query<&mut Transform, (With<Lamp>, Without<Viewer>)>,
   mut swatches: Query<(&Act, &mut BorderColor)>,
   mut unsaved: Query<&mut Text, With<Unsaved>>,
   mut drawn: Local<Option<Skin>>
@@ -247,19 +360,25 @@ fn show(
     if let Some(mut image) = images.get_mut(&draft.raw) {
       image.data = Some(draft.skin.pixels(false))
     }
-    if let Some(mut image) = images.get_mut(&draft.canvas) {
-      image.data = Some(draft.skin.pixels(true))
-    }
     materials.get_mut(&draft.material);
   }
   let visible = menu.showing(Tab::Skin);
-  viewers.iter_mut().for_each(|mut camera| {
+  let turned = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);
+  let placed = Transform::from_translation(PIVOT + turned * Vec3::NEG_Z * orbit.distance)
+    .looking_at(PIVOT, Vec3::Y);
+  viewers.iter_mut().for_each(|(mut camera, mut transform)| {
     if camera.is_active != visible {
       camera.is_active = visible
     }
+    transform.set_if_neq(placed);
   });
-  tables.iter_mut().for_each(|mut table| {
-    table.rotation = Quat::from_rotation_y(time.elapsed_secs() * 0.7)
+  lamps.iter_mut().for_each(|mut lamp| {
+    lamp.set_if_neq(
+      Transform::from_translation(
+        placed.translation + placed.right() * 2.5 + Vec3::Y * 3.0
+      )
+      .looking_at(PIVOT, Vec3::Y)
+    );
   });
   swatches.iter_mut().for_each(|(act, mut border)| {
     if let Act::Swatch(colour) = *act {
@@ -289,6 +408,30 @@ impl Plugin for Editing {
         Startup,
         (prepare, stage.after(crate::figure::sew)).chain().run_if(plays)
       )
-      .add_systems(Update, (follow, paint, obey, show).chain().run_if(plays));
+      .add_systems(Update, (follow, brush, obey, show).chain().run_if(plays));
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn rays_find_the_texel_they_touch() {
+    let body = Piece { part: Part::Body, centre: Vec3::new(0.0, 18.0, 0.0) * PX };
+    let (distance, normal) =
+      body.struck(Vec3::new(0.0, 18.0 * PX, -3.0), Vec3::Z).unwrap();
+    assert_eq!(normal, Vec3::NEG_Z);
+    let texel =
+      body.texel(Vec3::new(0.0, 18.0 * PX, -3.0) + Vec3::Z * distance, normal).unwrap();
+    assert_eq!(texel, UVec2::new(24, 26));
+    let head = Piece { part: Part::Head, centre: Vec3::new(0.0, 28.0, 0.0) * PX };
+    let (distance, normal) =
+      head.struck(Vec3::new(3.5 * PX, 3.0, PX), Vec3::NEG_Y).unwrap();
+    assert_eq!(normal, Vec3::Y);
+    assert!(
+      head.texel(Vec3::new(3.5 * PX, 3.0, PX) + Vec3::NEG_Y * distance, normal).is_some()
+    );
+    assert!(body.struck(Vec3::new(1.0, 18.0 * PX, -3.0), Vec3::Z).is_none())
   }
 }

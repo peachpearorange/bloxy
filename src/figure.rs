@@ -1,5 +1,7 @@
-use {crate::{player::{Eye, Me, Pilot, View},
-             protocol::{Avatar, Player, plays},
+use {crate::{hand::{Grip, grip},
+             plate::{Plate, plate},
+             player::{Me, Pilot, View},
+             protocol::{Avatar, Player, hue, plays},
              skin::{PX, Part, Skin}},
      bevy::{camera::visibility::RenderLayers, prelude::*},
      std::f32::consts::PI};
@@ -92,13 +94,16 @@ pub fn assemble(
     ]
     .into_iter()
     .for_each(|(x, phase, mesh, pivot)| {
-      figure.spawn((
+      let mut limb = figure.spawn((
         Limb { phase },
         Mesh3d(mesh),
         material.clone(),
         layers.clone(),
         Transform::from_xyz(x * PX, pivot * PX, 0.0)
       ));
+      if x == 6.0 && pivot == 24.0 {
+        limb.with_child((grip(), layers.clone()));
+      }
     });
   });
 }
@@ -124,15 +129,7 @@ fn dress(
       ));
       assemble(&mut figure, &kit, &clad, RenderLayers::default());
       figure.insert(clad);
-      let tag = commands
-        .spawn((
-          Text::new(player.name.clone()),
-          TextFont { font_size: FontSize::Px(15.0), ..default() },
-          TextColor(Color::WHITE),
-          crate::hud::SHADE,
-          Node { position_type: PositionType::Absolute, ..default() }
-        ))
-        .id();
+      let tag = commands.spawn(plate(player.name.clone(), Color::WHITE, avatar.at)).id();
       commands.entity(entity).insert(Tag(tag));
     })
 }
@@ -193,7 +190,11 @@ fn animate(
     Without<Me>
   >,
   mut heads: Query<&mut Transform, (With<Head>, Without<Figure>, Without<Limb>)>,
-  mut limbs: Query<(&Limb, &mut Transform), (Without<Figure>, Without<Head>)>
+  mut limbs: Query<
+    (&Limb, &mut Transform, Option<&Children>),
+    (Without<Figure>, Without<Head>)
+  >,
+  mut grips: Query<&mut Grip>
 ) {
   let dt = time.delta_secs();
   figures.iter_mut().for_each(
@@ -214,8 +215,17 @@ fn animate(
         if let Ok(mut head) = heads.get_mut(child) {
           head.rotation = Quat::from_rotation_x(avatar.pitch)
         }
-        if let Ok((limb, mut limb_transform)) = limbs.get_mut(child) {
-          limb_transform.rotation = Quat::from_rotation_x(swing * (limb.phase).cos())
+        if let Ok((limb, mut limb_transform, held)) = limbs.get_mut(child) {
+          let raised = held.is_some() && avatar.held.is_some();
+          limb_transform.rotation = Quat::from_rotation_x(
+            swing * (limb.phase).cos() * if raised { 0.4 } else { 1.0 }
+              + if raised { 0.35 } else { 0.0 }
+          );
+          held.into_iter().flatten().for_each(|&grip| {
+            if let Ok(mut grip) = grips.get_mut(grip) {
+              grip.set_if_neq(Grip(avatar.held));
+            }
+          })
         }
       })
     }
@@ -224,28 +234,19 @@ fn animate(
 
 fn label(
   figures: Query<(&Figure, &Player, &Tag), Without<Me>>,
-  eyes: Query<(&Camera, &GlobalTransform), With<Eye>>,
-  mut tags: Query<(&mut Node, &mut Visibility, &mut Text)>
+  mut plates: Query<&mut Plate>
 ) {
-  if let Ok((camera, eye)) = eyes.single() {
-    figures.iter().for_each(|(figure, player, tag)| {
-      if let Ok((mut node, mut visibility, mut text)) = tags.get_mut(tag.0) {
-        let over = figure.shown + Vec3::Y * 2.15;
-        let near = eye.translation().distance(over) < 48.0;
-        match camera.world_to_viewport(eye, over).ok().filter(|_| near) {
-          Some(spot) => {
-            node.left = Val::Px(spot.x - player.name.len() as f32 * 4.0);
-            node.top = Val::Px(spot.y - 10.0);
-            *visibility = Visibility::Inherited
-          }
-          None => *visibility = Visibility::Hidden
-        }
-        if text.0 != player.name {
-          text.0 = player.name.clone()
-        }
+  figures.iter().for_each(|(figure, player, tag)| {
+    if let Ok(mut plate) = plates.get_mut(tag.0) {
+      plate.at = figure.shown + Vec3::Y * 2.05;
+      if plate.text != player.name {
+        plate.text = player.name.clone()
       }
-    })
-  }
+      if plate.color != hue(player.hue) {
+        plate.color = hue(player.hue)
+      }
+    }
+  })
 }
 
 fn untag(gone: On<Remove, Tag>, tags: Query<&Tag>, mut commands: Commands) {

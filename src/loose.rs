@@ -1,11 +1,10 @@
 use {crate::{authority::{Controller, player_of},
              block::{Block, Look},
-             hud::icon_rect,
              menu::closed,
              player::{Bulk, Marched, Pilot, Selected, march},
              protocol::*,
              stream::Palette,
-             texture::{ICON, ICON_COLUMNS, uv_corner},
+             texture::{PIXELS, paint, uv_corner},
              voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
             mesh::{Indices, PrimitiveTopology},
@@ -18,7 +17,7 @@ const THROW: f32 = 5.0;
 const GATHER: f32 = 1.6;
 const TOSSED_WAIT: f32 = 1.5;
 const LASTS: f32 = 300.0;
-const SIZE: f32 = 0.25;
+pub const SIZE: f32 = 0.25;
 const BULK: Bulk = Bulk { half: SIZE / 2.0, tall: SIZE };
 
 #[derive(Component)]
@@ -151,104 +150,144 @@ fn throw(
   }
 }
 
-#[derive(Resource)]
-struct Looks {
-  meshes: HashMap<Block, Handle<Mesh>>,
-  flat: Handle<StandardMaterial>
+pub const FLAT: f32 = 0.4;
+
+#[derive(Resource, Default)]
+pub struct Looks(HashMap<Block, Handle<Mesh>>);
+
+impl Looks {
+  pub fn mesh(&mut self, block: Block, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
+    self
+      .0
+      .entry(block)
+      .or_insert_with(|| {
+        meshes.add(if cubic(block) { cube(block) } else { sliver(block) })
+      })
+      .clone()
+  }
 }
 
 #[derive(Component)]
 struct Shown {
   at: Vec3,
-  phase: f32
+  turned: Quat
 }
 
-fn cube(block: Block) -> Mesh {
-  let [top, side, bottom] = block.tiles();
-  let faces = [
-    (Vec3::Y, Vec3::X, Vec3::NEG_Z, top),
-    (Vec3::NEG_Y, Vec3::X, Vec3::Z, bottom),
-    (Vec3::X, Vec3::NEG_Z, Vec3::Y, side),
-    (Vec3::NEG_X, Vec3::Z, Vec3::Y, side),
-    (Vec3::Z, Vec3::X, Vec3::Y, side),
-    (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y, side)
-  ];
-  let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
-  let (positions, normals, uvs): (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>) = faces
-    .iter()
-    .flat_map(|&(normal, across, up, tile)| {
-      corners.map(|(a, b)| {
-        let point =
-          (normal + across * (a * 2.0 - 1.0) + up * (b * 2.0 - 1.0)) * SIZE / 2.0;
-        (
-          (point + Vec3::Y * SIZE / 2.0).to_array(),
-          normal.to_array(),
-          uv_corner(tile, Vec2::new(a, 1.0 - b)).to_array()
-        )
-      })
-    })
-    .fold((vec![], vec![], vec![]), |(mut p, mut n, mut u), (point, normal, uv)| {
-      p.push(point);
-      n.push(normal);
-      u.push(uv);
+fn quads(faces: Vec<([Vec3; 4], Vec3, [Vec2; 4])>) -> Mesh {
+  let count = faces.len() as u32;
+  let (positions, normals, uvs) = faces.into_iter().fold(
+    (vec![], vec![], vec![]),
+    |(mut p, mut n, mut u): (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>),
+     (corners, normal, uv)| {
+      p.extend(corners.map(|corner| corner.to_array()));
+      n.extend([normal.to_array(); 4]);
+      u.extend(uv.map(|uv| uv.to_array()));
       (p, n, u)
-    });
+    }
+  );
   Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(
-      (0..6u32)
+      (0..count)
         .flat_map(|face| [0, 1, 2, 0, 2, 3].map(|corner| face * 4 + corner))
         .collect()
     ))
 }
 
-fn card(block: Block) -> Mesh {
-  let rect = icon_rect(block);
-  let atlas = Vec2::new(
-    (ICON_COLUMNS * ICON) as f32,
-    ((Block::ALL.len() as u32 / ICON_COLUMNS + 1) * ICON) as f32
-  );
-  let (low, high) = (rect.min / atlas, rect.max / atlas);
-  let half = SIZE * 0.8;
-  Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![
-      [-half, 0.0, 0.0],
-      [half, 0.0, 0.0],
-      [half, half * 2.0, 0.0],
-      [-half, half * 2.0, 0.0],
-    ])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; 4])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![
-      [low.x, high.y],
-      [high.x, high.y],
-      [high.x, low.y],
-      [low.x, low.y],
-    ])
-    .with_inserted_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]))
-}
-
-fn cubic(block: Block) -> bool {
-  matches!(block.look(), Look::Opaque | Look::Cutout | Look::Log)
-}
-
-fn prepare(
-  palette: Res<Palette>,
-  mut materials: ResMut<Assets<StandardMaterial>>,
-  mut commands: Commands
-) {
-  commands.insert_resource(Looks {
-    meshes: default(),
-    flat: materials.add(StandardMaterial {
-      base_color_texture: Some(palette.icons.clone()),
-      alpha_mode: AlphaMode::Mask(0.5),
-      cull_mode: None,
-      double_sided: true,
-      perceptual_roughness: 0.9,
-      ..default()
+fn cube(block: Block) -> Mesh {
+  let [top, side, bottom] = block.tiles();
+  let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+  quads(
+    [
+      (Vec3::Y, Vec3::X, Vec3::NEG_Z, top),
+      (Vec3::NEG_Y, Vec3::X, Vec3::Z, bottom),
+      (Vec3::X, Vec3::NEG_Z, Vec3::Y, side),
+      (Vec3::NEG_X, Vec3::Z, Vec3::Y, side),
+      (Vec3::Z, Vec3::X, Vec3::Y, side),
+      (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y, side)
+    ]
+    .into_iter()
+    .map(|(normal, across, up, tile)| {
+      (
+        corners.map(|(a, b)| {
+          (normal + across * (a * 2.0 - 1.0) + up * (b * 2.0 - 1.0)) * SIZE / 2.0
+            + Vec3::Y * SIZE / 2.0
+        }),
+        normal,
+        corners.map(|(a, b)| uv_corner(tile, Vec2::new(a, 1.0 - b)))
+      )
     })
-  })
+    .collect()
+  )
+}
+
+fn sliver(block: Block) -> Mesh {
+  let tile = block.tiles()[1];
+  let edge = PIXELS as i32;
+  let solid = |x: i32, y: i32| {
+    (0..edge).contains(&x)
+      && (0..edge).contains(&y)
+      && paint(tile, x as u32, y as u32).color[3] > 0.5
+  };
+  let texel = FLAT / PIXELS as f32;
+  let point = |x: f32, y: f32, z: f32| {
+    Vec3::new(x * texel - FLAT / 2.0, FLAT / 2.0 - y * texel, z * texel)
+  };
+  let uv = |x: f32, y: f32| uv_corner(tile, Vec2::new(x, y) / PIXELS as f32);
+  let whole = [(0.0, 0.0), (16.0, 0.0), (16.0, 16.0), (0.0, 16.0)];
+  let faces = [(0.5, Vec3::Z), (-0.5, Vec3::NEG_Z)].into_iter().map(|(z, normal)| {
+    let mut corners = whole;
+    if z > 0.0 {
+      corners.reverse()
+    }
+    (corners.map(|(x, y)| point(x, y, z)), normal, corners.map(|(x, y)| uv(x, y)))
+  });
+  let rims = (0..edge * edge)
+    .filter(|&index| solid(index % edge, index / edge))
+    .flat_map(|index| {
+      let (x, y) = (index % edge, index / edge);
+      let centre = uv(x as f32 + 0.5, y as f32 + 0.5);
+      let (left, right, top, bottom) =
+        (x as f32, x as f32 + 1.0, y as f32, y as f32 + 1.0);
+      [
+        ((-1, 0), Vec3::NEG_X, [
+          (left, top, -0.5),
+          (left, bottom, -0.5),
+          (left, bottom, 0.5),
+          (left, top, 0.5)
+        ]),
+        ((1, 0), Vec3::X, [
+          (right, top, 0.5),
+          (right, bottom, 0.5),
+          (right, bottom, -0.5),
+          (right, top, -0.5)
+        ]),
+        ((0, -1), Vec3::Y, [
+          (left, top, -0.5),
+          (left, top, 0.5),
+          (right, top, 0.5),
+          (right, top, -0.5)
+        ]),
+        ((0, 1), Vec3::NEG_Y, [
+          (left, bottom, 0.5),
+          (left, bottom, -0.5),
+          (right, bottom, -0.5),
+          (right, bottom, 0.5)
+        ])
+      ]
+      .into_iter()
+      .filter(move |&((dx, dy), ..)| !solid(x + dx, y + dy))
+      .map(move |(_, normal, corners)| {
+        (corners.map(|(x, y, z)| point(x, y, z)), normal, [centre; 4])
+      })
+    });
+  quads(faces.chain(rims).collect())
+}
+
+pub fn cubic(block: Block) -> bool {
+  matches!(block.look(), Look::Opaque | Look::Cutout | Look::Log)
 }
 
 fn show(
@@ -260,32 +299,31 @@ fn show(
 ) {
   arrivals.iter().for_each(|(entity, loose)| {
     let block = loose.block;
-    let mesh = looks
-      .meshes
-      .entry(block)
-      .or_insert_with(|| meshes.add(if cubic(block) { cube(block) } else { card(block) }))
-      .clone();
-    let material = match cubic(block) {
-      true => palette.solid.clone(),
-      false => looks.flat.clone()
+    let yaw = Quat::from_rotation_y((entity.to_bits() % 997) as f32 * 2.399);
+    let turned = match cubic(block) {
+      true => yaw,
+      false => yaw * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
     };
     commands.entity(entity).insert((
-      Shown { at: loose.at, phase: (entity.to_bits() % 64) as f32 * 1.7 },
-      Mesh3d(mesh),
-      MeshMaterial3d(material),
-      Transform::from_translation(loose.at),
+      Shown { at: loose.at, turned },
+      Mesh3d(looks.mesh(block, &mut meshes)),
+      MeshMaterial3d(palette.solid.clone()),
+      Transform::from_translation(loose.at).with_rotation(turned),
       Visibility::default()
     ));
   })
 }
 
-fn spin(time: Res<Time>, mut shown: Query<(&Loose, &mut Shown, &mut Transform)>) {
-  let (dt, now) = (time.delta_secs(), time.elapsed_secs());
+fn settle(time: Res<Time>, mut shown: Query<(&Loose, &mut Shown, &mut Transform)>) {
+  let dt = time.delta_secs();
   shown.iter_mut().for_each(|(loose, mut shown, mut transform)| {
     shown.at = shown.at.lerp(loose.at, (dt * 15.0).min(1.0));
-    let bob = ((now * 2.5 + shown.phase).sin() + 1.0) * 0.06;
-    *transform = Transform::from_translation(shown.at + Vec3::Y * bob)
-      .with_rotation(Quat::from_rotation_y(now * 1.6 + shown.phase))
+    let lift = match cubic(loose.block) {
+      true => 0.0,
+      false => FLAT / PIXELS as f32 / 2.0 + 0.004
+    };
+    *transform =
+      Transform::from_translation(shown.at + Vec3::Y * lift).with_rotation(shown.turned)
   })
 }
 
@@ -299,10 +337,10 @@ impl Plugin for Litter {
         Update,
         (tumble, gather).chain().run_if(authority).run_if(resource_exists::<Voxels>)
       )
-      .add_systems(Startup, prepare.after(crate::stream::paint).run_if(plays))
+      .init_resource::<Looks>()
       .add_systems(
         Update,
-        (throw.run_if(resource_exists::<Pilot>.and(closed)), show, spin)
+        (throw.run_if(resource_exists::<Pilot>.and_then(closed)), show, settle)
           .chain()
           .run_if(plays)
       );

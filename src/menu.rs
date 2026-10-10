@@ -5,7 +5,8 @@ use {crate::{block::Block,
              identity::{Credentials, Identity, Standing},
              local,
              opts::opts,
-             protocol::plays,
+             player::Pilot,
+             protocol::{HUES, Player, Tint, hue, plays},
              settings::{Knob, Settings},
              sign::{self, Inscription},
              stream::Palette,
@@ -68,7 +69,8 @@ impl Tab {
 pub struct Menu {
   pub open: bool,
   pub tab: Tab,
-  pub since: f32
+  pub since: f32,
+  pub chatting: bool
 }
 
 impl Menu {
@@ -79,9 +81,11 @@ impl Menu {
   }
 
   pub fn showing(&self, tab: Tab) -> bool { self.open && self.tab == tab }
+
+  pub fn idle(&self) -> bool { !self.open && !self.chatting }
 }
 
-pub fn closed(menu: Res<Menu>) -> bool { !menu.open }
+pub fn closed(menu: Res<Menu>) -> bool { menu.idle() }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Entry {
@@ -132,11 +136,13 @@ pub enum Act {
   Randomize,
   Revert,
   Wear,
+  Unhide,
   Travel(IVec2),
   Slot(u8),
   Inspect(Block),
   Craft(u16),
-  Trade(u8)
+  Trade(u8),
+  Hue(u8)
 }
 
 #[derive(Message, Clone, Copy)]
@@ -254,6 +260,18 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
   page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
     button(row, "Save", Act::Submit);
   });
+  page.spawn(words("Colour (your name, chat and claims show in it)", 15.0, FAINT));
+  page.spawn(Node { column_gap: px(4), ..default() }).with_children(|row| {
+    (0..HUES.len() as u8).for_each(|index| {
+      row.spawn((
+        Button,
+        Act::Hue(index),
+        Node { width: px(30), height: px(30), border: UiRect::all(px(3)), ..default() },
+        BorderColor::all(EDGE),
+        BackgroundColor(hue(index))
+      ));
+    })
+  });
   page.spawn((Remark, words("", 16.0, LIT)));
   page.spawn(words(
     "This browser remembers your name and password. Copy the password somewhere safe: \
@@ -303,10 +321,8 @@ fn build(
       overlay
         .spawn((
           Node {
-            width: px(1240),
-            max_width: percent(96),
-            min_height: px(560),
-            max_height: percent(96),
+            width: percent(98),
+            height: percent(96),
             overflow: Overflow::clip(),
             flex_direction: FlexDirection::Column,
             padding: UiRect::all(px(10)),
@@ -341,6 +357,8 @@ fn build(
               .spawn((Page(tab), Node {
                 flex_direction: FlexDirection::Column,
                 row_gap: px(6),
+                flex_grow: 1.0,
+                min_height: px(0),
                 display: Display::None,
                 ..default()
               }))
@@ -359,7 +377,7 @@ fn build(
     });
 }
 
-fn toggle(
+pub fn toggle(
   keys: Res<ButtonInput<KeyCode>>,
   time: Res<Time>,
   mut menu: ResMut<Menu>,
@@ -369,6 +387,7 @@ fn toggle(
   mut was: Local<bool>
 ) {
   let now = time.elapsed_secs();
+  let chatting = menu.chatting;
   let lost = local::pointer_locked().is_some_and(|held| {
     let lost = *locked && !held;
     *locked = held;
@@ -379,7 +398,12 @@ fn toggle(
     .into_iter()
     .find(|&(key, _)| keys.just_pressed(key) && focus.0.is_none())
     .map(|(_, tab)| tab);
-  match (menu.open, keys.just_pressed(KeyCode::Tab) || escape, lost, shortcut) {
+  match (
+    menu.open,
+    (keys.just_pressed(KeyCode::Tab) || escape) && !chatting,
+    lost && !chatting,
+    shortcut.filter(|_| !chatting)
+  ) {
     (false, _, _, Some(tab)) => menu.show(tab, now),
     (true, _, _, Some(tab)) if menu.tab == tab => menu.open = false,
     (true, _, _, Some(tab)) => menu.tab = tab,
@@ -435,8 +459,26 @@ fn resume(
   }
 }
 
+fn hues(
+  menu: Res<Menu>,
+  pilot: Option<Res<Pilot>>,
+  players: Query<&Player>,
+  mut swatches: Query<(&Act, &mut BorderColor)>
+) {
+  if menu.showing(Tab::Profile)
+    && let Some(player) = pilot.and_then(|pilot| players.get(pilot.me).ok())
+  {
+    swatches.iter_mut().for_each(|(act, mut border)| {
+      if let &Act::Hue(index) = act {
+        border.set_if_neq(BorderColor::all(if index == player.hue { LIT } else { EDGE }));
+      }
+    })
+  }
+}
+
 fn obey(
   mut pressed: MessageReader<Pressed>,
+  mut tints: MessageWriter<Tint>,
   time: Res<Time>,
   mut menu: ResMut<Menu>,
   mut settings: ResMut<Settings>,
@@ -466,6 +508,9 @@ fn obey(
       focus.0 = None;
       notice.0 = None;
       identity.submit()
+    }
+    Act::Hue(index) => {
+      tints.write(Tint(index));
     }
     _ => ()
   })
@@ -617,7 +662,12 @@ impl Plugin for Menus {
       _ => Tab::Settings
     };
     app
-      .insert_resource(Menu { open: opts().menu.is_some(), tab, since: 0.0 })
+      .insert_resource(Menu {
+        open: opts().menu.is_some(),
+        tab,
+        since: 0.0,
+        chatting: false
+      })
       .init_resource::<Focus>()
       .init_resource::<Search>()
       .init_resource::<Notice>()
@@ -630,6 +680,9 @@ impl Plugin for Menus {
           .after(chart::prepare)
           .run_if(plays)
       )
-      .add_systems(Update, (toggle, click, obey, type_text, show).chain().run_if(plays));
+      .add_systems(
+        Update,
+        (toggle, click, obey, type_text, show, hues).chain().run_if(plays)
+      );
   }
 }

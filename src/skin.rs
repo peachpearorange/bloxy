@@ -72,15 +72,6 @@ impl Part {
     }
   }
 
-  pub fn name(self) -> &'static str {
-    match self {
-      Part::Head => "Head",
-      Part::Body => "Body",
-      Part::Arm => "Arms",
-      Part::Leg => "Legs"
-    }
-  }
-
   pub fn faces(self) -> [(Face, URect); 6] {
     let (UVec3 { x: w, y: h, z: d }, UVec2 { x: u, y: v }) = (self.size(), self.origin());
     let rect = |x, y, wide, tall| URect::new(x, y, x + wide, y + tall);
@@ -139,7 +130,7 @@ pub enum Face {
 }
 
 impl Face {
-  fn axes(self) -> (Vec3, Vec3, Vec3) {
+  pub fn axes(self) -> (Vec3, Vec3, Vec3) {
     match self {
       Face::Top => (Vec3::Y, Vec3::NEG_X, Vec3::NEG_Z),
       Face::Bottom => (Vec3::NEG_Y, Vec3::NEG_X, Vec3::Z),

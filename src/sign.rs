@@ -135,7 +135,7 @@ const GLYPHS: [(char, &str); 55] = [
 
 const UNKNOWN: &str = "110001010000010";
 
-fn inked(letter: char, x: u32, y: u32) -> bool {
+pub fn inked(letter: char, x: u32, y: u32) -> bool {
   let upper = letter.to_ascii_uppercase();
   GLYPHS
     .iter()

@@ -13,7 +13,7 @@ use {crate::{block::Block,
             ui::RelativeCursorPosition,
             window::PrimaryWindow}};
 
-const CELL: f32 = 36.0;
+const CELL: f32 = 46.0;
 const GAP: f32 = 2.0;
 const CAN: Color = Color::srgb(0.45, 0.85, 0.4);
 const SHORT: Color = Color::srgb(0.95, 0.42, 0.36);
@@ -46,10 +46,15 @@ struct Tooltip;
 #[derive(Component)]
 struct Scrolled;
 
-fn scrolled(height: f32) -> impl Bundle {
+#[derive(Component)]
+struct Carried;
+
+fn scrolled() -> impl Bundle {
   (Scrolled, RelativeCursorPosition::default(), ScrollPosition::default(), Node {
     flex_direction: FlexDirection::Column,
-    height: px(height),
+    flex_grow: 1.0,
+    flex_basis: px(0),
+    min_height: px(0),
     overflow: Overflow::scroll_y(),
     ..default()
   })
@@ -85,7 +90,7 @@ fn tile(act: Act, border: Color) -> impl Bundle {
 
 fn slot(parent: &mut ChildSpawnerCommands, index: usize, palette: &Palette) {
   parent.spawn(tile(Act::Slot(index as u8), EDGE)).with_children(|slot| {
-    slot.spawn((SlotIcon(index), icon(Block::Stone, 32.0, palette), Visibility::Hidden));
+    slot.spawn((SlotIcon(index), icon(Block::Stone, 40.0, palette), Visibility::Hidden));
     slot.spawn((SlotCount(index), words("", 13.0, INK), SHADOW, Node {
       position_type: PositionType::Absolute,
       right: px(3),
@@ -111,14 +116,15 @@ fn row(
     .with_children(|row| slots.for_each(|index| slot(row, index, palette)));
 }
 
-fn column(width: Option<f32>) -> Node {
+fn column(width: Option<f32>, grow: f32) -> Node {
   Node {
     flex_direction: FlexDirection::Column,
     row_gap: px(4),
     width: width.map_or(Val::Auto, px),
-    flex_grow: if width.is_some() { 0.0 } else { 1.0 },
+    flex_grow: if width.is_some() { 0.0 } else { grow },
     flex_basis: if width.is_some() { Val::Auto } else { px(0) },
     min_width: px(0),
+    min_height: px(0),
     flex_shrink: 0.0,
     ..default()
   }
@@ -130,35 +136,44 @@ fn grid() -> Node {
 
 pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
   page
-    .spawn(Node { column_gap: px(12), width: percent(100), ..default() })
+    .spawn(Node {
+      column_gap: px(16),
+      width: percent(100),
+      flex_grow: 1.0,
+      min_height: px(0),
+      ..default()
+    })
     .with_children(|columns| {
-      columns.spawn(column(Some(4.0 * (CELL + GAP)))).with_children(|left| {
+      columns.spawn(column(None, 1.0)).with_children(|left| {
         left.spawn(words("Bookmarks", 15.0, FAINT));
-        left.spawn((Marks, grid()));
+        left.spawn(scrolled()).with_child((Marks, Node { flex_shrink: 0.0, ..grid() }));
         left.spawn(words(
           "Press A over an item to bookmark it or take it off.",
           13.0,
           FAINT
         ));
       });
-      columns.spawn(column(Some(HOTBAR as f32 * (CELL + GAP)))).with_children(|middle| {
-        middle.spawn(scrolled(300.0)).with_child((Recipes, Node {
-          flex_direction: FlexDirection::Column,
-          row_gap: px(4),
-          flex_shrink: 0.0,
-          ..default()
-        }));
-        middle.spawn(words("Backpack", 15.0, FAINT));
-        row(middle, HOTBAR..SLOTS, palette);
-        middle.spawn(words("Hotbar", 15.0, FAINT));
-        row(middle, 0..HOTBAR, palette);
-        middle.spawn(words(
-          "Click two slots to move, merge or swap stacks. E closes.",
-          13.0,
-          FAINT
-        ));
-      });
-      columns.spawn(column(None)).with_children(|right| {
+      columns
+        .spawn(column(Some(HOTBAR as f32 * (CELL + GAP) + 180.0), 0.0))
+        .with_children(|middle| {
+          middle.spawn(scrolled()).with_child((Recipes, Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: px(4),
+            flex_shrink: 0.0,
+            ..default()
+          }));
+          middle.spawn(words("Backpack", 15.0, FAINT));
+          row(middle, HOTBAR..SLOTS, palette);
+          middle.spawn(words("Hotbar", 15.0, FAINT));
+          row(middle, 0..HOTBAR, palette);
+          middle.spawn(words(
+            "Click a stack to pick it up, click a slot to put it there; whatever was \
+             there comes along on the cursor. E closes.",
+            13.0,
+            FAINT
+          ));
+        });
+      columns.spawn(column(None, 1.6)).with_children(|right| {
         right
           .spawn(Node {
             column_gap: px(10),
@@ -170,7 +185,7 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
             field(search, Entry::Search, 260.0);
           });
         right
-          .spawn(scrolled(470.0))
+          .spawn(scrolled())
           .with_child((Catalogue, Node { flex_shrink: 0.0, ..grid() }));
         right.spawn(words(
           "Click an item for its recipes. Items you can craft here and now come first, \
@@ -182,7 +197,23 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
     });
 }
 
-fn tooltip(mut commands: Commands) {
+fn tooltip(mut commands: Commands, palette: Res<Palette>) {
+  commands
+    .spawn((
+      Carried,
+      Node { position_type: PositionType::Absolute, ..default() },
+      GlobalZIndex(40),
+      Visibility::Hidden
+    ))
+    .with_children(|carried| {
+      carried.spawn(icon(Block::Stone, 40.0, &palette));
+      carried.spawn((words("", 13.0, INK), SHADOW, Node {
+        position_type: PositionType::Absolute,
+        right: px(1),
+        bottom: px(-1),
+        ..default()
+      }));
+    });
   commands
     .spawn((
       Tooltip,
@@ -221,6 +252,9 @@ fn fill(
   }
   if menu.showing(Tab::Inventory) {
     let inventory = carried(&pilot, &inventories);
+    if held.0.is_some_and(|from| inventory.slots[from].is_none()) {
+      held.0 = None
+    }
     slots.iter_mut().for_each(|(act, mut border)| {
       if let &Act::Slot(index) = act {
         border.set_if_neq(BorderColor::all(match held.0 == Some(index.into()) {
@@ -230,7 +264,7 @@ fn fill(
       }
     });
     icons.iter_mut().for_each(|(icon, mut image, mut visibility)| {
-      match inventory.slots[icon.0] {
+      match inventory.slots[icon.0].filter(|_| held.0 != Some(icon.0)) {
         Some(stack) => {
           let rect = Some(icon_rect(stack.block));
           if image.rect != rect {
@@ -245,7 +279,7 @@ fn fill(
     });
     counts.iter_mut().for_each(|(count, mut text)| {
       let shown = inventory.slots[count.0]
-        .filter(|stack| stack.count > 1)
+        .filter(|stack| stack.count > 1 && held.0 != Some(count.0))
         .map_or(String::new(), |stack| stack.count.to_string());
       if text.0 != shown {
         text.0 = shown
@@ -281,7 +315,7 @@ fn entry(
     (false, true) => CAN,
     (false, false) => EDGE
   };
-  list.spawn(tile(Act::Inspect(block), border)).with_child(icon(block, 32.0, palette));
+  list.spawn(tile(Act::Inspect(block), border)).with_child(icon(block, 40.0, palette));
 }
 
 fn catalogue(
@@ -483,6 +517,7 @@ fn hint(
   keys: Res<ButtonInput<KeyCode>>,
   focus: Res<Focus>,
   windows: Query<&Window, With<PrimaryWindow>>,
+  scale: Res<UiScale>,
   mut marks: MessageWriter<Mark>,
   mut tips: Query<(&mut Node, &mut Visibility, &Children), With<Tooltip>>,
   mut texts: Query<&mut Text>
@@ -505,7 +540,8 @@ fn hint(
   {
     marks.write(Mark(block));
   }
-  let cursor = windows.single().ok().and_then(Window::cursor_position);
+  let cursor =
+    windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
   tips.iter_mut().for_each(|(mut node, mut visibility, children)| {
     match pointed.zip(cursor) {
       Some(((block, count), at)) => {
@@ -531,6 +567,51 @@ fn hint(
   })
 }
 
+fn carry(
+  menu: Res<Menu>,
+  held: Res<Held>,
+  pilot: Option<Res<Pilot>>,
+  inventories: Query<&Inventory>,
+  windows: Query<&Window, With<PrimaryWindow>>,
+  scale: Res<UiScale>,
+  mut carried: Query<(&mut Node, &mut Visibility, &Children), With<Carried>>,
+  mut images: Query<&mut ImageNode>,
+  mut texts: Query<&mut Text>
+) {
+  let stack = held
+    .0
+    .filter(|_| menu.showing(Tab::Inventory))
+    .and_then(|from| self::carried(&pilot, &inventories).slots[from]);
+  let cursor =
+    windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
+  carried.iter_mut().for_each(|(mut node, mut visibility, children)| {
+    match stack.zip(cursor) {
+      Some((stack, at)) => {
+        node.left = px(at.x - 20.0);
+        node.top = px(at.y - 20.0);
+        visibility.set_if_neq(Visibility::Inherited);
+        children.iter().for_each(|child| {
+          if let Ok(mut image) = images.get_mut(child)
+            && image.rect != Some(icon_rect(stack.block))
+          {
+            image.rect = Some(icon_rect(stack.block))
+          }
+          if let Ok(mut text) = texts.get_mut(child) {
+            let shown =
+              (stack.count > 1).then(|| stack.count.to_string()).unwrap_or_default();
+            if text.0 != shown {
+              text.0 = shown
+            }
+          }
+        })
+      }
+      None => {
+        visibility.set_if_neq(Visibility::Hidden);
+      }
+    }
+  })
+}
+
 fn obey(
   mut pressed: MessageReader<Pressed>,
   pilot: Option<Res<Pilot>>,
@@ -546,11 +627,10 @@ fn obey(
       let index = usize::from(index);
       held.0 = match held.0 {
         None => inventory.slots[index].map(|_| index),
+        Some(from) if from == index => None,
         Some(from) => {
-          if from != index {
-            shuffles.write(Shuffle { from: from as u8, to: index as u8 });
-          }
-          None
+          shuffles.write(Shuffle { from: from as u8, to: index as u8 });
+          Some(from)
         }
       }
     }
@@ -570,10 +650,10 @@ impl Plugin for Crafting {
       .init_resource::<Held>()
       .init_resource::<Chosen>()
       .init_resource::<Nearby>()
-      .add_systems(Startup, tooltip.run_if(plays))
+      .add_systems(Startup, tooltip.after(crate::stream::paint).run_if(plays))
       .add_systems(
         Update,
-        (obey, survey, fill, catalogue, recipes, rewind, scroll, hint)
+        (obey, survey, fill, carry, catalogue, recipes, rewind, scroll, hint)
           .chain()
           .run_if(plays)
       );

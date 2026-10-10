@@ -42,7 +42,8 @@ pub struct Pilot {
   pub walled: bool,
   pub dried: f32,
   pub staggered: f32,
-  pub riding: Option<Riding>
+  pub riding: Option<Riding>,
+  pub held: Option<Block>
 }
 
 #[derive(Clone, Copy)]
@@ -60,7 +61,7 @@ impl Pilot {
   }
 
   pub fn avatar(&self) -> Avatar {
-    Avatar { at: self.at, yaw: self.yaw, pitch: self.pitch }
+    Avatar { at: self.at, yaw: self.yaw, pitch: self.pitch, held: self.held }
   }
 }
 
@@ -111,7 +112,8 @@ fn possess(
       walled: false,
       dried: 0.0,
       staggered: 0.0,
-      riding: None
+      riding: None,
+      held: None
     })
   }
 }
@@ -138,12 +140,16 @@ fn grab(
   let playing = !menu.open && opts().shot.is_none();
   local::capture_on_click(playing);
   if let Ok((mut window, mut cursor)) = windows.single_mut()
-    && playing
+    && opts().shot.is_none()
     && buttons.just_pressed(MouseButton::Left)
   {
-    cursor.grab_mode = CursorGrabMode::Locked;
-    cursor.visible = false;
-    window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+    if playing {
+      cursor.grab_mode = CursorGrabMode::Locked;
+      cursor.visible = false
+    }
+    if !matches!(window.mode, WindowMode::BorderlessFullscreen(_)) {
+      window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+    }
   }
 }
 
@@ -268,7 +274,7 @@ fn fly(
     && ready_around(&voxels, pilot.at)
     && pilot.riding.is_none()
   {
-    let pressed = |key: KeyCode| !menu.open && keys.pressed(key);
+    let pressed = |key: KeyCode| menu.idle() && keys.pressed(key);
     let mining = aim.digging.is_some();
     let held = |key: KeyCode| f32::from(u8::from(pressed(key) && !mining));
     let wish = Vec2::new(
@@ -419,6 +425,21 @@ fn reel(mut knocks: MessageReader<Knock>, mut pilot: ResMut<Pilot>) {
     pilot.grounded = false;
     pilot.staggered = STAGGER
   })
+}
+
+fn grasp(
+  selected: Res<Selected>,
+  inventories: Query<&Inventory>,
+  mut pilot: ResMut<Pilot>
+) {
+  let held = inventories
+    .get(pilot.me)
+    .ok()
+    .and_then(|inventory| inventory.slots[selected.0])
+    .map(|stack| stack.block);
+  if pilot.held != held {
+    pilot.held = held
+  }
 }
 
 fn report(
@@ -672,6 +693,7 @@ impl Plugin for Piloting {
             follow,
             select.run_if(closed),
             work,
+            grasp,
             report
           )
             .chain()

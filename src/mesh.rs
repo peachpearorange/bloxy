@@ -4,7 +4,7 @@ use {crate::{block::{Block, Fluid, Look},
              model::{self, Bit},
              noise::fbm2,
              texture::uv_corner,
-             voxels::{Chunk, HEIGHT, SIZE, origin_of}},
+             voxels::{Chunk, HEIGHT, SIZE, chunk_of, origin_of}},
      bevy::{asset::RenderAssetUsages,
             mesh::{Indices, PrimitiveTopology},
             prelude::*},
@@ -227,7 +227,12 @@ fn lit(hue: LinearRgba, sky: f32, torch: f32, shade: f32) -> [f32; 4] {
   ]
 }
 
-pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
+fn builders(
+  padded: &Padded,
+  key: IVec3,
+  seed: u32,
+  torches: &[IVec3]
+) -> (Builder, Builder) {
   let origin = origin_of(key);
   let surface: Vec<i32> = (0..SPAN * SPAN)
     .map(|index| {
@@ -404,7 +409,49 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshe
       }
     }
   });
+  (solid, liquid)
+}
+
+pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
+  let (solid, liquid) = builders(padded, key, seed, torches);
   Meshes { solid: solid.mesh(), liquid: liquid.mesh() }
+}
+
+#[derive(Clone, Copy)]
+pub struct Corner {
+  pub position: Vec3,
+  pub normal: Vec3,
+  pub uv: Vec2,
+  pub color: [f32; 4]
+}
+
+pub fn lone(block: Block, at: IVec3, seed: u32, torches: &[IVec3]) -> Vec<[Corner; 3]> {
+  let key = chunk_of(at);
+  let local = at - origin_of(key);
+  let padded = Padded(
+    (0..SPAN * SPAN * SPAN)
+      .map(|index| {
+        let cell = IVec3::new(index % SPAN, index / (SPAN * SPAN), index / SPAN % SPAN)
+          - IVec3::ONE;
+        if cell == local { block } else { Block::Air }
+      })
+      .collect()
+  );
+  let (solid, _) = builders(&padded, key, seed, torches);
+  let corner = |index: u32| {
+    let index = index as usize;
+    Corner {
+      position: Vec3::from(solid.positions[index]) - local.as_vec3(),
+      normal: Vec3::from(solid.normals[index]),
+      uv: Vec2::from(solid.uvs[index]),
+      color: solid.colors[index]
+    }
+  };
+  solid
+    .indices
+    .chunks(3)
+    .map(|triangle| [corner(triangle[0]), corner(triangle[1]), corner(triangle[2])])
+    .collect()
 }
 
 #[cfg(test)]

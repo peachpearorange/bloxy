@@ -210,7 +210,7 @@ fn dot(pixels: &mut [[u8; 4]], at: IVec2, radius: i32, colour: [u8; 4]) {
 fn draw(
   pilot: Option<Res<Pilot>>,
   voxels: Option<Res<Voxels>>,
-  others: Query<&Avatar, Without<Me>>,
+  others: Query<(&Avatar, &crate::protocol::Player), Without<Me>>,
   visits: Query<&Visited>,
   mut map: ResMut<Minimap>,
   mut images: ResMut<Assets<Image>>,
@@ -231,9 +231,11 @@ fn draw(
         }
       }
     );
-    others
-      .iter()
-      .for_each(|avatar| dot(&mut pixels, on_map(avatar.at), 1, [250, 250, 250, 255]));
+    others.iter().for_each(|(avatar, player)| {
+      let [r, g, b] =
+        crate::protocol::HUES[usize::from(player.hue) % crate::protocol::HUES.len()];
+      dot(&mut pixels, on_map(avatar.at), 1, [r, g, b, 255])
+    });
     let facing = (pilot.facing() * Vec3::NEG_Z).xz().normalize_or(Vec2::NEG_Y);
     let across = facing.perp();
     let centre = Vec2::splat(SPAN as f32 / 2.0);

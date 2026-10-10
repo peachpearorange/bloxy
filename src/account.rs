@@ -1,4 +1,4 @@
-use {crate::{protocol::{Avatar, Bedside, Bookmarks, Inventory, Visited},
+use {crate::{protocol::{Avatar, Bedside, Bookmarks, HUES, Inventory, Visited},
              skin::Skin},
      bevy::prelude::*,
      serde::{Deserialize, Serialize},
@@ -21,7 +21,9 @@ pub struct Account {
   #[serde(default)]
   pub bookmarks: Bookmarks,
   #[serde(default)]
-  pub bedside: Bedside
+  pub bedside: Bedside,
+  #[serde(default)]
+  pub hue: Option<u8>
 }
 
 pub fn random() -> u64 { RandomState::new().hash_one(std::time::SystemTime::now()) }
@@ -49,7 +51,8 @@ impl Account {
       skin: Skin::fresh(random()),
       visited: default(),
       bookmarks: default(),
-      bedside: default()
+      bedside: default(),
+      hue: None
     }
   }
 
@@ -60,6 +63,16 @@ impl Account {
     self.visited = visited.clone();
     self.bookmarks = bookmarks.clone();
     self.bedside = bedside
+  }
+
+  pub fn hue(&self) -> u8 {
+    self.hue.unwrap_or_else(|| {
+      1 + (self
+        .name
+        .bytes()
+        .fold(7u32, |sum, byte| sum.wrapping_mul(31).wrapping_add(u32::from(byte)))
+        % (HUES.len() as u32 - 1)) as u8
+    })
   }
 
   pub fn admits(&self, password: &str) -> bool {
