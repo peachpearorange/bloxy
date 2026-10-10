@@ -57,6 +57,7 @@ fn store(
       Changed<Inventory>,
       Changed<Skin>,
       Changed<Visited>,
+      Changed<Bookmarks>,
       Changed<Hopper>,
       Changed<Vessel>
     )>

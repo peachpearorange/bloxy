@@ -134,6 +134,21 @@ impl Inventory {
 #[derive(Component, Serialize, Deserialize, Clone, Default, PartialEq, Debug)]
 pub struct Visited(pub Vec<IVec2>);
 
+#[derive(Component, Serialize, Deserialize, Clone, Default, PartialEq, Debug)]
+pub struct Bookmarks(pub Vec<Block>);
+
+impl Bookmarks {
+  pub fn toggle(&mut self, block: Block) {
+    match self.0.contains(&block) {
+      true => self.0.retain(|&marked| marked != block),
+      false => self.0.push(block)
+    }
+  }
+}
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Mark(pub Block);
+
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Hello {
   pub name: String,
@@ -252,6 +267,8 @@ impl Plugin for Protocol {
       .add_mapped_client_message::<Board>(Channel::Ordered)
       .add_mapped_client_message::<Wreck>(Channel::Ordered)
       .add_client_message::<Disembark>(Channel::Ordered)
-      .add_client_message::<Steer>(Channel::Unreliable);
+      .add_client_message::<Steer>(Channel::Unreliable)
+      .replicate::<Bookmarks>()
+      .add_client_message::<Mark>(Channel::Ordered);
   }
 }

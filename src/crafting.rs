@@ -1,10 +1,10 @@
 use {crate::{block::Block,
              hud::icon_rect,
-             local,
              menu::{Act, BUTTON, EDGE, Entry, FAINT, Focus, INK, LIT, Menu, Pressed,
                     Search, Shaded, Tab, button, field, words},
              player::Pilot,
-             protocol::{Craft, HOTBAR, Inventory, REACH, SLOTS, Shuffle, plays},
+             protocol::{Bookmarks, Craft, HOTBAR, Inventory, Mark, REACH, SLOTS,
+                        Shuffle, plays},
              recipe::{self, Recipe},
              stream::Palette,
              voxels::Voxels},
@@ -43,31 +43,6 @@ struct Tooltip;
 
 #[derive(Resource, Default)]
 struct Nearby(Vec<Block>);
-
-const MARKS_KEY: &str = "bloxy.bookmarks";
-
-#[derive(Resource)]
-struct Bookmarks(Vec<Block>);
-
-impl Bookmarks {
-  fn recalled() -> Bookmarks {
-    Bookmarks(
-      local::recall(MARKS_KEY)
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
-    )
-  }
-
-  fn toggle(&mut self, block: Block) {
-    match self.0.contains(&block) {
-      true => self.0.retain(|&marked| marked != block),
-      false => self.0.push(block)
-    }
-    if let Ok(text) = serde_json::to_string(&self.0) {
-      local::remember(MARKS_KEY, &text)
-    }
-  }
-}
 
 fn icon(block: Block, size: f32, palette: &Palette) -> impl Bundle {
   (
@@ -300,7 +275,7 @@ fn catalogue(
   chosen: Res<Chosen>,
   nearby: Res<Nearby>,
   search: Res<Search>,
-  bookmarks: Res<Bookmarks>,
+  bookmarks: Query<&Bookmarks>,
   palette: Res<Palette>,
   lists: Query<Entity, With<Catalogue>>,
   marks: Query<Entity, With<Marks>>,
@@ -319,8 +294,12 @@ fn catalogue(
       .map(describe)
       .collect();
     entries.sort_by_key(|&(_, craftable, _)| !craftable);
-    let marked: Vec<(Block, bool, bool)> =
-      bookmarks.0.iter().copied().map(describe).collect();
+    let marked: Vec<(Block, bool, bool)> = pilot
+      .as_ref()
+      .and_then(|pilot| bookmarks.get(pilot.me).ok())
+      .into_iter()
+      .flat_map(|bookmarks| bookmarks.0.iter().copied().map(describe))
+      .collect();
     if shown.0 != entries {
       lists.iter().for_each(|list| {
         commands.entity(list).despawn_children().with_children(|list| {
@@ -458,7 +437,7 @@ fn hint(
   keys: Res<ButtonInput<KeyCode>>,
   focus: Res<Focus>,
   windows: Query<&Window, With<PrimaryWindow>>,
-  mut bookmarks: ResMut<Bookmarks>,
+  mut marks: MessageWriter<Mark>,
   mut tips: Query<(&mut Node, &mut Visibility, &Children), With<Tooltip>>,
   mut texts: Query<&mut Text>
 ) {
@@ -478,7 +457,7 @@ fn hint(
     && keys.just_pressed(KeyCode::KeyA)
     && focus.0.is_none()
   {
-    bookmarks.toggle(block)
+    marks.write(Mark(block));
   }
   let cursor = windows.single().ok().and_then(Window::cursor_position);
   tips.iter_mut().for_each(|(mut node, mut visibility, children)| {
@@ -545,7 +524,6 @@ impl Plugin for Crafting {
       .init_resource::<Held>()
       .init_resource::<Chosen>()
       .init_resource::<Nearby>()
-      .insert_resource(Bookmarks::recalled())
       .add_systems(Startup, tooltip.run_if(plays))
       .add_systems(
         Update,

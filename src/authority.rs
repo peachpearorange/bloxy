@@ -56,7 +56,7 @@ fn embody(
   client: ClientId,
   account: usize
 ) -> Entity {
-  let Account { name, avatar, inventory, skin, visited, .. } =
+  let Account { name, avatar, inventory, skin, visited, bookmarks, .. } =
     accounts.0[account].clone();
   let at = generate::spawn_point(seed);
   let player = commands
@@ -67,7 +67,8 @@ fn embody(
       avatar.unwrap_or(Avatar { at, yaw: FACING_STONE, pitch: 0.0 }),
       inventory,
       skin,
-      visited
+      visited,
+      bookmarks
     ))
     .id();
   commands.write_message(ToClients {
@@ -400,6 +401,19 @@ fn craft(
   })
 }
 
+fn mark(
+  mut marks: MessageReader<FromClient<Mark>>,
+  mut players: Query<(&Controller, &mut Bookmarks)>
+) {
+  marks.read().for_each(|&FromClient { client_id, message: Mark(block) }| {
+    if let Some(mut bookmarks) = player_of(players.iter_mut(), client_id)
+      && block.item()
+    {
+      bookmarks.toggle(block)
+    }
+  })
+}
+
 pub struct Authority;
 
 impl Plugin for Authority {
@@ -408,7 +422,7 @@ impl Plugin for Authority {
       .add_systems(Startup, found_world.run_if(authority))
       .add_systems(
         PreUpdate,
-        (sign_in, paint, follow, attune, travel, dig, put, shuffle, craft)
+        (sign_in, paint, follow, attune, travel, dig, put, shuffle, craft, mark)
           .chain()
           .after(ServerSystems::Receive)
           .run_if(authority)
