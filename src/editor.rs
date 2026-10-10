@@ -306,14 +306,10 @@ fn brush(
       && spot.is_some_and(|spot| (spot - start).length() < 0.01)
       && let Some((_, piece, ghostly, _)) = nearest(true)
     {
+      let mut chosen = commands.entity(piece);
       match ghostly {
-        true => commands
-          .entity(piece)
-          .remove::<Ghostly>()
-          .insert(MeshMaterial3d(draft.material.clone())),
-        false => {
-          commands.entity(piece).insert((Ghostly, MeshMaterial3d(draft.ghost.clone())))
-        }
+        true => chosen.remove::<Ghostly>().insert(MeshMaterial3d(draft.material.clone())),
+        false => chosen.insert((Ghostly, MeshMaterial3d(draft.ghost.clone())))
       };
     }
     if !buttons.any_pressed([MouseButton::Left, MouseButton::Right]) {
