@@ -1230,7 +1230,8 @@ pub fn glow() -> Image {
   }))
 }
 
-pub const ICON: u32 = 32;
+pub const ICON: u32 = 96;
+const ICON_DRAWN: f32 = 32.0;
 pub const ICON_COLUMNS: u32 = 10;
 
 struct Brick {
@@ -1247,7 +1248,7 @@ const ICON_AXES: Mat3 = Mat3::from_cols(
 );
 const ICON_SPAN: f32 = 30.0;
 const ICON_ZOOM: f32 = 2.4;
-const ICON_SAMPLES: u32 = 4;
+const ICON_SAMPLES: u32 = 2;
 const FACE_SHADES: [f32; 6] = [0.7, 0.62, 0.5, 1.0, 0.6, 0.8];
 
 fn bricks(block: Block) -> Vec<Brick> {
@@ -1321,7 +1322,7 @@ fn iso(block: Block) -> impl Fn(u32, u32) -> [f32; 4] {
       (least.min(corner), most.max(corner))
     });
   let zoom = (ICON_SPAN / (most - least).max_element()).min(ICON_ZOOM);
-  let shift = Vec2::splat(ICON as f32 / 2.0) - (least + most) / 2.0 * zoom;
+  let shift = Vec2::splat(ICON_DRAWN / 2.0) - (least + most) / 2.0 * zoom;
   let across =
     Mat2::from_cols(ICON_AXES.x_axis.truncate(), ICON_AXES.z_axis.truncate()).inverse();
   let sample = move |spot: Vec2| -> [f32; 4] {
@@ -1360,7 +1361,8 @@ fn iso(block: Block) -> impl Fn(u32, u32) -> [f32; 4] {
         (index % ICON_SAMPLES) as f32 + 0.5,
         (index / ICON_SAMPLES) as f32 + 0.5
       ) / ICON_SAMPLES as f32;
-      let [r, g, b, a] = sample(Vec2::new(x as f32, y as f32) + offset);
+      let [r, g, b, a] =
+        sample((Vec2::new(x as f32, y as f32) + offset) * ICON_DRAWN / ICON as f32);
       [sum[0] + r * a, sum[1] + g * a, sum[2] + b * a, sum[3] + a]
     });
     let coverage = total[3] / (ICON_SAMPLES * ICON_SAMPLES) as f32;
@@ -1374,12 +1376,14 @@ fn iso(block: Block) -> impl Fn(u32, u32) -> [f32; 4] {
 fn icon_painter(block: Block) -> Box<dyn Fn(u32, u32) -> [f32; 4]> {
   match block.look() {
     _ if block.ladder() || block.sign() => Box::new(move |x, y| match block.ladder() {
-      true => model_icon(block, x / 2, y / 2).color,
-      false => paint(block.tiles()[1], x / 2, y / 2).color
+      true => model_icon(block, x * PIXELS / ICON, y * PIXELS / ICON).color,
+      false => paint(block.tiles()[1], x * PIXELS / ICON, y * PIXELS / ICON).color
     }),
     Look::Opaque | Look::Cutout | Look::Log if block.item() => Box::new(iso(block)),
     _ if block.modelled() => Box::new(iso(block)),
-    _ => Box::new(move |x, y| paint(block.tiles()[1], x / 2, y / 2).color)
+    _ => Box::new(move |x, y| {
+      paint(block.tiles()[1], x * PIXELS / ICON, y * PIXELS / ICON).color
+    })
   }
 }
 
