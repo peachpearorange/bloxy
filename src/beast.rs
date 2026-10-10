@@ -39,7 +39,7 @@ impl Breed {
     }
   }
 
-  fn health(self) -> u8 {
+  pub fn health(self) -> u8 {
     match self {
       Breed::Sheep(_) => 8,
       Breed::Lizard => 6

@@ -13,12 +13,11 @@ use {crate::{block::Block,
             ui::RelativeCursorPosition,
             window::PrimaryWindow}};
 
-const CELL: f32 = 44.0;
-const GAP: f32 = 4.0;
+const CELL: f32 = 36.0;
+const GAP: f32 = 2.0;
 const CAN: Color = Color::srgb(0.45, 0.85, 0.4);
 const SHORT: Color = Color::srgb(0.95, 0.42, 0.36);
-const SHADOW: TextShadow =
-  TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, 0.7) };
+const SHADOW: TextShadow = crate::hud::SHADE;
 
 #[derive(Resource, Default)]
 struct Held(Option<usize>);
@@ -86,7 +85,7 @@ fn tile(act: Act, border: Color) -> impl Bundle {
 
 fn slot(parent: &mut ChildSpawnerCommands, index: usize, palette: &Palette) {
   parent.spawn(tile(Act::Slot(index as u8), EDGE)).with_children(|slot| {
-    slot.spawn((SlotIcon(index), icon(Block::Stone, 30.0, palette), Visibility::Hidden));
+    slot.spawn((SlotIcon(index), icon(Block::Stone, 32.0, palette), Visibility::Hidden));
     slot.spawn((SlotCount(index), words("", 13.0, INK), SHADOW, Node {
       position_type: PositionType::Absolute,
       right: px(3),
@@ -115,7 +114,7 @@ fn row(
 fn column(width: Option<f32>) -> Node {
   Node {
     flex_direction: FlexDirection::Column,
-    row_gap: px(8),
+    row_gap: px(4),
     width: width.map_or(Val::Auto, px),
     flex_grow: if width.is_some() { 0.0 } else { 1.0 },
     flex_basis: if width.is_some() { Val::Auto } else { px(0) },
@@ -131,7 +130,7 @@ fn grid() -> Node {
 
 pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
   page
-    .spawn(Node { column_gap: px(24), width: percent(100), ..default() })
+    .spawn(Node { column_gap: px(12), width: percent(100), ..default() })
     .with_children(|columns| {
       columns.spawn(column(Some(4.0 * (CELL + GAP)))).with_children(|left| {
         left.spawn(words("Bookmarks", 15.0, FAINT));
@@ -145,7 +144,7 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
       columns.spawn(column(Some(HOTBAR as f32 * (CELL + GAP)))).with_children(|middle| {
         middle.spawn(scrolled(300.0)).with_child((Recipes, Node {
           flex_direction: FlexDirection::Column,
-          row_gap: px(8),
+          row_gap: px(4),
           flex_shrink: 0.0,
           ..default()
         }));
@@ -189,7 +188,7 @@ fn tooltip(mut commands: Commands) {
       Tooltip,
       Node {
         position_type: PositionType::Absolute,
-        padding: UiRect::axes(px(8), px(5)),
+        padding: UiRect::axes(px(5), px(2)),
         border: UiRect::all(px(2)),
         ..default()
       },
@@ -282,7 +281,7 @@ fn entry(
     (false, true) => CAN,
     (false, false) => EDGE
   };
-  list.spawn(tile(Act::Inspect(block), border)).with_child(icon(block, 30.0, palette));
+  list.spawn(tile(Act::Inspect(block), border)).with_child(icon(block, 32.0, palette));
 }
 
 fn catalogue(

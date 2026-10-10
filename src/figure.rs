@@ -129,10 +129,7 @@ fn dress(
           Text::new(player.name.clone()),
           TextFont { font_size: FontSize::Px(15.0), ..default() },
           TextColor(Color::WHITE),
-          TextShadow {
-            offset: Vec2::splat(1.5),
-            color: Color::srgba(0.0, 0.0, 0.0, 0.7)
-          },
+          crate::hud::SHADE,
           Node { position_type: PositionType::Absolute, ..default() }
         ))
         .id();

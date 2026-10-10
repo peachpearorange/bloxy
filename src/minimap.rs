@@ -90,7 +90,7 @@ fn build(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         TextFont { font_size: FontSize::Px(13.0), ..default() },
         TextColor(INK),
         TextLayout { justify: Justify::Center, ..default() },
-        TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, 0.7) }
+        crate::hud::SHADE
       ));
     });
 }

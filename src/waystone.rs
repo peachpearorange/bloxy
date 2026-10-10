@@ -16,8 +16,8 @@ pub fn page(page: &mut ChildSpawnerCommands) {
   page.spawn((Whereabouts, words("", 17.0, INK)));
   page.spawn((Destinations, Node {
     flex_wrap: FlexWrap::Wrap,
-    column_gap: px(10),
-    row_gap: px(10),
+    column_gap: px(6),
+    row_gap: px(6),
     ..default()
   }));
   page.spawn(words(
@@ -102,7 +102,7 @@ fn list(
                 Shaded,
                 Node {
                   width: px(270),
-                  padding: UiRect::axes(px(12), px(8)),
+                  padding: UiRect::axes(px(8), px(4)),
                   border: UiRect::all(px(2)),
                   ..default()
                 },

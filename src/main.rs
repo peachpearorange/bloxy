@@ -19,6 +19,7 @@ mod flow;
 mod folk;
 mod fx;
 mod generate;
+mod glance;
 mod hand;
 mod hud;
 mod identity;
@@ -292,7 +293,7 @@ fn main() {
         chart::Charting,
         fx::Sparkle
       ))
-      .add_plugins((crumble::Crumbles, water::Waters))
+      .add_plugins((crumble::Crumbles, water::Waters, glance::Glances))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)
   };

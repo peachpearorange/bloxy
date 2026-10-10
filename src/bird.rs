@@ -66,6 +66,8 @@ impl Breed {
     }
   }
 
+  pub const HEALTH: u8 = 4;
+
   fn size(self) -> f32 {
     match self {
       Breed::Swan => 1.0,
@@ -179,7 +181,7 @@ fn hatch(voxels: &Voxels, breed: Breed, at: Vec3, mut flight: Flight) -> impl Bu
       yaw: flight.dice() * TAU,
       stance: if wet { Stance::Swim } else { Stance::Rest }
     },
-    Health(4),
+    Health(Breed::HEALTH),
     flight
   )
 }

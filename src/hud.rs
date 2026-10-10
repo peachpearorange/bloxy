@@ -88,7 +88,15 @@ fn hearts() -> Image {
 
 const EDGE: f32 = 0.012;
 
-const SLOT: f32 = 52.0;
+const SLOT: f32 = 36.0;
+const STRIP: Color = Color::srgba(0.42, 0.42, 0.44, 0.7);
+const PICKED: Color = Color::srgb(0.95, 0.95, 0.95);
+
+pub const SHADE: TextShadow = TextShadow { offset: Vec2::ONE, color: Color::BLACK };
+
+fn crisp(mut fonts: Query<&mut TextFont, Added<TextFont>>) {
+  fonts.iter_mut().for_each(|mut font| font.font_smoothing = FontSmoothing::None)
+}
 
 fn build(
   mut commands: Commands,
@@ -112,14 +120,14 @@ fn build(
     .spawn(Node {
       width: percent(100),
       position_type: PositionType::Absolute,
-      bottom: px(12.0 + SLOT + 8.0),
+      bottom: px(8.0 + SLOT + 6.0),
       justify_content: JustifyContent::Center,
       ..default()
     })
     .with_children(|row| {
       row
         .spawn(Node {
-          width: px(SLOT * HOTBAR as f32 + 4.0 * (HOTBAR as f32 - 1.0)),
+          width: px(SLOT * HOTBAR as f32 + 4.0),
           column_gap: px(2),
           ..default()
         })
@@ -169,51 +177,53 @@ fn build(
     .spawn(Node {
       width: percent(100),
       position_type: PositionType::Absolute,
-      bottom: px(12),
+      bottom: px(8),
       justify_content: JustifyContent::Center,
-      column_gap: px(4),
       ..default()
     })
-    .with_children(|bar| {
-      (0..HOTBAR).for_each(|index| {
-        bar
-          .spawn((
-            Slot(index),
-            Node {
-              width: px(SLOT),
-              height: px(SLOT),
-              border: UiRect::all(px(3)),
-              justify_content: JustifyContent::Center,
-              align_items: AlignItems::Center,
-              ..default()
-            },
-            BorderColor::all(Color::srgba(0.1, 0.1, 0.1, 0.8)),
-            BackgroundColor(Color::srgba(0.15, 0.15, 0.17, 0.55))
-          ))
-          .with_children(|slot| {
-            slot.spawn((
-              Icon(index),
-              ImageNode::new(palette.icons.clone()),
-              Node { width: px(34), height: px(34), ..default() },
-              Visibility::Hidden
-            ));
-            slot.spawn((
-              Count(index),
-              Text::new(""),
-              TextFont { font_size: FontSize::Px(14.0), ..default() },
-              TextShadow {
-                offset: Vec2::splat(1.5),
-                color: Color::srgba(0.0, 0.0, 0.0, 0.7)
-              },
-              Node {
-                position_type: PositionType::Absolute,
-                right: px(3),
-                bottom: px(1),
-                ..default()
-              }
-            ));
-          });
-      })
+    .with_children(|row| {
+      row
+        .spawn((
+          Node { padding: UiRect::all(px(2)), ..default() },
+          BackgroundColor(STRIP)
+        ))
+        .with_children(|bar| {
+          (0..HOTBAR).for_each(|index| {
+            bar
+              .spawn((
+                Slot(index),
+                Node {
+                  width: px(SLOT),
+                  height: px(SLOT),
+                  border: UiRect::all(px(2)),
+                  justify_content: JustifyContent::Center,
+                  align_items: AlignItems::Center,
+                  ..default()
+                },
+                BorderColor::all(Color::NONE)
+              ))
+              .with_children(|slot| {
+                slot.spawn((
+                  Icon(index),
+                  ImageNode::new(palette.icons.clone()),
+                  Node { width: px(32), height: px(32), ..default() },
+                  Visibility::Hidden
+                ));
+                slot.spawn((
+                  Count(index),
+                  Text::new(""),
+                  TextFont { font_size: FontSize::Px(14.0), ..default() },
+                  crate::hud::SHADE,
+                  Node {
+                    position_type: PositionType::Absolute,
+                    right: px(3),
+                    bottom: px(1),
+                    ..default()
+                  }
+                ));
+              });
+          })
+        });
     });
   commands
     .spawn(Node {
@@ -229,14 +239,14 @@ fn build(
         Text::new(""),
         TextFont { font_size: FontSize::Px(18.0), ..default() },
         TextColor(Color::srgba(1.0, 0.95, 0.75, 0.0)),
-        TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, 0.7) }
+        crate::hud::SHADE
       ));
     });
   commands.spawn((
     Status,
     Text::new(""),
     TextFont { font_size: FontSize::Px(14.0), ..default() },
-    TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, 0.7) },
+    crate::hud::SHADE,
     Node { position_type: PositionType::Absolute, left: px(10), top: px(8), ..default() }
   ));
   let bar = meshes.add(Cuboid::default());
@@ -277,10 +287,10 @@ fn refresh(
   let inventory =
     pilot.and_then(|pilot| inventories.get(pilot.me).ok().cloned()).unwrap_or_default();
   slots.iter_mut().for_each(|(slot, mut border)| {
-    *border = BorderColor::all(match slot.0 == selected.0 {
-      true => Color::srgb(0.95, 0.95, 0.95),
-      false => Color::srgba(0.1, 0.1, 0.1, 0.8)
-    })
+    border.set_if_neq(BorderColor::all(match slot.0 == selected.0 {
+      true => PICKED,
+      false => Color::NONE
+    }));
   });
   icons.iter_mut().for_each(|(icon, mut image, mut visibility)| {
     match inventory.slots[icon.0] {
@@ -450,6 +460,7 @@ impl Plugin for Hud {
     app
       .add_plugins(FrameTimeDiagnosticsPlugin::default())
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
-      .add_systems(Update, (refresh, aim, status, vitals, announce).run_if(plays));
+      .add_systems(Update, (refresh, aim, status, vitals, announce).run_if(plays))
+      .add_systems(PostUpdate, crisp.run_if(plays));
   }
 }

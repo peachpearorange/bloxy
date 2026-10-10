@@ -104,7 +104,7 @@ fn stage(mut commands: Commands, draft: Res<Draft>, kit: Res<Kit>) {
 pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
   page.spawn(Node { column_gap: px(20), ..default() }).with_children(|row| {
     row
-      .spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(10), ..default() })
+      .spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(6), ..default() })
       .with_children(|left| {
         left
           .spawn((
@@ -155,7 +155,7 @@ pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
     row
       .spawn(Node {
         flex_direction: FlexDirection::Column,
-        row_gap: px(10),
+        row_gap: px(6),
         align_items: AlignItems::Center,
         ..default()
       })

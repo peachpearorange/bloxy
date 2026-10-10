@@ -89,7 +89,7 @@ pub fn page(page: &mut ChildSpawnerCommands) {
   page.spawn((Greeting, words("", 17.0, INK)));
   page.spawn((Bargains, Node {
     flex_direction: FlexDirection::Column,
-    row_gap: px(10),
+    row_gap: px(6),
     ..default()
   }));
   page.spawn(words(
@@ -142,7 +142,7 @@ fn row(
   let ((give, price), (get, amount)) = (offer.give, offer.get);
   let affordable = have >= u32::from(price);
   parent
-    .spawn(Node { align_items: AlignItems::Center, column_gap: px(10), ..default() })
+    .spawn(Node { align_items: AlignItems::Center, column_gap: px(6), ..default() })
     .with_children(|row| {
       row.spawn(icon(give, 34.0, palette));
       row.spawn((
@@ -165,7 +165,7 @@ fn row(
           Act::Trade(index as u8),
           Shaded,
           Node {
-            padding: UiRect::axes(px(14), px(7)),
+            padding: UiRect::axes(px(8), px(3)),
             border: UiRect::all(px(2)),
             ..default()
           },

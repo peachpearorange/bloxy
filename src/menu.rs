@@ -181,7 +181,7 @@ pub fn button(parent: &mut ChildSpawnerCommands, label: &str, act: Act) {
       act,
       Shaded,
       Node {
-        padding: UiRect::axes(px(14), px(7)),
+        padding: UiRect::axes(px(8), px(3)),
         border: UiRect::all(px(2)),
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
@@ -196,7 +196,7 @@ pub fn button(parent: &mut ChildSpawnerCommands, label: &str, act: Act) {
 fn settings_page(page: &mut ChildSpawnerCommands) {
   Knob::ALL.into_iter().for_each(|knob| {
     page
-      .spawn(Node { align_items: AlignItems::Center, column_gap: px(10), ..default() })
+      .spawn(Node { align_items: AlignItems::Center, column_gap: px(6), ..default() })
       .with_children(|row| {
         row.spawn((words(knob.label(), 17.0, INK), Node { width: px(220), ..default() }));
         match knob {
@@ -228,7 +228,7 @@ pub fn field(parent: &mut ChildSpawnerCommands, entry: Entry, width: f32) {
       Act::Focus(entry),
       Node {
         width: px(width),
-        padding: UiRect::axes(px(10), px(7)),
+        padding: UiRect::axes(px(6), px(3)),
         border: UiRect::all(px(2)),
         ..default()
       },
@@ -240,18 +240,18 @@ pub fn field(parent: &mut ChildSpawnerCommands, entry: Entry, width: f32) {
 
 fn profile_page(page: &mut ChildSpawnerCommands) {
   page.spawn(words("Name", 15.0, FAINT));
-  page.spawn(Node { column_gap: px(10), ..default() }).with_children(|row| {
+  page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
     field(row, Entry::Name, 360.0);
   });
   page.spawn(words("Password", 15.0, FAINT));
-  page.spawn(Node { column_gap: px(10), ..default() }).with_children(|row| {
+  page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
     field(row, Entry::Password, 360.0);
     button(row, "New password", Act::Invent);
     if local::CAN_COPY {
       button(row, "Copy", Act::Copy)
     }
   });
-  page.spawn(Node { column_gap: px(10), ..default() }).with_children(|row| {
+  page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
     button(row, "Save", Act::Submit);
   });
   page.spawn((Remark, words("", 16.0, LIT)));
@@ -268,7 +268,7 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
 fn sign_page(page: &mut ChildSpawnerCommands) {
   page.spawn(words("Write on the sign", 17.0, INK));
   (0..sign::LINES as u8).for_each(|line| field(page, Entry::Line(line), 320.0));
-  page.spawn(Node { column_gap: px(10), ..default() }).with_children(|row| {
+  page.spawn(Node { column_gap: px(6), ..default() }).with_children(|row| {
     button(row, "Done", Act::Resume);
   });
   page.spawn(words(
@@ -309,8 +309,8 @@ fn build(
             max_height: percent(96),
             overflow: Overflow::clip(),
             flex_direction: FlexDirection::Column,
-            padding: UiRect::all(px(20)),
-            row_gap: px(14),
+            padding: UiRect::all(px(10)),
+            row_gap: px(8),
             border: UiRect::all(px(2)),
             ..default()
           },
@@ -321,12 +321,12 @@ fn build(
           panel
             .spawn(Node {
               align_items: AlignItems::Center,
-              column_gap: px(10),
+              column_gap: px(6),
               ..default()
             })
             .with_children(|header| {
               header.spawn((words("BLOXY", 26.0, INK), Node {
-                margin: UiRect::right(px(18)),
+                margin: UiRect::right(px(10)),
                 ..default()
               }));
               Tab::ALL
@@ -340,7 +340,7 @@ fn build(
             panel
               .spawn((Page(tab), Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: px(12),
+                row_gap: px(6),
                 display: Display::None,
                 ..default()
               }))
