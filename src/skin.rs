@@ -6,7 +6,8 @@ use {bevy::{asset::RenderAssetUsages,
      serde::{Deserialize, Serialize}};
 
 pub const WIDE: u32 = 64;
-pub const TALL: u32 = 32;
+pub const TALL: u32 = 64;
+const CLASSIC_TALL: u32 = 32;
 pub const PX: f32 = 0.06;
 
 pub const PALETTE: [[u8; 3]; 32] = [
@@ -49,17 +50,28 @@ pub enum Part {
   Head,
   Body,
   Arm,
-  Leg
+  Leg,
+  LeftArm,
+  LeftLeg
 }
 
 impl Part {
-  pub const ALL: [Part; 4] = [Part::Head, Part::Body, Part::Arm, Part::Leg];
+  pub const ALL: [Part; 6] =
+    [Part::Head, Part::Body, Part::Arm, Part::Leg, Part::LeftArm, Part::LeftLeg];
+
+  pub fn limb(self) -> Part {
+    match self {
+      Part::LeftArm => Part::Arm,
+      Part::LeftLeg => Part::Leg,
+      part => part
+    }
+  }
 
   pub fn size(self) -> UVec3 {
-    match self {
+    match self.limb() {
       Part::Head => UVec3::new(8, 8, 8),
       Part::Body => UVec3::new(8, 12, 4),
-      Part::Arm | Part::Leg => UVec3::new(4, 12, 4)
+      _ => UVec3::new(4, 12, 4)
     }
   }
 
@@ -68,7 +80,9 @@ impl Part {
       Part::Head => UVec2::new(0, 0),
       Part::Body => UVec2::new(16, 16),
       Part::Arm => UVec2::new(40, 16),
-      Part::Leg => UVec2::new(0, 16)
+      Part::Leg => UVec2::new(0, 16),
+      Part::LeftArm => UVec2::new(32, 48),
+      Part::LeftLeg => UVec2::new(16, 48)
     }
   }
 
@@ -148,7 +162,39 @@ pub fn used(texel: UVec2) -> bool {
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(from = "Vec<u8>", into = "Vec<u8>")]
 pub struct Skin(pub Vec<u8>);
+
+impl From<Vec<u8>> for Skin {
+  fn from(texels: Vec<u8>) -> Skin {
+    match texels.len() == (WIDE * CLASSIC_TALL) as usize {
+      true => {
+        let mut skin = Skin(
+          texels
+            .into_iter()
+            .chain(std::iter::repeat_n(0, (WIDE * (TALL - CLASSIC_TALL)) as usize))
+            .collect()
+        );
+        for (from, to) in [(Part::Arm, Part::LeftArm), (Part::Leg, Part::LeftLeg)] {
+          for ((_, source), (_, target)) in from.faces().into_iter().zip(to.faces()) {
+            for y in 0..source.height() {
+              for x in 0..source.width() {
+                let texel = skin.get(source.min + UVec2::new(x, y));
+                skin.set(target.min + UVec2::new(x, y), texel)
+              }
+            }
+          }
+        }
+        skin
+      }
+      false => Skin(texels)
+    }
+  }
+}
+
+impl From<Skin> for Vec<u8> {
+  fn from(skin: Skin) -> Vec<u8> { skin.0 }
+}
 
 impl Skin {
   pub fn valid(&self) -> bool {
@@ -182,7 +228,7 @@ impl Skin {
         for y in rect.min.y..rect.max.y {
           for x in rect.min.x..rect.max.x {
             let (col, row) = (x - rect.min.x, y - rect.min.y);
-            let colour = match (part, face) {
+            let colour = match (part.limb(), face) {
               (Part::Head, Face::Top) => hair,
               (Part::Head, Face::Bottom) => skin,
               (Part::Head, Face::Back) => match row < 6 {
@@ -214,7 +260,7 @@ impl Skin {
               },
               (Part::Leg, Face::Top) => trousers,
               (Part::Leg, Face::Bottom) => shoes,
-              (Part::Leg, _) => match row < 10 {
+              _ => match row < 10 {
                 true => trousers,
                 false => shoes
               }
@@ -253,5 +299,21 @@ impl Skin {
     );
     image.sampler = ImageSampler::nearest();
     image
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn classic_skins_grow_separate_left_limbs() {
+    let mut classic = vec![0; (WIDE * CLASSIC_TALL) as usize];
+    let (_, front) = Part::Arm.faces()[3];
+    classic[(front.min.y * WIDE + front.min.x) as usize] = 7;
+    let skin = Skin::from(classic);
+    let (_, left) = Part::LeftArm.faces()[3];
+    assert!(skin.valid());
+    assert_eq!(skin.get(left.min), 7)
   }
 }

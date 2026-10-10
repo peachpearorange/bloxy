@@ -31,7 +31,22 @@ pub struct Kit {
   pub head: Handle<Mesh>,
   pub body: Handle<Mesh>,
   pub arm: Handle<Mesh>,
-  pub leg: Handle<Mesh>
+  pub leg: Handle<Mesh>,
+  pub left_arm: Handle<Mesh>,
+  pub left_leg: Handle<Mesh>
+}
+
+impl Kit {
+  pub fn mesh(&self, part: Part) -> Handle<Mesh> {
+    match part {
+      Part::Head => self.head.clone(),
+      Part::Body => self.body.clone(),
+      Part::Arm => self.arm.clone(),
+      Part::Leg => self.leg.clone(),
+      Part::LeftArm => self.left_arm.clone(),
+      Part::LeftLeg => self.left_leg.clone()
+    }
+  }
 }
 
 #[derive(Component)]
@@ -47,7 +62,9 @@ pub fn sew(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     head: shaped(Part::Head, 4.0),
     body: shaped(Part::Body, 0.0),
     arm: shaped(Part::Arm, -6.0),
-    leg: shaped(Part::Leg, -6.0)
+    leg: shaped(Part::Leg, -6.0),
+    left_arm: shaped(Part::LeftArm, -6.0),
+    left_leg: shaped(Part::LeftLeg, -6.0)
   })
 }
 
@@ -88,9 +105,9 @@ pub fn assemble(
     ));
     for (x, phase, mesh, pivot) in [
       (6.0, 0.0, kit.arm.clone(), 24.0),
-      (-6.0, PI, kit.arm.clone(), 24.0),
+      (-6.0, PI, kit.left_arm.clone(), 24.0),
       (2.0, PI, kit.leg.clone(), 12.0),
-      (-2.0, 0.0, kit.leg.clone(), 12.0)
+      (-2.0, 0.0, kit.left_leg.clone(), 12.0)
     ]
     .into_iter()
     {

@@ -308,7 +308,7 @@ fn repaint(skin: &mut Skin, paint: impl Fn(Part, Face, u32, u32, u8) -> u8) {
         for x in rect.min.x..rect.max.x {
           let texel = UVec2::new(x, y);
           let painted =
-            paint(part, face, y - rect.min.y, x - rect.min.x, skin.get(texel));
+            paint(part.limb(), face, y - rect.min.y, x - rect.min.x, skin.get(texel));
           skin.set(texel, painted)
         }
       }
@@ -489,9 +489,9 @@ fn dress(
     gear(head, hat(folk.band, folk.luck), &mut commands);
     for (x, phase, mesh, pivot, arm) in [
       (6.0, 0.0, kit.arm.clone(), 24.0, true),
-      (-6.0, PI, kit.arm.clone(), 24.0, true),
+      (-6.0, PI, kit.left_arm.clone(), 24.0, true),
       (2.0, PI, kit.leg.clone(), 12.0, false),
-      (-2.0, 0.0, kit.leg.clone(), 12.0, false)
+      (-2.0, 0.0, kit.left_leg.clone(), 12.0, false)
     ]
     .into_iter()
     {

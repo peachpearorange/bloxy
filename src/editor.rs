@@ -20,9 +20,9 @@ const PIECES: [(Part, Vec3, f32); 6] = [
   (Part::Head, Vec3::new(0.0, 24.0, 0.0), 4.0),
   (Part::Body, Vec3::new(0.0, 18.0, 0.0), 0.0),
   (Part::Arm, Vec3::new(6.0, 24.0, 0.0), -6.0),
-  (Part::Arm, Vec3::new(-6.0, 24.0, 0.0), -6.0),
+  (Part::LeftArm, Vec3::new(-6.0, 24.0, 0.0), -6.0),
   (Part::Leg, Vec3::new(2.0, 12.0, 0.0), -6.0),
-  (Part::Leg, Vec3::new(-2.0, 12.0, 0.0), -6.0)
+  (Part::LeftLeg, Vec3::new(-2.0, 12.0, 0.0), -6.0)
 ];
 
 #[derive(Resource)]
@@ -118,7 +118,7 @@ pub fn prepare(
     ..default()
   });
   let ghost = materials.add(StandardMaterial {
-    base_color: Color::srgba(1.0, 1.0, 1.0, 0.12),
+    base_color: Color::srgba(1.0, 1.0, 1.0, 0.03),
     base_color_texture: Some(raw.clone()),
     alpha_mode: AlphaMode::Blend,
     perceptual_roughness: 0.85,
@@ -170,12 +170,7 @@ fn stage(mut commands: Commands, draft: Res<Draft>, kit: Res<Kit>) {
     Transform::default()
   ));
   for (part, at, lift) in PIECES.into_iter() {
-    let mesh = match part {
-      Part::Head => kit.head.clone(),
-      Part::Body => kit.body.clone(),
-      Part::Arm => kit.arm.clone(),
-      Part::Leg => kit.leg.clone()
-    };
+    let mesh = kit.mesh(part);
     commands.spawn((
       Piece { part, centre: (at + Vec3::Y * lift) * PX },
       Mesh3d(mesh),
@@ -226,8 +221,7 @@ pub fn page(page: &mut ChildSpawnerCommands, draft: &Draft) {
           left.spawn(words(
             "Left mouse paints on the figure. Right-drag (or left-drag beside it) turns it. \
              Right-click a body part to fade it out and reach what it covers, again to bring \
-             it back. Middle-click picks a colour, the wheel zooms. Both arms share one \
-             pattern, as do both legs.",
+             it back. Middle-click picks a colour, the wheel zooms.",
             14.0,
             FAINT
           ));
