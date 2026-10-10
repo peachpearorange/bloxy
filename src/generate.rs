@@ -1,6 +1,6 @@
 use {crate::{block::Block,
              island::{Island, Kind, Rise, SEA, Wood},
-             noise::{fbm2, hash, perlin3, unit},
+             noise::{fbm2, hash, perlin2, perlin3, unit},
              voxels::{Chunk, SIZE, VOLUME, origin_of}},
      bevy::prelude::*};
 
@@ -92,6 +92,56 @@ fn tunnels(seed: u32, at: IVec3) -> f32 {
 }
 
 const OPEN: f32 = 0.006;
+
+#[derive(Clone, Copy)]
+struct Strata {
+  fold: f32,
+  basement: f32,
+  magma: Block,
+  volcanic: bool
+}
+
+fn strata(seed: u32, x: i32, z: i32, ground: &Column) -> Strata {
+  let (x, z) = (x as f32, z as f32);
+  Strata {
+    fold: fbm2(seed.wrapping_add(77), x / 80.0, z / 80.0, 2) * 16.0
+      + perlin2(seed ^ 0xF01D, x / 23.0, z / 23.0) * 2.0,
+    basement: 22.0 + fbm2(seed.wrapping_add(78), x / 90.0, z / 90.0, 2) * 9.0,
+    magma: match perlin2(seed ^ 0x6A6, x / 160.0, z / 160.0) > 0.0 {
+      true => Block::Granite,
+      false => Block::Diorite
+    },
+    volcanic: ground.island.is_some_and(|(island, _)| island.kind == Kind::Volcano)
+  }
+}
+
+fn intrusion(seed: u32, at: IVec3) -> f32 {
+  let point = at.as_vec3();
+  perlin3(seed ^ 0x6A61, point.x / 56.0, point.y / 36.0, point.z / 56.0)
+    - (at.y - 30).max(0) as f32 * 0.006
+}
+
+fn rock(seed: u32, at: IVec3, strata: Strata, intruded: f32) -> Block {
+  let layer = || {
+    perlin3(
+      seed ^ 0x57A7,
+      (at.y as f32 + strata.fold) / 6.0,
+      at.x as f32 / 300.0,
+      at.z as f32 / 300.0
+    ) * 1.4
+  };
+  match () {
+    () if intruded > 0.28 => strata.magma,
+    () if (at.y as f32) < strata.basement => Block::Slate,
+    () if strata.volcanic => Block::Andesite,
+    () => match layer() {
+      layer if layer < -0.3 => Block::Limestone,
+      layer if layer > 0.32 => Block::Andesite,
+      layer if (0.08..0.17).contains(&layer) => Block::Slate,
+      _ => Block::Stone
+    }
+  }
+}
 
 struct Ore {
   block: Block,
@@ -390,22 +440,26 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
     }
     () => {
       let corners = SIZE / CAVE_GRID + 1;
-      let carved: Vec<f32> = (0..corners * corners * corners)
-        .map(|index| {
-          let corner = IVec3::new(
-            index % corners,
-            index / (corners * corners),
-            index / corners % corners
-          );
-          tunnels(seed, origin + corner * CAVE_GRID)
-        })
-        .collect();
-      let carving = |local: IVec3| {
+      let grid = |field: fn(u32, IVec3) -> f32| -> Vec<f32> {
+        (0..corners * corners * corners)
+          .map(|index| {
+            let corner = IVec3::new(
+              index % corners,
+              index / (corners * corners),
+              index / corners % corners
+            );
+            field(seed, origin + corner * CAVE_GRID)
+          })
+          .collect()
+      };
+      let carved = grid(tunnels);
+      let intrusions = grid(intrusion);
+      let blended = |samples: &[f32], local: IVec3| {
         let cell = local / CAVE_GRID;
         let blend = (local % CAVE_GRID).as_vec3() / CAVE_GRID as f32;
         let sample = |offset: IVec3| {
           let corner = cell + offset;
-          carved[((corner.y * corners + corner.z) * corners + corner.x) as usize]
+          samples[((corner.y * corners + corner.z) * corners + corner.x) as usize]
         };
         let along_x = |y: i32, z: i32| {
           sample(IVec3::new(0, y, z)).lerp(sample(IVec3::new(1, y, z)), blend.x)
@@ -413,6 +467,13 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
         let along_z = |y: i32| along_x(y, 0).lerp(along_x(y, 1), blend.z);
         along_z(0).lerp(along_z(1), blend.y)
       };
+      let carving = |local: IVec3| blended(&carved, local);
+      let layers: Vec<Strata> = (0..SIZE * SIZE)
+        .map(|index| {
+          let (x, z) = (index % SIZE, index / SIZE);
+          strata(seed, origin.x + x, origin.z + z, &column_at(x, z))
+        })
+        .collect();
       let mut blocks = Box::new([Block::Air; VOLUME]);
       (0..VOLUME as i32).for_each(|index| {
         let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
@@ -430,7 +491,7 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
           && at.y < lowest.max(SEA) + 40
           && carving(local) < OPEN;
         let (pool, level) = ground.pool;
-        blocks[Chunk::index(local)] = match () {
+        let block = match () {
           () if bedrock => Block::Bedrock,
           () if depth < 0 && at.y == SEA && ground.ice => Block::Ice,
           () if depth < 0 && at.y <= level => pool,
@@ -438,6 +499,15 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
           () if depth == 0 => ground.top,
           () if depth < 4 => ground.under,
           () => Block::Stone
+        };
+        blocks[Chunk::index(local)] = match block {
+          Block::Stone => rock(
+            seed,
+            at,
+            layers[(local.z * SIZE + local.x) as usize],
+            blended(&intrusions, local)
+          ),
+          other => other
         };
       });
       veins(seed, key).for_each(|(ore, centre, radius)| {
@@ -450,7 +520,7 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
               let at = origin + local;
               let ragged = radius * (0.75 + unit(seed ^ 0x0AE, at.x, at.y, at.z) * 0.5);
               let slot = &mut blocks[Chunk::index(local)];
-              if *slot == Block::Stone && at.as_vec3().distance(centre) <= ragged {
+              if slot.rock() && at.as_vec3().distance(centre) <= ragged {
                 *slot = ore
               }
             })
@@ -573,6 +643,37 @@ mod tests {
     ]
     .into_iter()
     .for_each(|wanted| assert!(found(wanted), "no {wanted:?}"));
+  }
+
+  #[test]
+  #[ignore]
+  fn section() {
+    let (span, tall, z) = (768, 160, 40);
+    let chunks: Vec<(IVec3, Chunk)> = (-span / 2 / SIZE..span / 2 / SIZE)
+      .flat_map(|x| (0..tall / SIZE).map(move |y| IVec3::new(x, y, z / SIZE)))
+      .map(|key| (key, chunk(1, key)))
+      .collect();
+    let block = |x: i32, y: i32| {
+      let at = IVec3::new(x, y, z);
+      chunks
+        .iter()
+        .find(|(key, _)| *key == crate::voxels::chunk_of(at))
+        .map_or(Block::Air, |(key, chunk)| chunk.get(at - origin_of(*key)))
+    };
+    let image: Vec<u8> = (0..span * tall)
+      .flat_map(|index| {
+        let (x, y) = (index % span - span / 2, tall - 1 - index / span);
+        let [r, g, b, _] = crate::texture::paint(block(x, y).tiles()[1], 7, 7).color;
+        let sky = block(x, y) == Block::Air;
+        match sky {
+          true => [200, 220, 240],
+          false => [r, g, b].map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8)
+        }
+      })
+      .collect();
+    let mut file = format!("P6 {span} {tall} 255\n").into_bytes();
+    file.extend(image);
+    std::fs::write("screenshots/section.ppm", file).unwrap()
   }
 
   #[test]

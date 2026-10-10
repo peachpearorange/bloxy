@@ -8,7 +8,7 @@ use {crate::{block::{Block, Tile},
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 7;
+pub const ROWS: u32 = 8;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -450,6 +450,23 @@ const FROZEN: Palette =
 const FOAM: Palette =
   [[0.78, 0.78, 0.78], [0.86, 0.86, 0.86], [0.93, 0.93, 0.93], [1.0, 1.0, 1.0]];
 
+fn shades(base: [f32; 3], spread: [f32; 4]) -> Palette {
+  spread.map(|by| base.map(|channel| channel * by))
+}
+
+const STONE_SPREAD: [f32; 4] = [0.62, 0.83, 1.0, 1.17];
+const COBBLE_SPREAD: [f32; 4] = [0.42, 0.71, 0.96, 1.21];
+
+fn rock(tile: Tile) -> [f32; 3] {
+  match tile {
+    Tile::Granite | Tile::GraniteCobble => [0.6, 0.42, 0.37],
+    Tile::Diorite | Tile::DioriteCobble => [0.72, 0.71, 0.67],
+    Tile::Andesite | Tile::AndesiteCobble => [0.4, 0.44, 0.42],
+    Tile::Limestone | Tile::LimestoneCobble => [0.74, 0.68, 0.53],
+    _ => [0.25, 0.27, 0.33]
+  }
+}
+
 const GRAIN: Palette =
   [[0.74, 0.74, 0.74], [0.84, 0.84, 0.84], [0.93, 0.93, 0.93], [1.0, 1.0, 1.0]];
 
@@ -508,6 +525,14 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
   match tile {
     Tile::Stone => solid(&STONE, &GREY, x, y),
     Tile::Cobblestone => solid(&COBBLE, &COBBLES, x, y),
+    Tile::Granite | Tile::Diorite | Tile::Andesite | Tile::Limestone | Tile::Slate => {
+      solid(&STONE, &shades(rock(tile), STONE_SPREAD), x, y)
+    }
+    Tile::GraniteCobble
+    | Tile::DioriteCobble
+    | Tile::AndesiteCobble
+    | Tile::LimestoneCobble
+    | Tile::SlateCobble => solid(&COBBLE, &shades(rock(tile), COBBLE_SPREAD), x, y),
     Tile::Dirt => solid(&DIRT, &EARTH, x, y),
     Tile::GrassTop => solid(&BLADES, &GREEN, x, y),
     Tile::GrassSide => fringed(&GREEN, x, y),

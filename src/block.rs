@@ -62,7 +62,17 @@ pub enum Block {
   SpruceSapling,
   PalmSapling,
   RedMushroom,
-  BrownMushroom
+  BrownMushroom,
+  Granite,
+  GraniteCobble,
+  Diorite,
+  DioriteCobble,
+  Andesite,
+  AndesiteCobble,
+  Limestone,
+  LimestoneCobble,
+  Slate,
+  SlateCobble
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -119,11 +129,21 @@ pub enum Tile {
   SpruceSapling,
   PalmSapling,
   RedMushroom,
-  BrownMushroom
+  BrownMushroom,
+  Granite,
+  GraniteCobble,
+  Diorite,
+  DioriteCobble,
+  Andesite,
+  AndesiteCobble,
+  Limestone,
+  LimestoneCobble,
+  Slate,
+  SlateCobble
 }
 
 impl Tile {
-  pub const ALL: [Tile; 53] = [
+  pub const ALL: [Tile; 63] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -176,7 +196,17 @@ impl Tile {
     Tile::SpruceSapling,
     Tile::PalmSapling,
     Tile::RedMushroom,
-    Tile::BrownMushroom
+    Tile::BrownMushroom,
+    Tile::Granite,
+    Tile::GraniteCobble,
+    Tile::Diorite,
+    Tile::DioriteCobble,
+    Tile::Andesite,
+    Tile::AndesiteCobble,
+    Tile::Limestone,
+    Tile::LimestoneCobble,
+    Tile::Slate,
+    Tile::SlateCobble
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -193,7 +223,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 47] = [
+  pub const ALL: [Block; 57] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -240,8 +270,29 @@ impl Block {
     Block::SpruceSapling,
     Block::PalmSapling,
     Block::RedMushroom,
-    Block::BrownMushroom
+    Block::BrownMushroom,
+    Block::Granite,
+    Block::GraniteCobble,
+    Block::Diorite,
+    Block::DioriteCobble,
+    Block::Andesite,
+    Block::AndesiteCobble,
+    Block::Limestone,
+    Block::LimestoneCobble,
+    Block::Slate,
+    Block::SlateCobble
   ];
+
+  pub const ROCKS: [(Block, Block); 6] = [
+    (Block::Stone, Block::Cobblestone),
+    (Block::Granite, Block::GraniteCobble),
+    (Block::Diorite, Block::DioriteCobble),
+    (Block::Andesite, Block::AndesiteCobble),
+    (Block::Limestone, Block::LimestoneCobble),
+    (Block::Slate, Block::SlateCobble)
+  ];
+
+  pub fn rock(self) -> bool { Block::ROCKS.iter().any(|&(stone, _)| stone == self) }
 
   pub fn item(self) -> bool { !matches!(self, Block::Air | Block::Water | Block::Lava) }
 
@@ -277,7 +328,7 @@ impl Block {
     Block::BrownMushroom
   ];
 
-  pub fn modelled(self) -> bool { self >= Block::Poppy }
+  pub fn modelled(self) -> bool { (Block::Poppy..=Block::BrownMushroom).contains(&self) }
 
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
 
@@ -310,7 +361,8 @@ impl Block {
       | Block::SpruceLog
       | Block::PalmLog
       | Block::Planks => 1.5,
-      Block::Basalt => 2.5,
+      Block::Basalt | Block::Granite | Block::Diorite => 2.5,
+      Block::Limestone | Block::LimestoneCobble => 1.6,
       Block::Lamp => 0.5,
       Block::DiamondOre | Block::GoldOre => 3.0,
       _ => 2.0
@@ -318,11 +370,13 @@ impl Block {
   }
 
   pub fn drop(self) -> Block {
-    match self {
-      Block::Stone => Block::Cobblestone,
-      Block::Grass | Block::Mycelium => Block::Dirt,
-      other => other
-    }
+    Block::ROCKS.iter().find(|&&(stone, _)| stone == self).map_or(
+      match self {
+        Block::Grass | Block::Mycelium => Block::Dirt,
+        other => other
+      },
+      |&(_, cobble)| cobble
+    )
   }
 
   pub fn name(self) -> &'static str {
@@ -373,7 +427,17 @@ impl Block {
       Block::SpruceSapling => "Spruce Sapling",
       Block::PalmSapling => "Palm Sapling",
       Block::RedMushroom => "Red Mushroom",
-      Block::BrownMushroom => "Brown Mushroom"
+      Block::BrownMushroom => "Brown Mushroom",
+      Block::Granite => "Granite",
+      Block::GraniteCobble => "Granite Cobblestone",
+      Block::Diorite => "Diorite",
+      Block::DioriteCobble => "Diorite Cobblestone",
+      Block::Andesite => "Andesite",
+      Block::AndesiteCobble => "Andesite Cobblestone",
+      Block::Limestone => "Limestone",
+      Block::LimestoneCobble => "Limestone Cobblestone",
+      Block::Slate => "Slate",
+      Block::SlateCobble => "Slate Cobblestone"
     }
   }
 
@@ -425,7 +489,17 @@ impl Block {
       Block::SpruceSapling => all(Tile::SpruceSapling),
       Block::PalmSapling => all(Tile::PalmSapling),
       Block::RedMushroom => all(Tile::RedMushroom),
-      Block::BrownMushroom => all(Tile::BrownMushroom)
+      Block::BrownMushroom => all(Tile::BrownMushroom),
+      Block::Granite => all(Tile::Granite),
+      Block::GraniteCobble => all(Tile::GraniteCobble),
+      Block::Diorite => all(Tile::Diorite),
+      Block::DioriteCobble => all(Tile::DioriteCobble),
+      Block::Andesite => all(Tile::Andesite),
+      Block::AndesiteCobble => all(Tile::AndesiteCobble),
+      Block::Limestone => all(Tile::Limestone),
+      Block::LimestoneCobble => all(Tile::LimestoneCobble),
+      Block::Slate => all(Tile::Slate),
+      Block::SlateCobble => all(Tile::SlateCobble)
     }
   }
 }
