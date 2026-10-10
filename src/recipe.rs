@@ -66,6 +66,7 @@ pub const RECIPES: &[Recipe] = &[
   furnace(&[(Block::LimestoneCobble, 8), (Block::CoalOre, 1)], (Block::Limestone, 8)),
   furnace(&[(Block::SlateCobble, 8), (Block::CoalOre, 1)], (Block::Slate, 8)),
   furnace(&[(Block::Sand, 4), (Block::CoalOre, 1)], (Block::Glass, 4)),
+  furnace(&[(Block::IronOre, 3), (Block::CoalOre, 1)], (Block::Bucket, 1)),
   furnace(&[(Block::Clay, 4), (Block::CoalOre, 1)], (Block::Bricks, 4)),
   hand(&[(Block::Cobblestone, 1)], (Block::Gravel, 1)),
   hand(&[(Block::Gravel, 1)], (Block::Sand, 1)),

@@ -87,7 +87,10 @@ pub enum Block {
   WaterFlow7,
   LavaFlow1,
   LavaFlow2,
-  LavaFlow3
+  LavaFlow3,
+  Bucket,
+  WaterBucket,
+  LavaBucket
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -162,11 +165,14 @@ pub enum Tile {
   TableSide,
   FurnaceTop,
   FurnaceSide,
-  Boat
+  Boat,
+  Bucket,
+  WaterBucket,
+  LavaBucket
 }
 
 impl Tile {
-  pub const ALL: [Tile; 71] = [
+  pub const ALL: [Tile; 74] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -237,13 +243,16 @@ impl Tile {
     Tile::TableSide,
     Tile::FurnaceTop,
     Tile::FurnaceSide,
-    Tile::Boat
+    Tile::Boat,
+    Tile::Bucket,
+    Tile::WaterBucket,
+    Tile::LavaBucket
   ];
 
   pub fn index(self) -> u32 { self as u32 }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Fluid {
   Water,
   Lava
@@ -262,6 +271,20 @@ impl Fluid {
         Block::WaterFlow7
       ],
       Fluid::Lava => &[Block::LavaFlow1, Block::LavaFlow2, Block::LavaFlow3]
+    }
+  }
+
+  pub fn bucket(self) -> Block {
+    match self {
+      Fluid::Water => Block::WaterBucket,
+      Fluid::Lava => Block::LavaBucket
+    }
+  }
+
+  pub fn source(self) -> Block {
+    match self {
+      Fluid::Water => Block::Water,
+      Fluid::Lava => Block::Lava
     }
   }
 
@@ -288,7 +311,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 72] = [
+  pub const ALL: [Block; 75] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -360,7 +383,10 @@ impl Block {
     Block::WaterFlow7,
     Block::LavaFlow1,
     Block::LavaFlow2,
-    Block::LavaFlow3
+    Block::LavaFlow3,
+    Block::Bucket,
+    Block::WaterBucket,
+    Block::LavaBucket
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -378,7 +404,27 @@ impl Block {
     self != Block::Air && !self.fluid() && self != Block::WaystoneTop
   }
 
-  pub fn placeable(self) -> bool { self.item() && self != Block::Boat }
+  pub fn tool(self) -> bool {
+    matches!(self, Block::Boat | Block::Bucket | Block::WaterBucket | Block::LavaBucket)
+  }
+
+  pub fn placeable(self) -> bool { self.item() && !self.tool() }
+
+  pub fn stack(self) -> u16 {
+    match self {
+      Block::WaterBucket | Block::LavaBucket | Block::Boat => 1,
+      Block::Bucket => 16,
+      _ => 64
+    }
+  }
+
+  pub fn carrying(self) -> Option<Fluid> {
+    match self {
+      Block::WaterBucket => Some(Fluid::Water),
+      Block::LavaBucket => Some(Fluid::Lava),
+      _ => None
+    }
+  }
 
   pub fn waystone(self) -> bool { matches!(self, Block::Waystone | Block::WaystoneTop) }
 
@@ -405,7 +451,7 @@ impl Block {
       leaves if leaves.leafy() => Look::Cutout,
       fluid if fluid.fluid() => Look::Liquid,
       model if model.modelled() || model.waystone() => Look::Model,
-      Block::Boat => Look::Invisible,
+      tool if tool.tool() => Look::Invisible,
       Block::Log | Block::BirchLog | Block::SpruceLog | Block::PalmLog => Look::Log,
       _ => Look::Opaque
     }
@@ -440,7 +486,7 @@ impl Block {
   pub fn fluid(self) -> bool { self.liquid().is_some() }
 
   pub fn solid(self) -> bool {
-    !matches!(self, Block::Air | Block::Boat) && !self.fluid() && !self.modelled()
+    self != Block::Air && !self.tool() && !self.fluid() && !self.modelled()
   }
 
   pub fn targetable(self) -> bool { self.solid() || self.modelled() }
@@ -561,7 +607,10 @@ impl Block {
       Block::WaterFlow7 => "Flowing Water",
       Block::LavaFlow1 => "Flowing Lava",
       Block::LavaFlow2 => "Flowing Lava",
-      Block::LavaFlow3 => "Flowing Lava"
+      Block::LavaFlow3 => "Flowing Lava",
+      Block::Bucket => "Bucket",
+      Block::WaterBucket => "Water Bucket",
+      Block::LavaBucket => "Lava Bucket"
     }
   }
 
@@ -640,7 +689,10 @@ impl Block {
       Block::WaterFlow7 => all(Tile::Water),
       Block::LavaFlow1 => all(Tile::Lava),
       Block::LavaFlow2 => all(Tile::Lava),
-      Block::LavaFlow3 => all(Tile::Lava)
+      Block::LavaFlow3 => all(Tile::Lava),
+      Block::Bucket => all(Tile::Bucket),
+      Block::WaterBucket => all(Tile::WaterBucket),
+      Block::LavaBucket => all(Tile::LavaBucket)
     }
   }
 }

@@ -27,6 +27,7 @@ fn starter(creative: bool) -> Inventory {
     Block::CraftingTable,
     Block::Furnace,
     Block::Boat,
+    Block::Bucket,
     Block::Log,
     Block::Stone,
     Block::Lamp,
@@ -44,7 +45,7 @@ fn starter(creative: bool) -> Inventory {
     kit
       .iter()
       .zip(&mut inventory.slots)
-      .for_each(|(&block, slot)| *slot = Some(Stack { block, count: STACK }))
+      .for_each(|(&block, slot)| *slot = Some(Stack { block, count: block.stack() }))
   }
   inventory
 }
@@ -401,6 +402,72 @@ fn craft(
   })
 }
 
+fn scoop(
+  mut scoops: MessageReader<FromClient<Scoop>>,
+  time: Res<Time>,
+  mut flows: ResMut<Flows>,
+  mut voxels: ResMut<Voxels>,
+  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  mut changes: MessageWriter<ToClients<Altered>>
+) {
+  scoops.read().for_each(|&FromClient { client_id, message: Scoop(at) }| {
+    if let Some((fluid, 0)) = voxels.ensure(at).liquid()
+      && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
+      && within_reach(avatar, at)
+      && let Some(filled) = Some(inventory.clone())
+        .filter(|filled| {
+          filled.slots.iter().flatten().any(|stack| stack.block == Block::Bucket)
+        })
+        .map(|mut filled| {
+          filled.take(Block::Bucket);
+          filled
+        })
+        .filter(|filled| filled.clone().add(fluid.bucket()))
+        .map(|mut filled| {
+          filled.add(fluid.bucket());
+          filled
+        })
+    {
+      *inventory = filled;
+      voxels.set(at, Block::Air);
+      flows.stir(at, time.elapsed_secs() + fluid.delay());
+      changes.write(ToClients {
+        targets: SendTargets::All,
+        message: Altered { at, block: Block::Air }
+      });
+    }
+  })
+}
+
+fn pour(
+  mut pours: MessageReader<FromClient<Pour>>,
+  time: Res<Time>,
+  mut flows: ResMut<Flows>,
+  mut voxels: ResMut<Voxels>,
+  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  mut changes: MessageWriter<ToClients<Altered>>
+) {
+  pours.read().for_each(|&FromClient { client_id, message: Pour { at, fluid } }| {
+    let present = voxels.ensure(at);
+    let open = present == Block::Air
+      || present.modelled()
+      || present.liquid().is_some_and(|(_, level)| level > 0);
+    if open
+      && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
+      && within_reach(avatar, at)
+      && inventory.take(fluid.bucket())
+    {
+      inventory.add(Block::Bucket);
+      voxels.set(at, fluid.source());
+      flows.stir(at, time.elapsed_secs() + fluid.delay());
+      changes.write(ToClients {
+        targets: SendTargets::All,
+        message: Altered { at, block: fluid.source() }
+      });
+    }
+  })
+}
+
 fn mark(
   mut marks: MessageReader<FromClient<Mark>>,
   mut players: Query<(&Controller, &mut Bookmarks)>
@@ -422,7 +489,10 @@ impl Plugin for Authority {
       .add_systems(Startup, found_world.run_if(authority))
       .add_systems(
         PreUpdate,
-        (sign_in, paint, follow, attune, travel, dig, put, shuffle, craft, mark)
+        (
+          sign_in, paint, follow, attune, travel, dig, put, scoop, pour, shuffle, craft,
+          mark
+        )
           .chain()
           .after(ServerSystems::Receive)
           .run_if(authority)

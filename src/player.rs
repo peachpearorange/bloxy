@@ -359,6 +359,7 @@ fn work(
   mut digs: MessageWriter<Dig>,
   mut puts: MessageWriter<Put>,
   mut attunes: MessageWriter<Attune>,
+  (mut scoops, mut pours): (MessageWriter<Scoop>, MessageWriter<Pour>),
   boats: Query<&Vessel>,
   mut cooldown: Local<f32>
 ) {
@@ -411,6 +412,25 @@ fn work(
           menu.show(Tab::Waystones, time.elapsed_secs())
         }
         false => menu.show(Tab::Inventory, time.elapsed_secs())
+      }
+    } else if active
+      && buttons.just_pressed(MouseButton::Right)
+      && let Some(stack) = stack.filter(|stack| {
+        matches!(stack.block, Block::Bucket | Block::WaterBucket | Block::LavaBucket)
+      })
+      && let Some(hit) =
+        voxels.cast_for(eye, toward, REACH, |block| block.targetable() || block.fluid())
+    {
+      match stack.block.carrying() {
+        None => {
+          if hit.block.liquid().is_some_and(|(_, level)| level == 0) {
+            scoops.write(Scoop(hit.at));
+          }
+        }
+        Some(fluid) => {
+          let at = if hit.block.fluid() { hit.at } else { hit.at + hit.normal };
+          pours.write(Pour { at, fluid });
+        }
       }
     } else if active
       && used.is_none()

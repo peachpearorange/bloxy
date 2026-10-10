@@ -2,6 +2,7 @@ use {crate::{block::{Block, Fluid, Look},
              generate,
              island::SEA,
              model::{self, Bit},
+             noise::fbm2,
              texture::uv_corner,
              voxels::{Chunk, HEIGHT, SIZE, origin_of}},
      bevy::{asset::RenderAssetUsages,
@@ -205,6 +206,14 @@ fn crest(block: Block, above: Block) -> f32 {
   }
 }
 
+const DRY: LinearRgba = LinearRgba::rgb(1.08, 1.03, 0.78);
+const LUSH: LinearRgba = LinearRgba::rgb(0.86, 1.0, 0.92);
+
+fn meadow(at: Vec3) -> LinearRgba {
+  let patch = (fbm2(0x9A55, at.x / 40.0, at.z / 40.0, 2) * 1.6 + 0.5).clamp(0.0, 1.0);
+  DRY.mix(&LUSH, patch)
+}
+
 pub const TORCH_REACH: f32 = 10.0;
 const TORCH_GLOW: LinearRgba = LinearRgba::rgb(1.0, 0.72, 0.42);
 
@@ -309,8 +318,9 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshe
               builder
                 .uvs
                 .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
-              let hue = match kind(block) {
-                Some(Fluid::Water) => tint(corner),
+              let hue = match (kind(block), block) {
+                (Some(Fluid::Water), _) => tint(corner),
+                (_, Block::Grass) => meadow(origin.as_vec3() + corner),
                 _ => LinearRgba::WHITE
               };
               let torch = torchlight(origin.as_vec3() + corner.with_y(height));

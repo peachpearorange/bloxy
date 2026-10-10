@@ -203,6 +203,16 @@ impl Voxels {
   }
 
   pub fn cast(&self, from: Vec3, toward: Vec3, reach: f32) -> Option<Hit> {
+    self.cast_for(from, toward, reach, Block::targetable)
+  }
+
+  pub fn cast_for(
+    &self,
+    from: Vec3,
+    toward: Vec3,
+    reach: f32,
+    wanted: impl Fn(Block) -> bool
+  ) -> Option<Hit> {
     let toward = toward.normalize_or(Vec3::NEG_Z);
     let step = toward.signum().as_ivec3();
     let next_edge = |position: f32, direction: f32| match direction > 0.0 {
@@ -235,7 +245,7 @@ impl Voxels {
     .find_map(|(at, _, normal, _)| {
       self
         .block(at)
-        .filter(|block| block.targetable())
+        .filter(|&block| wanted(block))
         .filter(|&block| {
           model::bounds(block, self.seed, at)
             .is_none_or(|(low, high)| pierces(from, toward, low, high))

@@ -8,7 +8,7 @@ use {crate::{block::{Block, Tile},
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 9;
+pub const ROWS: u32 = 10;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -95,44 +95,6 @@ const DIRT: Art = [
   "2222222222221222",
   "2222322222222222",
   "2212222212222232"
-];
-
-const BLADES: Art = [
-  "2232222122232222",
-  "2132212222132212",
-  "2222232232222232",
-  "2322132132223132",
-  "2122222222212222",
-  "2222322223222222",
-  "2321222212222322",
-  "2222232222322122",
-  "2232212322122222",
-  "2122222122222232",
-  "2222322222232212",
-  "3222122322212222",
-  "2222222122222322",
-  "2232232222322122",
-  "2132122223122222",
-  "2222222222222222"
-];
-
-const FRINGE: Art = [
-  "2323232332323232",
-  "2222222222222222",
-  "1221212221221212",
-  "1.21.1.21..2.1.1",
-  "..1....1....1...",
-  "................",
-  "................",
-  "................",
-  "................",
-  "................",
-  "................",
-  "................",
-  "................",
-  "................",
-  "................",
-  "................"
 ];
 
 const DRIFT: Art = [
@@ -406,7 +368,7 @@ const GREY: Palette =
 const EARTH: Palette =
   [[0.25, 0.17, 0.11], [0.36, 0.25, 0.16], [0.44, 0.31, 0.2], [0.53, 0.39, 0.26]];
 const GREEN: Palette =
-  [[0.17, 0.33, 0.12], [0.23, 0.42, 0.16], [0.29, 0.5, 0.2], [0.38, 0.6, 0.25]];
+  [[0.12, 0.27, 0.08], [0.2, 0.39, 0.12], [0.3, 0.5, 0.17], [0.44, 0.62, 0.24]];
 const WHITE: Palette =
   [[0.7, 0.75, 0.82], [0.82, 0.86, 0.92], [0.92, 0.95, 0.99], [1.0, 1.0, 1.0]];
 const SPORES: Palette =
@@ -512,11 +474,13 @@ fn ramp(palette: &Palette, along: f32) -> Texel {
   Texel::rgb(r, g, b)
 }
 
-fn smooth(palette: &Palette, x: u32, y: u32) -> Texel {
+fn smooth(palette: &Palette, x: u32, y: u32) -> Texel { flecked(&STONE, palette, x, y) }
+
+fn flecked(art: &Art, palette: &Palette, x: u32, y: u32) -> Texel {
   let cloud = lattice(0x57, 4, x, y) * 0.55
     + lattice(0x58, 8, x, y) * 0.3
     + lattice(0x59, 16, x, y) * 0.15;
-  let fleck = match shade_of(&STONE, x, y) {
+  let fleck = match shade_of(art, x, y) {
     Some(0) => -0.28,
     Some(1) => -0.14,
     Some(3) => 0.14,
@@ -601,8 +565,30 @@ fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
   Texel::rgb(r, g, b)
 }
 
+fn soil(x: u32, y: u32) -> Texel { flecked(&DIRT, &EARTH, x, y) }
+
+fn turf(palette: &Palette, x: u32, y: u32) -> Texel {
+  let cloud = lattice(0x6A, 4, x, y) * 0.6 + lattice(0x6B, 8, x, y) * 0.4;
+  let stagger = crate::noise::hash(0x6C, x as i32, 0, 0) % 3;
+  let (clump, within) = ((y + stagger) / 3, (y + stagger) % 3);
+  let stroke = match crate::noise::unit(0x6D, x as i32, clump as i32, 0) {
+    blade if blade < 0.3 => 0.2 - within as f32 * 0.09,
+    gap if gap > 0.86 => -0.2,
+    _ => 0.0
+  };
+  ramp(palette, 0.22 + cloud * 0.5 + stroke)
+}
+
 fn fringed(over: &Palette, x: u32, y: u32) -> Texel {
-  drawn(&FRINGE, over, x, y).unwrap_or_else(|| solid(&DIRT, &EARTH, x, y))
+  let hang = 2
+    + crate::noise::hash(0x6E, x as i32, 0, 0) % 3
+    + u32::from(crate::noise::unit(0x6F, x as i32 / 2, 0, 0) < 0.4) * 2;
+  match y {
+    y if y < hang => turf(over, x, y).scaled(1.0 - y as f32 * 0.04),
+    y if y == hang => turf(over, x, y).scaled(0.62),
+    y if y == hang + 1 => soil(x, y).scaled(0.7),
+    _ => soil(x, y)
+  }
 }
 
 fn cutout(art: &Art, palette: &Palette, x: u32, y: u32) -> Texel {
@@ -676,6 +662,35 @@ const BOAT: Art = [
   "................"
 ];
 
+const BUCKET: Art = [
+  "................",
+  "................",
+  "....00000000....",
+  "...0........0...",
+  "..0..........0..",
+  "..000000000000..",
+  "..011111111110..",
+  "..000000000000..",
+  "..032222222210..",
+  "...0322222210...",
+  "...0322222210...",
+  "...0322222210...",
+  "....03222210....",
+  "....03222210....",
+  "....00000000....",
+  "................"
+];
+
+const IRON: Palette =
+  [[0.16, 0.16, 0.18], [0.3, 0.3, 0.33], [0.6, 0.61, 0.64], [0.84, 0.85, 0.87]];
+
+fn bucket(fill: Option<Texel>, x: u32, y: u32) -> Texel {
+  match (fill, y == 6 && shade_of(&BUCKET, x, y) == Some(1)) {
+    (Some(fill), true) => fill,
+    _ => cutout(&BUCKET, &IRON, x, y)
+  }
+}
+
 const WOOD: Palette =
   [[0.32, 0.22, 0.12], [0.46, 0.33, 0.19], [0.6, 0.45, 0.27], [0.7, 0.55, 0.34]];
 const TOOLS: Palette =
@@ -715,8 +730,8 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     | Tile::AndesiteCobble
     | Tile::LimestoneCobble
     | Tile::SlateCobble => cobble(rock(tile), x, y),
-    Tile::Dirt => solid(&DIRT, &EARTH, x, y),
-    Tile::GrassTop => solid(&BLADES, &GREEN, x, y),
+    Tile::Dirt => soil(x, y),
+    Tile::GrassTop => turf(&GREEN, x, y),
     Tile::GrassSide => fringed(&GREEN, x, y),
     Tile::Sand => solid(&DRIFT, &SANDY, x, y),
     Tile::Gravel => solid(&PEBBLES, &STONY, x, y),
@@ -797,7 +812,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::SpruceLeaves => cutout(&FOLIAGE, &SPRUCE_LEAVES, x, y),
     Tile::PalmSide => solid(&RINGS, &PALM, x, y),
     Tile::PalmLeaves => cutout(&FRONDS, &PALM_LEAVES, x, y),
-    Tile::MyceliumTop => solid(&BLADES, &SPORES, x, y),
+    Tile::MyceliumTop => turf(&SPORES, x, y),
     Tile::MyceliumSide => fringed(&SPORES, x, y),
     Tile::Stem => solid(&FIBRES, &STALK, x, y),
     Tile::RedCap => solid(&DOTTED, &AMANITA, x, y),
@@ -851,6 +866,9 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
       }
     }
     Tile::Boat => cutout(&BOAT, &WOOD, x, y),
+    Tile::Bucket => bucket(None, x, y),
+    Tile::WaterBucket => bucket(Some(Texel::rgb(0.2, 0.45, 0.85)), x, y),
+    Tile::LavaBucket => bucket(Some(Texel::rgb(1.0, 0.5, 0.1).glowing(0.4)), x, y),
     Tile::Torch => model_icon(Block::Torch, x, y),
     Tile::Poppy
     | Tile::Dandelion

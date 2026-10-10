@@ -1,4 +1,5 @@
-use {crate::{block::Block, skin::Skin},
+use {crate::{block::{Block, Fluid},
+             skin::Skin},
      bevy::{ecs::entity::MapEntities, prelude::*},
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
@@ -6,7 +7,6 @@ use {crate::{block::Block, skin::Skin},
 pub const HOTBAR: usize = 9;
 pub const BACKPACK: usize = 27;
 pub const SLOTS: usize = HOTBAR + BACKPACK;
-pub const STACK: u16 = 64;
 pub const REACH: f32 = 5.0;
 pub const EYE: f32 = 1.62;
 
@@ -84,7 +84,7 @@ impl Inventory {
     if from != to && from < SLOTS && to < SLOTS {
       match (self.slots[from], self.slots[to]) {
         (Some(moved), Some(kept)) if moved.block == kept.block => {
-          let shifted = moved.count.min(STACK - kept.count);
+          let shifted = moved.count.min(kept.block.stack().saturating_sub(kept.count));
           self.slots[to] = Some(Stack { count: kept.count + shifted, ..kept });
           self.slots[from] = (moved.count > shifted)
             .then_some(Stack { count: moved.count - shifted, ..moved })
@@ -96,7 +96,7 @@ impl Inventory {
 
   pub fn add(&mut self, block: Block) -> bool {
     let fits = |slot: &Option<Stack>| {
-      slot.is_some_and(|stack| stack.block == block && stack.count < STACK)
+      slot.is_some_and(|stack| stack.block == block && stack.count < block.stack())
     };
     match self
       .slots
@@ -148,6 +148,15 @@ impl Bookmarks {
 
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Mark(pub Block);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Scoop(pub IVec3);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Pour {
+  pub at: IVec3,
+  pub fluid: Fluid
+}
 
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Hello {
@@ -269,6 +278,8 @@ impl Plugin for Protocol {
       .add_client_message::<Disembark>(Channel::Ordered)
       .add_client_message::<Steer>(Channel::Unreliable)
       .replicate::<Bookmarks>()
-      .add_client_message::<Mark>(Channel::Ordered);
+      .add_client_message::<Mark>(Channel::Ordered)
+      .add_client_message::<Scoop>(Channel::Ordered)
+      .add_client_message::<Pour>(Channel::Ordered);
   }
 }
