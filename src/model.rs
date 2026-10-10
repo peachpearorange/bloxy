@@ -114,7 +114,7 @@ const BROWN_MUSHROOM_BITS: &[Bit] = &[
   skin([3, 5, 3], [13, 6, 13], Tile::BrownCap)
 ];
 
-const FLAME: [f32; 3] = [1.0, 1.0, 1.0];
+const FLAME: [f32; 3] = [1.0, 0.85, 0.4];
 
 const TORCH_BITS: &[Bit] = &[
   skin([7, 0, 7], [9, 9, 9], Tile::LogSide),

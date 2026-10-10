@@ -585,12 +585,12 @@ fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
   let bright = 0.88 + crate::noise::unit(0xC0C, pebble as i32, 0, 0) * 0.26;
   let rim = [(-1, 0), (0, -1), (1, 0), (0, 1)].map(|(dx, dy)| near(dx, dy));
   let light = match rim {
-    _ if pebble == 0 => 0.3 + lattice(0xC0D, 8, x, y) * 0.12,
-    [left, top, ..] if left || top => 1.2,
-    [_, _, right, bottom] if right || bottom => 0.62,
-    _ => 0.92 + (lattice(0xC0E, 8, x, y) - 0.5) * 0.25
+    _ if pebble == 0 => 0.48 + lattice(0xC0D, 8, x, y) * 0.1,
+    [left, top, ..] if left || top => 1.08,
+    [_, _, right, bottom] if right || bottom => 0.78,
+    _ => 0.94 + (lattice(0xC0E, 8, x, y) - 0.5) * 0.18
   };
-  let shade = shade_of(&COBBLE, x, y).map_or(0.0, |shade| (shade as f32 - 2.0) * 0.05);
+  let shade = shade_of(&COBBLE, x, y).map_or(0.0, |shade| (shade as f32 - 2.0) * 0.03);
   let [r, g, b] = std::array::from_fn(|channel| {
     base[channel]
       * match pebble {
@@ -684,7 +684,7 @@ const TOOLS: Palette =
 fn flame(x: u32, y: u32) -> Texel {
   let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
   let heat = (1.0 - (dx * dx + dy * dy).sqrt() / 9.0).clamp(0.0, 1.0);
-  Texel::rgb(1.0, 0.45 + heat * 0.5, 0.1 + heat * 0.5).glowing(0.6 + heat)
+  Texel::rgb(1.0, 0.5 + heat * 0.35, 0.12 + heat * 0.3).glowing(0.08 + heat * 0.12)
 }
 
 pub const WATER_FRAMES: u32 = PIXELS * 2;

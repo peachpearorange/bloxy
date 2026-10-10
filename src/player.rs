@@ -31,7 +31,15 @@ pub struct Pilot {
   pub yaw: f32,
   pub pitch: f32,
   pub grounded: bool,
-  pub swimming: bool
+  pub swimming: bool,
+  pub riding: Option<Riding>
+}
+
+#[derive(Clone, Copy)]
+pub struct Riding {
+  pub boat: Entity,
+  pub yaw: f32,
+  pub speed: f32
 }
 
 impl Pilot {
@@ -89,7 +97,8 @@ fn possess(
       yaw: opts().yaw.map_or(avatar.yaw, f32::to_radians),
       pitch: opts().pitch.map_or(avatar.pitch, f32::to_radians),
       grounded: false,
-      swimming: false
+      swimming: false,
+      riding: None
     })
   }
 }
@@ -124,7 +133,10 @@ fn grab(
   }
 }
 
-fn captured(cursor: &Query<&CursorOptions, With<PrimaryWindow>>, menu: &Menu) -> bool {
+pub fn captured(
+  cursor: &Query<&CursorOptions, With<PrimaryWindow>>,
+  menu: &Menu
+) -> bool {
   !menu.open
     && (cursor.single().is_ok_and(|cursor| cursor.grab_mode != CursorGrabMode::None)
       || opts().shot.is_some())
@@ -207,6 +219,7 @@ fn fly(
 ) {
   if let Some(voxels) = voxels
     && ready_around(&voxels, pilot.at)
+    && pilot.riding.is_none()
   {
     let pressed = |key: KeyCode| !menu.open && keys.pressed(key);
     let held = |key: KeyCode| f32::from(u8::from(pressed(key)));
@@ -254,9 +267,39 @@ fn fly(
   }
 }
 
-fn follow(pilot: Res<Pilot>, mut eyes: Query<&mut Transform, With<Eye>>) {
+#[derive(Resource, Default)]
+pub struct Gait {
+  pub stride: f32,
+  pub bob: f32
+}
+
+impl Gait {
+  pub fn sway(&self) -> Vec3 {
+    let phase = self.stride * std::f32::consts::PI / STEP_LENGTH;
+    Vec3::new(phase.sin() * 0.04, -phase.cos().abs() * 0.06, 0.0) * self.bob
+  }
+}
+
+const STEP_LENGTH: f32 = 1.3;
+
+fn follow(
+  time: Res<Time>,
+  pilot: Res<Pilot>,
+  mut gait: ResMut<Gait>,
+  mut eyes: Query<&mut Transform, With<Eye>>
+) {
+  let dt = time.delta_secs();
+  let pace = match pilot.grounded && !pilot.swimming {
+    true => pilot.velocity.xz().length(),
+    false => 0.0
+  };
+  gait.stride += pace * dt;
+  gait.bob += ((pace / WALK).min(1.4) - gait.bob) * (dt * 8.0).min(1.0);
+  let sway = gait.sway();
+  let roll = Quat::from_rotation_z(sway.x * 0.25);
   eyes.iter_mut().for_each(|mut eye| {
-    *eye = Transform::from_translation(pilot.eye()).with_rotation(pilot.facing())
+    *eye = Transform::from_translation(pilot.eye() + pilot.facing() * sway)
+      .with_rotation(pilot.facing() * roll)
   })
 }
 
@@ -316,10 +359,17 @@ fn work(
   mut digs: MessageWriter<Dig>,
   mut puts: MessageWriter<Put>,
   mut attunes: MessageWriter<Attune>,
+  boats: Query<&Vessel>,
   mut cooldown: Local<f32>
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
-    aim.hit = voxels.cast(pilot.eye(), pilot.facing() * Vec3::NEG_Z, REACH);
+    let (eye, toward) = (pilot.eye(), pilot.facing() * Vec3::NEG_Z);
+    aim.hit = voxels.cast(eye, toward, REACH).filter(|hit| {
+      let distance = (hit.at.as_vec3() + 0.5).distance(eye);
+      !boats.iter().any(|vessel| {
+        crate::boat::struck(vessel, eye, toward).is_some_and(|near| near < distance)
+      })
+    });
     let active = captured(&cursor, &menu);
     let target = aim.hit.as_ref().map(|hit| (hit.at, hit.block));
     match (target, active && buttons.pressed(MouseButton::Left)) {
@@ -411,6 +461,7 @@ impl Plugin for Piloting {
     app
       .init_resource::<Selected>()
       .init_resource::<Aim>()
+      .init_resource::<Gait>()
       .add_systems(Startup, spawn_eye.run_if(plays))
       .add_systems(
         PreUpdate,

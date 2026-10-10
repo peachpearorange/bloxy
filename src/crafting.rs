@@ -128,6 +128,8 @@ fn column(width: Option<f32>) -> Node {
     row_gap: px(8),
     width: width.map_or(Val::Auto, px),
     flex_grow: if width.is_some() { 0.0 } else { 1.0 },
+    flex_basis: if width.is_some() { Val::Auto } else { px(0) },
+    min_width: px(0),
     flex_shrink: 0.0,
     ..default()
   }
@@ -138,49 +140,55 @@ fn grid() -> Node {
 }
 
 pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
-  page.spawn(Node { column_gap: px(24), ..default() }).with_children(|columns| {
-    columns.spawn(column(Some(4.0 * (CELL + GAP)))).with_children(|left| {
-      left.spawn(words("Bookmarks", 15.0, FAINT));
-      left.spawn((Marks, grid()));
-      left.spawn(words(
-        "Press A over an item to bookmark it or take it off.",
-        13.0,
-        FAINT
-      ));
-    });
-    columns.spawn(column(Some(HOTBAR as f32 * (CELL + GAP)))).with_children(|middle| {
-      middle.spawn((Recipes, Node {
-        flex_direction: FlexDirection::Column,
-        row_gap: px(8),
-        min_height: px(230),
-        ..default()
-      }));
-      middle.spawn(words("Backpack", 15.0, FAINT));
-      row(middle, HOTBAR..SLOTS, palette);
-      middle.spawn(words("Hotbar", 15.0, FAINT));
-      row(middle, 0..HOTBAR, palette);
-      middle.spawn(words(
-        "Click two slots to move, merge or swap stacks. E closes.",
-        13.0,
-        FAINT
-      ));
-    });
-    columns.spawn(column(None)).with_children(|right| {
-      right
-        .spawn(Node { column_gap: px(10), align_items: AlignItems::Center, ..default() })
-        .with_children(|search| {
-          search.spawn(words("Search", 15.0, FAINT));
-          field(search, Entry::Search, 260.0);
-        });
-      right.spawn((Catalogue, grid()));
-      right.spawn(words(
-        "Click an item for its recipes. Items you can craft here and now come first, \
+  page
+    .spawn(Node { column_gap: px(24), width: percent(100), ..default() })
+    .with_children(|columns| {
+      columns.spawn(column(Some(4.0 * (CELL + GAP)))).with_children(|left| {
+        left.spawn(words("Bookmarks", 15.0, FAINT));
+        left.spawn((Marks, grid()));
+        left.spawn(words(
+          "Press A over an item to bookmark it or take it off.",
+          13.0,
+          FAINT
+        ));
+      });
+      columns.spawn(column(Some(HOTBAR as f32 * (CELL + GAP)))).with_children(|middle| {
+        middle.spawn((Recipes, Node {
+          flex_direction: FlexDirection::Column,
+          row_gap: px(8),
+          min_height: px(230),
+          ..default()
+        }));
+        middle.spawn(words("Backpack", 15.0, FAINT));
+        row(middle, HOTBAR..SLOTS, palette);
+        middle.spawn(words("Hotbar", 15.0, FAINT));
+        row(middle, 0..HOTBAR, palette);
+        middle.spawn(words(
+          "Click two slots to move, merge or swap stacks. E closes.",
+          13.0,
+          FAINT
+        ));
+      });
+      columns.spawn(column(None)).with_children(|right| {
+        right
+          .spawn(Node {
+            column_gap: px(10),
+            align_items: AlignItems::Center,
+            ..default()
+          })
+          .with_children(|search| {
+            search.spawn(words("Search", 15.0, FAINT));
+            field(search, Entry::Search, 260.0);
+          });
+        right.spawn((Catalogue, grid()));
+        right.spawn(words(
+          "Click an item for its recipes. Items you can craft here and now come first, \
          outlined in green. Crafting tables and furnaces count within reach.",
-        13.0,
-        FAINT
-      ));
+          13.0,
+          FAINT
+        ));
+      });
     });
-  });
 }
 
 fn tooltip(mut commands: Commands) {

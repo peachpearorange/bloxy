@@ -396,3 +396,40 @@ pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshe
   });
   Meshes { solid: solid.mesh(), liquid: liquid.mesh() }
 }
+
+#[cfg(test)]
+mod tests {
+  use {super::*,
+       crate::voxels::{Chunk, VOLUME}};
+
+  #[test]
+  fn flowing_water_steps_down() {
+    let mut blocks = Box::new([Block::Air; VOLUME]);
+    (0..SIZE).for_each(|x| {
+      (0..SIZE).for_each(|z| blocks[Chunk::index(IVec3::new(x, 4, z))] = Block::Stone)
+    });
+    [Block::Water, Block::WaterFlow1, Block::WaterFlow2, Block::WaterFlow3]
+      .into_iter()
+      .enumerate()
+      .for_each(|(x, block)| {
+        blocks[Chunk::index(IVec3::new(x as i32 + 8, 5, 8))] = block
+      });
+    let chunk = Arc::new(Chunk::Mixed(blocks));
+    let key = IVec3::new(500, 3, 500);
+    let padded = Padded::gather(key, |near| {
+      Some(if near == key { chunk.clone() } else { Arc::new(Chunk::Uniform(Block::Air)) })
+    })
+    .unwrap();
+    let meshes = build(&padded, key, 1, &[]);
+    let liquid = meshes.liquid.expect("water is meshed");
+    let positions = match liquid.attribute(Mesh::ATTRIBUTE_POSITION) {
+      Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) => positions.clone(),
+      _ => panic!("no positions")
+    };
+    let mut tops: Vec<i32> =
+      positions.iter().map(|p| (p[1] * 100.0).round() as i32).collect();
+    tops.sort();
+    tops.dedup();
+    assert!(tops.len() >= 5, "heights {tops:?}");
+  }
+}

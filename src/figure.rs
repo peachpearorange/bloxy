@@ -25,7 +25,7 @@ struct Tag(Entity);
 pub struct Kit {
   head: Handle<Mesh>,
   body: Handle<Mesh>,
-  arm: Handle<Mesh>,
+  pub arm: Handle<Mesh>,
   leg: Handle<Mesh>
 }
 

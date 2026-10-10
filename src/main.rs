@@ -3,17 +3,20 @@
 mod account;
 mod authority;
 mod block;
+mod boat;
 mod crafting;
 mod editor;
 mod figure;
 mod flow;
 mod generate;
+mod hand;
 mod hud;
 mod identity;
 mod island;
 mod local;
 mod menu;
 mod mesh;
+mod minimap;
 mod model;
 mod net;
 mod noise;
@@ -128,8 +131,13 @@ fn snapshot(
 fn press(
   time: Res<Time>,
   mut keys: ResMut<ButtonInput<KeyCode>>,
-  mut buttons: ResMut<ButtonInput<MouseButton>>
+  mut buttons: ResMut<ButtonInput<MouseButton>>,
+  mut overdue: Local<Vec<Result<KeyCode, MouseButton>>>
 ) {
+  overdue.drain(..).for_each(|key| match key {
+    Ok(key) => keys.release(key),
+    Err(button) => buttons.release(button)
+  });
   let (now, before) = (time.elapsed_secs(), time.elapsed_secs() - time.delta_secs());
   let taps = opts().press.iter().map(|&(at, ref name)| (at, at + 0.15, name));
   let holds = opts().hold.iter().map(|&(from, to, ref name)| (from, to, name));
@@ -162,6 +170,9 @@ fn press(
         ][digit.parse::<usize>().unwrap_or(1).clamp(1, 9) - 1]
       )
     };
+    if start && stop {
+      overdue.push(key)
+    }
     match (key, start, stop) {
       (Ok(key), true, _) => keys.press(key),
       (Ok(key), _, true) => keys.release(key),
@@ -216,6 +227,7 @@ fn main() {
       net::ClientNet,
       authority::Authority,
       save::Saving,
+      boat::Boats,
       flow::Flowing,
       shroomling::Shroomlings
     ))
@@ -238,7 +250,9 @@ fn main() {
         menu::Menus,
         editor::Editing,
         waystone::Waystones,
-        crafting::Crafting
+        crafting::Crafting,
+        hand::Hands,
+        minimap::Minimaps
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

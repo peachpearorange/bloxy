@@ -23,12 +23,21 @@ fn starter(creative: bool) -> Inventory {
     Block::Planks,
     Block::Cobblestone,
     Block::Glass,
+    Block::Torch,
+    Block::CraftingTable,
+    Block::Furnace,
+    Block::Boat,
+    Block::Log,
+    Block::Stone,
     Block::Lamp,
     Block::Bricks,
-    Block::Log,
     Block::Dirt,
     Block::Sand,
-    Block::Stone
+    Block::Granite,
+    Block::Diorite,
+    Block::Andesite,
+    Block::Limestone,
+    Block::Slate
   ];
   let mut inventory = Inventory::default();
   if creative {
@@ -69,13 +78,17 @@ fn embody(
 }
 
 fn found_world(mut commands: Commands) {
-  let World { seed, edits, accounts, shroomlings } =
+  let World { seed, edits, accounts, shroomlings, boats } =
     save::load().unwrap_or_else(|| World {
       seed: opts().seed,
       edits: default(),
       accounts: default(),
-      shroomlings: default()
+      shroomlings: default(),
+      boats: default()
     });
+  boats.into_iter().for_each(|(at, yaw)| {
+    commands.spawn((Replicated, Vessel { at, yaw, rider: None }));
+  });
   let colonies = shroomlings.iter().map(|&(home, _)| home).collect();
   shroomlings.into_iter().enumerate().for_each(|(index, (home, hopper))| {
     shroomling::lodge(&mut commands, home, hopper, index as u32 * 0x9E37 + 1)
@@ -196,7 +209,7 @@ fn farewell(
     })
 }
 
-fn player_of<'a, T>(
+pub fn player_of<'a, T>(
   players: impl IntoIterator<Item = (&'a Controller, T)>,
   client: ClientId
 ) -> Option<T> {
@@ -219,7 +232,7 @@ fn follow(
   })
 }
 
-fn within_reach(avatar: &Avatar, at: IVec3) -> bool {
+pub fn within_reach(avatar: &Avatar, at: IVec3) -> bool {
   (avatar.at + Vec3::Y * EYE).distance(at.as_vec3() + Vec3::splat(0.5)) <= REACH + 2.0
 }
 

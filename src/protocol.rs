@@ -178,6 +178,32 @@ pub struct Shuffle {
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Craft(pub u16);
 
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq)]
+pub struct Vessel {
+  pub at: Vec3,
+  pub yaw: f32,
+  #[entities]
+  pub rider: Option<Entity>
+}
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Launch(pub IVec3);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy, MapEntities)]
+pub struct Board(#[entities] pub Entity);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy, MapEntities)]
+pub struct Wreck(#[entities] pub Entity);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Disembark;
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Steer {
+  pub at: Vec3,
+  pub yaw: f32
+}
+
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Welcome {
   pub seed: u32,
@@ -220,6 +246,12 @@ impl Plugin for Protocol {
       .replicate::<Hopper>()
       .add_client_message::<Attune>(Channel::Ordered)
       .add_client_message::<Shuffle>(Channel::Ordered)
-      .add_client_message::<Craft>(Channel::Ordered);
+      .add_client_message::<Craft>(Channel::Ordered)
+      .replicate::<Vessel>()
+      .add_client_message::<Launch>(Channel::Ordered)
+      .add_mapped_client_message::<Board>(Channel::Ordered)
+      .add_mapped_client_message::<Wreck>(Channel::Ordered)
+      .add_client_message::<Disembark>(Channel::Ordered)
+      .add_client_message::<Steer>(Channel::Unreliable);
   }
 }
