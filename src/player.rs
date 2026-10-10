@@ -6,7 +6,7 @@ use {crate::{block::Block,
              settings::Settings,
              sign::Inscription,
              stream::ready_around,
-             voxels::{Hit, Voxels}},
+             voxels::{Hit, Voxels, unpack}},
      bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
             prelude::*,
             window::{CursorGrabMode, CursorOptions, MonitorSelection, PrimaryWindow,
@@ -550,6 +550,15 @@ fn apply_changes(
 fn arrive(mut commands: Commands, mut welcomes: MessageReader<Welcome>) {
   welcomes.read().for_each(|welcome| {
     let mut voxels = Voxels::new(welcome.seed);
+    voxels.kept = std::sync::Arc::new(
+      welcome
+        .kept
+        .iter()
+        .filter_map(|(column, packed)| {
+          unpack(packed).map(|blocks| (*column, std::sync::Arc::new(blocks)))
+        })
+        .collect()
+    );
     welcome.edits.iter().for_each(|&(at, block)| voxels.set(at, block));
     commands.insert_resource(voxels)
   })

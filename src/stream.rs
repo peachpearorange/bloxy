@@ -1,9 +1,9 @@
-use {crate::{generate,
-             mesh::{self, Meshes, Padded},
+use {crate::{mesh::{self, Meshes, Padded},
              player::Pilot,
              protocol::plays,
              texture,
-             voxels::{Chunk, LAYERS, SIZE, Voxels, chunk_of, in_world, origin_of}},
+             voxels::{Chunk, LAYERS, SIZE, Voxels, chunk_of, generated, in_world,
+                      origin_of}},
      bevy::{light::NotShadowCaster,
             platform::collections::HashMap,
             prelude::*,
@@ -174,6 +174,11 @@ fn stream(
     let centre = chunk_of(pilot.at.floor().as_ivec3());
     let pool = AsyncComputeTaskPool::get();
     let seed = voxels.seed;
+    if voxels.is_added() {
+      streaming.generating.clear();
+      streaming.meshing.clear()
+    }
+    let kept = voxels.kept.clone();
     let mut missing: Vec<IVec3> = wanted(centre, reach)
       .filter(|key| {
         !voxels.chunks.contains_key(key) && !streaming.generating.contains_key(key)
@@ -182,9 +187,10 @@ fn stream(
     missing.sort_by_key(|&key| (horizontal(key, centre), (key.y - centre.y).abs()));
     let room = GENERATING.saturating_sub(streaming.generating.len()).min(STARTS);
     missing.iter().take(room).for_each(|&key| {
+      let kept = kept.clone();
       streaming
         .generating
-        .insert(key, pool.spawn(async move { generate::chunk(seed, key) }));
+        .insert(key, pool.spawn(async move { generated(seed, &kept, key) }));
     });
     let generated: Vec<(IVec3, Chunk)> = streaming
       .generating

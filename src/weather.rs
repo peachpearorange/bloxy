@@ -2,7 +2,7 @@ use {crate::{island::{Island, Kind},
              noise::{hash, unit},
              opts::opts,
              player::{Eye, Pilot},
-             protocol::{authority, plays},
+             protocol::{Role, authority, plays},
              settings::Settings,
              sky::daylight,
              voxels::Voxels},
@@ -448,9 +448,11 @@ pub struct Weathering;
 
 impl Plugin for Weathering {
   fn build(&self, app: &mut App) {
-    embedded_asset!(app, "cloud.wgsl");
+    if app.world().resource::<Role>().plays() {
+      embedded_asset!(app, "cloud.wgsl");
+      app.add_plugins(MaterialPlugin::<Cloud>::default());
+    }
     app
-      .add_plugins(MaterialPlugin::<Cloud>::default())
       .replicate::<Weather>()
       .insert_resource(Climate {
         cover: Sky::Clear.cover(),

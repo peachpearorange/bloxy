@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# tools/bloxyctl <command ...> — send one admin command to a bloxy server on this machine
+# (127.0.0.1:${BLOXY_ADMIN:-7778}) and print the answer. `tools/bloxyctl help` lists commands.
+# Without this script: `bloxy admin <command ...>` (the server binary) does the same.
+exec 3<>"/dev/tcp/127.0.0.1/${BLOXY_ADMIN:-7778}" || exit 1
+printf '%s\n' "$*" >&3
+cat <&3

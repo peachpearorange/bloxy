@@ -1,5 +1,6 @@
 use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              block::{Block, Fluid},
+             claim::{self, Claims, barred},
              flow::Flows,
              folk, generate,
              island::{FACING_STONE, Island},
@@ -8,7 +9,7 @@ use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              recipe::RECIPES,
              save::{self, World},
              shroomling, sign,
-             voxels::Voxels},
+             voxels::{Voxels, unpack}},
      bevy::prelude::*,
      bevy_replicon::prelude::*};
 
@@ -91,15 +92,40 @@ fn embody(
 }
 
 fn found_world(mut commands: Commands) {
-  let World { seed, edits, accounts, shroomlings, boats, signs } = save::load()
-    .unwrap_or_else(|| World {
-      seed: opts().seed,
-      edits: default(),
-      accounts: default(),
-      shroomlings: default(),
-      boats: default(),
-      signs: default()
-    });
+  let World {
+    seed,
+    edits,
+    accounts,
+    shroomlings,
+    boats,
+    signs,
+    claims,
+    kept,
+    generation
+  } = save::load().unwrap_or_else(|| World {
+    seed: opts().seed,
+    edits: default(),
+    accounts: default(),
+    shroomlings: default(),
+    boats: default(),
+    signs: default(),
+    claims: default(),
+    kept: default(),
+    generation: Some(generate::GENERATION)
+  });
+  let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
+  if migrating {
+    info!(
+      "world generation changed: keeping {} claimed chunks, dropping other edits",
+      claims.len()
+    )
+  }
+  let accounts = Accounts(accounts);
+  claim::settle(&mut commands, &accounts, &claims);
+  let (edits, shroomlings) = match migrating {
+    true => (Vec::new(), Vec::new()),
+    false => (edits, shroomlings)
+  };
   signs.into_iter().for_each(|sign| {
     commands.spawn((Replicated, sign));
   });
@@ -112,10 +138,22 @@ fn found_world(mut commands: Commands) {
   });
   commands.insert_resource(shroomling::Colonies(colonies));
   let mut voxels = Voxels::new(seed);
+  voxels.kept = match migrating {
+    true => claim::kept_from(&claims),
+    false => std::sync::Arc::new(
+      kept
+        .iter()
+        .filter_map(|(column, text)| {
+          unpack(&claim::decode(text))
+            .map(|blocks| (*column, std::sync::Arc::new(blocks)))
+        })
+        .collect()
+    )
+  };
   edits.iter().for_each(|&(at, block)| voxels.set(at, block));
   voxels.ensure(generate::spawn_point(seed).floor().as_ivec3());
   commands.insert_resource(voxels);
-  commands.insert_resource(Accounts(accounts))
+  commands.insert_resource(accounts)
 }
 
 fn welcome(
@@ -125,7 +163,11 @@ fn welcome(
 ) {
   commands.write_message(ToClients {
     targets: SendTargets::Single(ClientId::Client(joined.entity)),
-    message: Welcome { seed: voxels.seed, edits: voxels.all_edits() }
+    message: Welcome {
+      seed: voxels.seed,
+      edits: voxels.all_edits(),
+      kept: voxels.all_kept()
+    }
   });
 }
 
@@ -253,12 +295,38 @@ pub fn within_reach(avatar: &Avatar, at: IVec3) -> bool {
   (avatar.at + Vec3::Y * EYE).distance(at.as_vec3() + Vec3::splat(0.5)) <= REACH + 2.0
 }
 
+fn account_of<T: bevy::ecs::query::QueryData>(
+  players: &Query<(&Controller, T)>,
+  client: ClientId
+) -> Option<usize> {
+  players
+    .iter()
+    .find(|(controller, _)| controller.client == client)
+    .map(|(controller, _)| controller.account)
+}
+
+fn guarded(
+  claims: &Claims,
+  notices: &mut MessageWriter<ToClients<Notice>>,
+  client: ClientId,
+  account: usize,
+  at: IVec3
+) -> bool {
+  barred(claims, account, at)
+    .map(|word| {
+      notices
+        .write(ToClients { targets: SendTargets::Single(client), message: Notice(word) });
+    })
+    .is_none()
+}
+
 fn dig(
   mut digs: MessageReader<FromClient<Dig>>,
   time: Res<Time>,
   mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>
 ) {
   digs.read().for_each(|&FromClient { client_id, message: Dig { at } }| {
@@ -270,9 +338,12 @@ fn dig(
       .partner()
       .map(|toward| at + toward)
       .filter(|&cell| voxels.ensure(cell).partner() == Some(at - cell));
+    let account = account_of(&players, client_id);
+    let allowed = account
+      .is_some_and(|account| guarded(&claims, &mut notices, client_id, account, at));
     let granted =
       player_of(players.iter_mut(), client_id).is_some_and(|(avatar, mut inventory)| {
-        block.breakable() && within_reach(avatar, at) && {
+        allowed && block.breakable() && within_reach(avatar, at) && {
           inventory.add(block.drop());
           perched.into_iter().for_each(|plant| {
             inventory.add(plant);
@@ -318,6 +389,7 @@ fn put(
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   everyone: Query<&Avatar>,
+  (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>,
   mut commands: Commands
 ) {
@@ -342,7 +414,11 @@ fn put(
         && voxels.ensure(cell - IVec3::Y).solid()
         && !everyone.iter().any(|avatar| avatar.at.floor().as_ivec3() == cell)
     });
-    if block.held().placeable()
+    if let Some(account) = account_of(&players, client_id)
+      && guarded(&claims, &mut notices, client_id, account, at)
+      && head
+        .is_none_or(|(cell, _)| guarded(&claims, &mut notices, client_id, account, cell))
+      && block.held().placeable()
       && !block.pillow()
       && roomy
       && !(crowded && block.solid())
@@ -469,10 +545,13 @@ fn scoop(
   mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>
 ) {
   scoops.read().for_each(|&FromClient { client_id, message: Scoop(at) }| {
-    if let Some((fluid, 0)) = voxels.ensure(at).liquid()
+    if let Some(account) = account_of(&players, client_id)
+      && guarded(&claims, &mut notices, client_id, account, at)
+      && let Some((fluid, 0)) = voxels.ensure(at).liquid()
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
       && let Some(filled) = Some(inventory.clone())
@@ -506,6 +585,7 @@ fn pour(
   mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>
 ) {
   pours.read().for_each(|&FromClient { client_id, message: Pour { at, fluid } }| {
@@ -514,6 +594,8 @@ fn pour(
       || present.modelled()
       || present.liquid().is_some_and(|(_, level)| level > 0);
     if open
+      && let Some(account) = account_of(&players, client_id)
+      && guarded(&claims, &mut notices, client_id, account, at)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
       && inventory.take(fluid.bucket())

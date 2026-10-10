@@ -214,8 +214,8 @@ fn meadow(at: Vec3) -> LinearRgba {
   DRY.mix(&LUSH, patch)
 }
 
-pub const TORCH_REACH: f32 = 10.0;
-const TORCH_GLOW: LinearRgba = LinearRgba::rgb(1.0, 0.72, 0.42);
+pub const TORCH_REACH: f32 = 14.0;
+const TORCH_GLOW: LinearRgba = LinearRgba::rgb(1.0, 0.86, 0.68);
 
 fn lit(hue: LinearRgba, sky: f32, torch: f32, shade: f32) -> [f32; 4] {
   let channel = |hue: f32, warm: f32| hue * sky.max(torch * warm) * shade;

@@ -15,6 +15,7 @@ const ROWS_PER_FRAME: i32 = 16;
 const REDRAW_EVERY: f32 = 0.2;
 const SHOWN: f32 = 192.0;
 const UNKNOWN: [u8; 4] = [16, 18, 22, 255];
+const RING: [u8; 4] = [12, 12, 14, 235];
 
 #[derive(Resource)]
 struct Minimap {
@@ -30,7 +31,7 @@ struct Minimap {
 #[derive(Component)]
 struct Whereabouts;
 
-fn hue(block: Block) -> [f32; 3] {
+pub fn hue(block: Block) -> [f32; 3] {
   match block.liquid() {
     Some((Fluid::Water, _)) => [0.12, 0.42, 0.62],
     _ => painted(block)
@@ -78,16 +79,11 @@ fn build(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
       ..default()
     })
     .with_children(|corner| {
-      corner.spawn((
-        ImageNode::new(image),
-        Node {
-          width: px(SHOWN),
-          height: px(SHOWN),
-          border: UiRect::all(px(2)),
-          ..default()
-        },
-        BorderColor::all(Color::srgba(0.05, 0.05, 0.06, 0.9))
-      ));
+      corner.spawn((ImageNode::new(image), Node {
+        width: px(SHOWN),
+        height: px(SHOWN),
+        ..default()
+      }));
       corner.spawn((
         Whereabouts,
         Text::new(""),
@@ -258,6 +254,17 @@ fn draw(
           pixels[(spot.y * SPAN + spot.x) as usize] = [255, 70, 50, 255]
         }
       })
+    });
+    let middle = Vec2::splat(SPAN as f32 / 2.0);
+    pixels.iter_mut().enumerate().for_each(|(index, pixel)| {
+      let at =
+        Vec2::new((index as i32 % SPAN) as f32, (index as i32 / SPAN) as f32) + 0.5;
+      let away = at.distance(middle);
+      *pixel = match away {
+        away if away > middle.x => [0, 0, 0, 0],
+        away if away > middle.x - 2.0 => RING,
+        _ => *pixel
+      }
     });
     if let Some(mut image) = images.get_mut(&map.image) {
       image.data = Some(pixels.concat())

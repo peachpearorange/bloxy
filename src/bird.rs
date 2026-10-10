@@ -103,6 +103,21 @@ struct Flight {
 }
 
 impl Flight {
+  fn new(breed: Breed, home: Vec2, radius: f32, luck: u32) -> Flight {
+    Flight {
+      home,
+      radius: radius * if breed == Breed::Swan { 1.1 } else { 0.9 },
+      mood: Mood::Ground,
+      timer: 4.0 + unit(luck, 1, 0, 0) * 20.0,
+      angle: unit(luck, 2, 0, 0) * TAU,
+      altitude: 0.0,
+      target: Vec3::ZERO,
+      velocity: Vec3::ZERO,
+      plucked: 0.0,
+      luck
+    }
+  }
+
   fn dice(&mut self) -> f32 {
     self.luck = hash(self.luck, 0x8B, 0x1D, 0x47);
     unit(self.luck, 0, 0, 0)
@@ -110,7 +125,7 @@ impl Flight {
 }
 
 #[derive(Resource, Default)]
-struct Flocks(HashSet<IVec2>);
+pub struct Flocks(pub HashSet<IVec2>);
 
 fn ahead(yaw: f32) -> Vec3 { Quat::from_rotation_y(yaw) * Vec3::NEG_Z }
 
@@ -151,6 +166,29 @@ fn landing(voxels: &mut Voxels, flight: &mut Flight, breed: Breed) -> Vec3 {
     .unwrap_or(flight.home.extend(SEA as f32 + 0.88).xzy())
 }
 
+fn hatch(voxels: &Voxels, breed: Breed, at: Vec3, mut flight: Flight) -> impl Bundle {
+  let wet =
+    voxels.block((at - Vec3::Y * 0.5).floor().as_ivec3()).is_some_and(Block::fluid);
+  (
+    Replicated,
+    Bird {
+      breed,
+      at,
+      yaw: flight.dice() * TAU,
+      stance: if wet { Stance::Swim } else { Stance::Rest }
+    },
+    flight
+  )
+}
+
+#[cfg_attr(target_arch = "wasm32", expect(dead_code))]
+pub fn release(voxels: &Voxels, breed: Breed, at: Vec3, luck: u32) -> impl Bundle {
+  let (home, radius) = Island::near(voxels.seed, at)
+    .first()
+    .map_or((at.xz(), 24.0), |island| (island.centre, island.radius));
+  hatch(voxels, breed, at, Flight::new(breed, home, radius, luck))
+}
+
 fn muster(
   mut voxels: ResMut<Voxels>,
   mut flocks: ResMut<Flocks>,
@@ -185,32 +223,10 @@ fn muster(
         .flat_map(|&(breed, count)| (0..count).map(move |index| (breed, index)))
         .enumerate()
         .for_each(|(index, (breed, _))| {
-          let mut flight = Flight {
-            home: island.centre,
-            radius: island.radius * if breed == Breed::Swan { 1.1 } else { 0.9 },
-            mood: Mood::Ground,
-            timer: 4.0 + unit(key, index as i32, 1, 0) * 20.0,
-            angle: unit(key, index as i32, 2, 0) * TAU,
-            altitude: 0.0,
-            target: Vec3::ZERO,
-            velocity: Vec3::ZERO,
-            plucked: 0.0,
-            luck: key ^ (index as u32 + 1).wrapping_mul(0x9E37_79B9)
-          };
+          let luck = key ^ (index as u32 + 1).wrapping_mul(0x9E37_79B9);
+          let mut flight = Flight::new(breed, island.centre, island.radius, luck);
           let at = landing(&mut voxels, &mut flight, breed);
-          let wet = voxels
-            .block((at - Vec3::Y * 0.5).floor().as_ivec3())
-            .is_some_and(Block::fluid);
-          commands.spawn((
-            Replicated,
-            Bird {
-              breed,
-              at,
-              yaw: flight.dice() * TAU,
-              stance: if wet { Stance::Swim } else { Stance::Rest }
-            },
-            flight
-          ));
+          commands.spawn(hatch(&voxels, breed, at, flight));
         })
     })
 }

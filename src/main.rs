@@ -1,17 +1,22 @@
 #![recursion_limit = "256"]
 
 mod account;
+#[cfg(not(target_arch = "wasm32"))]
+mod admin;
 mod authority;
 mod beast;
 mod bird;
 mod block;
 mod boat;
+mod chart;
+mod claim;
 mod crafting;
 mod editor;
 mod figure;
 mod fishing;
 mod flow;
 mod folk;
+mod fx;
 mod generate;
 mod hand;
 mod hud;
@@ -209,6 +214,12 @@ fn forget_dirt(mut voxels: ResMut<voxels::Voxels>) {
 }
 
 fn main() {
+  #[cfg(not(target_arch = "wasm32"))]
+  if std::env::args().nth(1).as_deref() == Some("admin") {
+    let command = std::env::args().skip(2).collect::<Vec<_>>().join(" ");
+    print!("{}", admin::ask(&command));
+    std::process::exit(0)
+  }
   let role = role();
   let mut app = App::new();
   match role {
@@ -244,10 +255,10 @@ fn main() {
       sign::Signs,
       trade::Trading
     ))
-    .add_plugins((fishing::Fishing, weather::Weathering, bird::Birds))
+    .add_plugins((fishing::Fishing, weather::Weathering, bird::Birds, claim::Claiming))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
-  app.add_plugins(net::server::ServerNet);
+  app.add_plugins((net::server::ServerNet, admin::Admin));
   match role {
     Role::Dedicated => {
       app.add_systems(Update, forget_dirt.run_if(resource_exists::<voxels::Voxels>))
@@ -266,7 +277,9 @@ fn main() {
         waystone::Waystones,
         crafting::Crafting,
         hand::Hands,
-        minimap::Minimaps
+        minimap::Minimaps,
+        chart::Charting,
+        fx::Sparkle
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

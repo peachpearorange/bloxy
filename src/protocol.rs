@@ -327,7 +327,8 @@ pub struct Trade {
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Welcome {
   pub seed: u32,
-  pub edits: Vec<(IVec3, Block)>
+  pub edits: Vec<(IVec3, Block)>,
+  pub kept: Vec<(IVec2, Vec<u8>)>
 }
 
 #[derive(Message, Serialize, Deserialize, Clone, Copy, MapEntities)]

@@ -41,6 +41,20 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     })
 }
 
+pub const GENERATION: u32 = 2;
+
+pub fn overview(seed: u32, x: i32, z: i32) -> (Block, i32, i32) {
+  let spot = IVec2::new(x, z);
+  let islands = Island::within(seed, spot, spot);
+  let ground = column(seed, surface(seed, &islands, x, z), false, x, z);
+  let (fluid, level) = ground.pool;
+  match () {
+    () if ground.height < level && ground.ice => (Block::Ice, level, ground.height),
+    () if ground.height < level => (fluid, level, ground.height),
+    () => (ground.top, ground.height, ground.height)
+  }
+}
+
 pub fn height(seed: u32, x: i32, z: i32) -> i32 {
   let spot = IVec2::new(x, z);
   surface(seed, &Island::within(seed, spot, spot), x, z).height.floor() as i32

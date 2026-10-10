@@ -1,4 +1,5 @@
 use {crate::{block::Block,
+             fx::Effects,
              opts::opts,
              player::Pilot,
              protocol::plays,
@@ -31,8 +32,9 @@ const MOONLIGHT: f32 = 60.0;
 const MOON_TINT: Color = Color::srgb(0.62, 0.74, 1.0);
 const SUN_DISK: SunDisk = SunDisk { angular_size: 0.028, intensity: 1.0 };
 const MOON_DISK: SunDisk = SunDisk { angular_size: 0.035, intensity: 40.0 };
-const TORCH_LUMENS: f32 = 6000.0;
-const TORCH_LIGHTS: usize = 12;
+const TORCH_LUMENS: f32 = 70_000.0;
+const TORCH_LIGHTS: usize = 16;
+const TORCH_TINT: Color = Color::srgb(1.0, 0.86, 0.68);
 const TORCH_SEEN: f32 = 28.0;
 
 fn toward_sun(hour: f32) -> Vec3 {
@@ -141,6 +143,7 @@ fn kindle(
   voxels: Option<Res<Voxels>>,
   mut flames: ResMut<Flames>,
   mut lights: Query<&mut PointLight>,
+  effects: Res<Effects>,
   mut commands: Commands
 ) {
   if let Some(voxels) = voxels {
@@ -174,12 +177,16 @@ fn kindle(
             .spawn((
               PointLight {
                 intensity,
-                range: 14.0,
-                color: Color::srgb(1.0, 0.7, 0.4),
+                range: 20.0,
+                color: TORCH_TINT,
                 shadow_maps_enabled: false,
                 ..default()
               },
               Transform::from_translation(torch.as_vec3() + Vec3::new(0.5, 0.8, 0.5))
+            ))
+            .with_child((
+              effects.emit(&effects.ember),
+              Transform::from_xyz(0.0, -0.06, 0.0)
             ))
             .id();
           flames.0.insert(torch, entity);

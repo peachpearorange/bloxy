@@ -62,6 +62,46 @@ pub fn beyond(at: IVec3) -> Option<Block> {
 
 pub type Edits = HashMap<IVec3, HashMap<IVec3, Block>>;
 
+pub const COLUMN: usize = (SIZE * SIZE * HEIGHT) as usize;
+
+pub type Kept = Arc<HashMap<IVec2, Arc<Vec<Block>>>>;
+
+fn spot(local: IVec3) -> usize { ((local.y * SIZE + local.z) * SIZE + local.x) as usize }
+
+pub fn generated(seed: u32, kept: &Kept, key: IVec3) -> Chunk {
+  match kept.get(&key.xz()) {
+    Some(column) => {
+      let floor = key.y * SIZE;
+      Chunk::Mixed(Box::new(std::array::from_fn(|index| {
+        let index = index as i32;
+        let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
+        column[spot(local + IVec3::Y * floor)]
+      })))
+      .settled()
+    }
+    None => generate::chunk(seed, key)
+  }
+}
+
+pub fn pack(column: &[Block]) -> Vec<u8> {
+  miniz_oxide::deflate::compress_to_vec(
+    &column.iter().map(|&block| block as u8).collect::<Vec<u8>>(),
+    6
+  )
+}
+
+pub fn unpack(packed: &[u8]) -> Option<Vec<Block>> {
+  miniz_oxide::inflate::decompress_to_vec(packed)
+    .ok()
+    .filter(|bytes| bytes.len() == COLUMN)
+    .map(|bytes| {
+      bytes
+        .into_iter()
+        .map(|byte| Block::ALL.get(usize::from(byte)).copied().unwrap_or_default())
+        .collect()
+    })
+}
+
 fn pierces(from: Vec3, toward: Vec3, low: Vec3, high: Vec3) -> bool {
   let (near, far) =
     (0..3).fold((0.0_f32, f32::INFINITY), |(near, far), axis| {
@@ -93,12 +133,21 @@ pub struct Voxels {
   pub seed: u32,
   pub chunks: HashMap<IVec3, Arc<Chunk>>,
   pub edits: Edits,
-  pub dirty: HashSet<IVec3>
+  pub dirty: HashSet<IVec3>,
+  pub kept: Kept,
+  pub touched: HashSet<IVec2>
 }
 
 impl Voxels {
   pub fn new(seed: u32) -> Self {
-    Self { seed, chunks: default(), edits: default(), dirty: default() }
+    Self {
+      seed,
+      chunks: default(),
+      edits: default(),
+      dirty: default(),
+      kept: default(),
+      touched: default()
+    }
   }
 
   pub fn block(&self, at: IVec3) -> Option<Block> {
@@ -122,7 +171,7 @@ impl Voxels {
   pub fn ensure(&mut self, at: IVec3) -> Block {
     let key = chunk_of(at);
     if in_world(key) && !self.chunks.contains_key(&key) {
-      self.insert(key, generate::chunk(self.seed, key))
+      self.insert(key, generated(self.seed, &self.kept, key))
     }
     self.block(at).unwrap_or_default()
   }
@@ -140,6 +189,7 @@ impl Voxels {
   pub fn set(&mut self, at: IVec3, block: Block) {
     let (key, local) = (chunk_of(at), local_of(at));
     if in_world(key) {
+      self.touched.insert(key.xz());
       self.edits.entry(key).or_default().insert(local, block);
       if let Some(chunk) = self.chunks.get_mut(&key) {
         let lit = block == Block::Torch || chunk.get(local) == Block::Torch;
@@ -190,6 +240,25 @@ impl Voxels {
     found.sort();
     found.dedup();
     found
+  }
+
+  pub fn snapshot(&mut self, column: IVec2) -> Vec<Block> {
+    (0..LAYERS).for_each(|layer| {
+      self.ensure(origin_of(column.extend(layer).xzy()));
+    });
+    (0..COLUMN as i32)
+      .map(|index| {
+        let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
+        let key = IVec3::new(column.x, local.y / SIZE, column.y);
+        self.chunks.get(&key).map_or(Block::Air, |chunk| {
+          chunk.get(IVec3::new(local.x, local.y % SIZE, local.z))
+        })
+      })
+      .collect()
+  }
+
+  pub fn all_kept(&self) -> Vec<(IVec2, Vec<u8>)> {
+    self.kept.iter().map(|(&column, blocks)| (column, pack(blocks))).collect()
   }
 
   pub fn all_edits(&self) -> Vec<(IVec3, Block)> {

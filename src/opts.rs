@@ -24,7 +24,8 @@ pub struct Opts {
   pub hold: Vec<(f32, f32, String)>,
   pub trader: Option<f32>,
   pub raid: Option<(f32, String)>,
-  pub weather: Option<String>
+  pub weather: Option<String>,
+  pub admin: Option<u16>
 }
 
 impl Default for Opts {
@@ -49,7 +50,8 @@ impl Default for Opts {
       hold: Vec::new(),
       trader: None,
       raid: None,
-      weather: None
+      weather: None,
+      admin: None
     }
   }
 }

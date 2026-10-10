@@ -76,7 +76,7 @@ impl Roam {
 }
 
 #[derive(Resource, Default)]
-struct Herds(HashSet<IVec2>);
+pub struct Herds(pub HashSet<IVec2>);
 
 fn ahead(yaw: f32) -> Vec3 { Quat::from_rotation_y(yaw) * Vec3::NEG_Z }
 
@@ -154,23 +154,31 @@ fn muster(
         })
         .take(lizards as usize);
       flock.chain(swimmers).enumerate().for_each(|(index, (breed, at))| {
-        let luck = key ^ (index as u32).wrapping_mul(0x9E37);
-        commands.spawn((
-          Replicated,
-          Beast { breed, at, yaw: unit(luck, 7, 0, 0) * TAU, pose: Pose::Still },
-          Roam {
-            home: island.cell,
-            velocity: Vec3::ZERO,
-            grounded: false,
-            mood: if breed == Breed::Lizard { Mood::Swim } else { Mood::Idle },
-            timer: 1.0 + unit(luck, 8, 0, 0) * 3.0,
-            ashore: 0.0,
-            shorn: 0.0,
-            luck
-          }
+        commands.spawn(herd(
+          breed,
+          at,
+          island.cell,
+          key ^ (index as u32).wrapping_mul(0x9E37)
         ));
       })
     })
+}
+
+pub fn herd(breed: Breed, at: Vec3, home: IVec2, luck: u32) -> impl Bundle {
+  (
+    Replicated,
+    Beast { breed, at, yaw: unit(luck, 7, 0, 0) * TAU, pose: Pose::Still },
+    Roam {
+      home,
+      velocity: Vec3::ZERO,
+      grounded: false,
+      mood: if breed == Breed::Lizard { Mood::Swim } else { Mood::Idle },
+      timer: 1.0 + unit(luck, 8, 0, 0) * 3.0,
+      ashore: 0.0,
+      shorn: 0.0,
+      luck
+    }
+  )
 }
 
 fn seek(

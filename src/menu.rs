@@ -1,4 +1,5 @@
 use {crate::{block::Block,
+             chart::{self, Chart},
              crafting,
              editor::{self, Draft},
              identity::{Credentials, Identity, Standing},
@@ -31,12 +32,14 @@ pub enum Tab {
   Skin,
   Waystones,
   Sign,
-  Trade
+  Trade,
+  Map
 }
 
 impl Tab {
-  const ALL: [Tab; 7] = [
+  const ALL: [Tab; 8] = [
     Tab::Inventory,
+    Tab::Map,
     Tab::Settings,
     Tab::Profile,
     Tab::Skin,
@@ -55,7 +58,8 @@ impl Tab {
       Tab::Skin => "Skin",
       Tab::Waystones => "Waystones",
       Tab::Sign => "Sign",
-      Tab::Trade => "Trade"
+      Tab::Trade => "Trade",
+      Tab::Map => "Map"
     }
   }
 }
@@ -274,7 +278,12 @@ fn sign_page(page: &mut ChildSpawnerCommands) {
   ));
 }
 
-fn build(mut commands: Commands, draft: Res<Draft>, palette: Res<Palette>) {
+fn build(
+  mut commands: Commands,
+  draft: Res<Draft>,
+  palette: Res<Palette>,
+  chart: Res<Chart>
+) {
   commands
     .spawn((
       Overlay,
@@ -340,7 +349,8 @@ fn build(mut commands: Commands, draft: Res<Draft>, palette: Res<Palette>) {
                 Tab::Skin => editor::page(page, &draft),
                 Tab::Waystones => waystone::page(page),
                 Tab::Sign => sign_page(page),
-                Tab::Trade => trade::page(page)
+                Tab::Trade => trade::page(page),
+                Tab::Map => chart::page(page, &chart)
               });
           })
         });
@@ -363,11 +373,14 @@ fn toggle(
     lost
   });
   let escape = keys.just_pressed(KeyCode::Escape) && now - menu.since > ESCAPE_GRACE;
-  let inventory = keys.just_pressed(KeyCode::KeyE) && focus.0.is_none();
-  match (menu.open, keys.just_pressed(KeyCode::Tab) || escape, lost, inventory) {
-    (false, _, _, true) => menu.show(Tab::Inventory, now),
-    (true, _, _, true) if menu.tab == Tab::Inventory => menu.open = false,
-    (true, _, _, true) => menu.tab = Tab::Inventory,
+  let shortcut = [(KeyCode::KeyE, Tab::Inventory), (KeyCode::KeyM, Tab::Map)]
+    .into_iter()
+    .find(|&(key, _)| keys.just_pressed(key) && focus.0.is_none())
+    .map(|(_, tab)| tab);
+  match (menu.open, keys.just_pressed(KeyCode::Tab) || escape, lost, shortcut) {
+    (false, _, _, Some(tab)) => menu.show(tab, now),
+    (true, _, _, Some(tab)) if menu.tab == tab => menu.open = false,
+    (true, _, _, Some(tab)) => menu.tab = tab,
     (false, true, _, _) | (false, _, true, _) => {
       let tab = menu.tab;
       menu.show(tab, now)
@@ -598,6 +611,7 @@ impl Plugin for Menus {
       Some("skin") => Tab::Skin,
       Some("waystones") => Tab::Waystones,
       Some("sign") => Tab::Sign,
+      Some("map") => Tab::Map,
       _ => Tab::Settings
     };
     app
@@ -608,7 +622,11 @@ impl Plugin for Menus {
       .add_message::<Pressed>()
       .add_systems(
         Startup,
-        build.after(editor::prepare).after(crate::stream::paint).run_if(plays)
+        build
+          .after(editor::prepare)
+          .after(crate::stream::paint)
+          .after(chart::prepare)
+          .run_if(plays)
       )
       .add_systems(Update, (toggle, click, obey, type_text, show).chain().run_if(plays));
   }

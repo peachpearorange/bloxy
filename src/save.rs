@@ -1,6 +1,8 @@
 use {crate::{account::{Account, Accounts, Kept},
              authority::Controller,
              block::Block,
+             claim::{Claim, Deed, Holding, deeds, encode},
+             generate::GENERATION,
              opts::opts,
              protocol::*,
              shroomling::Wander,
@@ -23,7 +25,13 @@ pub struct World {
   #[serde(default)]
   pub boats: Vec<(Vec3, f32)>,
   #[serde(default)]
-  pub signs: Vec<Sign>
+  pub signs: Vec<Sign>,
+  #[serde(default)]
+  pub claims: Vec<Deed>,
+  #[serde(default)]
+  pub kept: Vec<(IVec2, String)>,
+  #[serde(default)]
+  pub generation: Option<u32>
 }
 
 pub fn load() -> Option<World> {
@@ -53,6 +61,7 @@ fn store(
   shroomlings: Query<(&Hopper, &Wander)>,
   boats: Query<&Vessel>,
   signs: Query<&Sign>,
+  claims: Query<(&Claim, &Holding)>,
   altered: Query<
     (),
     Or<(
@@ -63,9 +72,12 @@ fn store(
       Changed<Bookmarks>,
       Changed<Hopper>,
       Changed<Vessel>,
-      Changed<Sign>
+      Changed<Sign>,
+      Changed<Claim>,
+      Changed<Holding>
     )>
   >,
+  mut released: RemovedComponents<Claim>,
   mut exits: MessageReader<AppExit>,
   mut commands: Commands,
   mut pending: Local<bool>,
@@ -73,7 +85,10 @@ fn store(
 ) {
   let terminated = TERMINATED.load(Ordering::Relaxed);
   let closing = exits.read().count() > 0 || terminated;
-  *pending |= voxels.is_changed() || accounts.is_changed() || !altered.is_empty();
+  *pending |= voxels.is_changed()
+    || accounts.is_changed()
+    || !altered.is_empty()
+    || released.read().count() > 0;
   *since += time.delta_secs();
   if let Some(path) = opts().saved_at()
     && *pending
@@ -94,7 +109,14 @@ fn store(
         .map(|(&hopper, wander)| (wander.home, hopper))
         .collect(),
       boats: boats.iter().map(|vessel| (vessel.at, vessel.yaw)).collect(),
-      signs: signs.iter().cloned().collect()
+      signs: signs.iter().cloned().collect(),
+      claims: deeds(&claims),
+      kept: voxels
+        .all_kept()
+        .into_iter()
+        .map(|(column, packed)| (column, encode(&packed)))
+        .collect(),
+      generation: Some(GENERATION)
     };
     match write(path, &world) {
       Ok(()) => *pending = false,
