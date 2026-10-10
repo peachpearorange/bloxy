@@ -228,6 +228,102 @@ pub struct Steer {
   pub yaw: f32
 }
 
+#[derive(Component, Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Sign {
+  pub at: IVec3,
+  pub yaw: f32,
+  pub wood: Block,
+  pub text: String
+}
+
+#[derive(Message, Serialize, Deserialize, Clone)]
+pub struct Inscribe {
+  pub at: IVec3,
+  pub text: String
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fleece {
+  White,
+  Silver,
+  Grey,
+  Black,
+  Brown,
+  Pink
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Breed {
+  Sheep(Fleece),
+  Lizard
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pose {
+  Still,
+  Walk,
+  Run,
+  Swim,
+  Graze
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Beast {
+  pub breed: Breed,
+  pub at: Vec3,
+  pub yaw: f32,
+  pub pose: Pose
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Band {
+  Trader,
+  Pirate,
+  Viking
+}
+
+impl Band {
+  pub fn hostile(self) -> bool { self != Band::Trader }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Ship {
+  pub band: Band,
+  pub at: Vec3,
+  pub yaw: f32,
+  pub aim: f32
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Folk {
+  pub band: Band,
+  pub at: Vec3,
+  pub yaw: f32,
+  pub luck: u32,
+  pub blows: u8,
+  pub aboard: bool
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Health(pub u8);
+
+impl Health {
+  pub const FULL: u8 = 20;
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Cannonball(pub Vec3);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy, MapEntities)]
+pub struct Strike(#[entities] pub Entity);
+
+#[derive(Message, Serialize, Deserialize, Clone, Copy, MapEntities)]
+pub struct Trade {
+  #[entities]
+  pub trader: Entity,
+  pub offer: u8
+}
+
 #[derive(Message, Serialize, Deserialize, Clone)]
 pub struct Welcome {
   pub seed: u32,
@@ -280,6 +376,15 @@ impl Plugin for Protocol {
       .replicate::<Bookmarks>()
       .add_client_message::<Mark>(Channel::Ordered)
       .add_client_message::<Scoop>(Channel::Ordered)
-      .add_client_message::<Pour>(Channel::Ordered);
+      .add_client_message::<Pour>(Channel::Ordered)
+      .replicate::<Sign>()
+      .add_client_message::<Inscribe>(Channel::Ordered)
+      .replicate::<Beast>()
+      .replicate::<Ship>()
+      .replicate::<Folk>()
+      .replicate::<Health>()
+      .replicate::<Cannonball>()
+      .add_mapped_client_message::<Strike>(Channel::Ordered)
+      .add_mapped_client_message::<Trade>(Channel::Ordered);
   }
 }

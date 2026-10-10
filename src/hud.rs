@@ -2,9 +2,9 @@ use {crate::{block::Block,
              model,
              opts::opts,
              player::{Aim, Pilot, Selected},
-             protocol::{HOTBAR, Inventory, Role, plays},
+             protocol::{HOTBAR, Health, Inventory, Role, plays},
              stream::{Palette, Progress},
-             texture::{COLUMNS, PIXELS},
+             texture::{ICON, ICON_COLUMNS},
              voxels::Voxels},
      bevy::{diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
             prelude::*},
@@ -31,6 +31,52 @@ struct Outline;
 #[derive(Component)]
 struct Edge(usize);
 
+#[derive(Component)]
+struct Heart(u8);
+
+#[derive(Component)]
+struct Flash;
+
+const HEART: [&str; 7] =
+  [".00.00.", "0220110", "0211110", "0111110", ".01110.", "..010..", "...0..."];
+const HEART_SIZE: u32 = 7;
+
+fn hearts() -> Image {
+  let texel = |frame: u32, x: u32, y: u32| -> [u8; 4] {
+    let mark = HEART[y as usize].as_bytes()[x as usize];
+    let filled = match frame {
+      0 => true,
+      1 => x < HEART_SIZE / 2 + 1,
+      _ => false
+    };
+    match (mark, filled) {
+      (b'.', _) => [0, 0, 0, 0],
+      (b'0', _) => [24, 10, 12, 255],
+      (b'2', true) => [255, 150, 150, 255],
+      (_, true) => [214, 34, 44, 255],
+      _ => [70, 56, 58, 255]
+    }
+  };
+  let mut image = Image::new(
+    bevy::render::render_resource::Extent3d {
+      width: HEART_SIZE * 3,
+      height: HEART_SIZE,
+      depth_or_array_layers: 1
+    },
+    bevy::render::render_resource::TextureDimension::D2,
+    (0..HEART_SIZE * 3 * HEART_SIZE)
+      .flat_map(|index| {
+        let (x, y) = (index % (HEART_SIZE * 3), index / (HEART_SIZE * 3));
+        texel(x / HEART_SIZE, x % HEART_SIZE, y)
+      })
+      .collect(),
+    bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+    bevy::asset::RenderAssetUsages::default()
+  );
+  image.sampler = bevy::image::ImageSampler::nearest();
+  image
+}
+
 const EDGE: f32 = 0.012;
 
 const SLOT: f32 = 52.0;
@@ -39,8 +85,48 @@ fn build(
   mut commands: Commands,
   palette: Res<Palette>,
   mut meshes: ResMut<Assets<Mesh>>,
-  mut materials: ResMut<Assets<StandardMaterial>>
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut images: ResMut<Assets<Image>>
 ) {
+  let heart = images.add(hearts());
+  commands.spawn((
+    Flash,
+    Node {
+      width: percent(100),
+      height: percent(100),
+      position_type: PositionType::Absolute,
+      ..default()
+    },
+    BackgroundColor(Color::srgba(0.8, 0.0, 0.0, 0.0))
+  ));
+  commands
+    .spawn(Node {
+      width: percent(100),
+      position_type: PositionType::Absolute,
+      bottom: px(12.0 + SLOT + 8.0),
+      justify_content: JustifyContent::Center,
+      ..default()
+    })
+    .with_children(|row| {
+      row
+        .spawn(Node {
+          width: px(SLOT * HOTBAR as f32 + 4.0 * (HOTBAR as f32 - 1.0)),
+          column_gap: px(2),
+          ..default()
+        })
+        .with_children(|hearts| {
+          (0..Health::FULL / 2).for_each(|index| {
+            hearts.spawn((
+              Heart(index),
+              ImageNode {
+                rect: Some(Rect::new(0.0, 0.0, HEART_SIZE as f32, HEART_SIZE as f32)),
+                ..ImageNode::new(heart.clone())
+              },
+              Node { width: px(18), height: px(18), ..default() }
+            ));
+          })
+        });
+    });
   commands
     .spawn(Node {
       width: percent(100),
@@ -109,7 +195,7 @@ fn build(
           .with_children(|slot| {
             slot.spawn((
               Icon(index),
-              ImageNode::new(palette.atlas.clone()),
+              ImageNode::new(palette.icons.clone()),
               Node { width: px(34), height: px(34), ..default() },
               Visibility::Hidden
             ));
@@ -159,10 +245,10 @@ fn build(
 }
 
 pub fn icon_rect(block: Block) -> Rect {
-  let index = block.tiles()[1].index();
+  let index = block as u32;
   let corner =
-    Vec2::new((index % COLUMNS) as f32, (index / COLUMNS) as f32) * PIXELS as f32;
-  Rect::from_corners(corner, corner + Vec2::splat(PIXELS as f32))
+    Vec2::new((index % ICON_COLUMNS) as f32, (index / ICON_COLUMNS) as f32) * ICON as f32;
+  Rect::from_corners(corner, corner + Vec2::splat(ICON as f32))
 }
 
 fn refresh(
@@ -289,6 +375,41 @@ fn status(
   })
 }
 
+fn vitals(
+  time: Res<Time>,
+  pilot: Option<Res<Pilot>>,
+  healths: Query<&Health>,
+  mut hearts: Query<(&Heart, &mut ImageNode)>,
+  mut flash: Query<&mut BackgroundColor, With<Flash>>,
+  mut was: Local<Option<u8>>,
+  mut redness: Local<f32>
+) {
+  let health = pilot.and_then(|pilot| healths.get(pilot.me).ok()).map(|health| health.0);
+  if let (Some(now), Some(before)) = (health, *was)
+    && now < before
+  {
+    *redness = 0.45
+  }
+  *was = health;
+  *redness = (*redness - time.delta_secs()).max(0.0);
+  let points = health.unwrap_or(Health::FULL);
+  hearts.iter_mut().for_each(|(heart, mut image)| {
+    let frame = match points.saturating_sub(heart.0 * 2) {
+      0 => 2,
+      1 => 1,
+      _ => 0
+    };
+    let left = (frame * HEART_SIZE) as f32;
+    let rect = Some(Rect::new(left, 0.0, left + HEART_SIZE as f32, HEART_SIZE as f32));
+    if image.rect != rect {
+      image.rect = rect
+    }
+  });
+  flash
+    .iter_mut()
+    .for_each(|mut background| background.0 = Color::srgba(0.8, 0.0, 0.0, *redness))
+}
+
 pub struct Hud;
 
 impl Plugin for Hud {
@@ -296,6 +417,6 @@ impl Plugin for Hud {
     app
       .add_plugins(FrameTimeDiagnosticsPlugin::default())
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
-      .add_systems(Update, (refresh, aim, status).run_if(plays));
+      .add_systems(Update, (refresh, aim, status, vitals).run_if(plays));
   }
 }

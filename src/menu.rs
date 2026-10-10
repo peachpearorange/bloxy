@@ -6,8 +6,9 @@ use {crate::{block::Block,
              opts::opts,
              protocol::plays,
              settings::{Knob, Settings},
+             sign::{self, Inscription},
              stream::Palette,
-             waystone},
+             trade, waystone},
      bevy::{input::{ButtonState,
                     keyboard::{Key, KeyboardInput}},
             prelude::*,
@@ -28,12 +29,23 @@ pub enum Tab {
   Settings,
   Profile,
   Skin,
-  Waystones
+  Waystones,
+  Sign,
+  Trade
 }
 
 impl Tab {
-  const ALL: [Tab; 5] =
-    [Tab::Inventory, Tab::Settings, Tab::Profile, Tab::Skin, Tab::Waystones];
+  const ALL: [Tab; 7] = [
+    Tab::Inventory,
+    Tab::Settings,
+    Tab::Profile,
+    Tab::Skin,
+    Tab::Waystones,
+    Tab::Sign,
+    Tab::Trade
+  ];
+
+  fn listed(self) -> bool { !matches!(self, Tab::Sign | Tab::Trade) }
 
   fn label(self) -> &'static str {
     match self {
@@ -41,7 +53,9 @@ impl Tab {
       Tab::Settings => "Settings",
       Tab::Profile => "Profile",
       Tab::Skin => "Skin",
-      Tab::Waystones => "Waystones"
+      Tab::Waystones => "Waystones",
+      Tab::Sign => "Sign",
+      Tab::Trade => "Trade"
     }
   }
 }
@@ -69,7 +83,8 @@ pub fn closed(menu: Res<Menu>) -> bool { !menu.open }
 pub enum Entry {
   Name,
   Password,
-  Search
+  Search,
+  Line(u8)
 }
 
 #[derive(Resource, Default)]
@@ -80,19 +95,22 @@ impl Entry {
     match self {
       Entry::Name => crate::account::LONGEST_NAME,
       Entry::Password => 64,
-      Entry::Search => 32
+      Entry::Search => 32,
+      Entry::Line(_) => sign::LINE
     }
   }
 
   fn of<'a>(
     self,
     credentials: &'a mut Credentials,
-    search: &'a mut Search
+    search: &'a mut Search,
+    inscription: &'a mut Inscription
   ) -> &'a mut String {
     match self {
       Entry::Name => &mut credentials.name,
       Entry::Password => &mut credentials.password,
-      Entry::Search => &mut search.0
+      Entry::Search => &mut search.0,
+      Entry::Line(line) => &mut inscription.lines[usize::from(line)]
     }
   }
 }
@@ -113,7 +131,8 @@ pub enum Act {
   Travel(IVec2),
   Slot(u8),
   Inspect(Block),
-  Craft(u16)
+  Craft(u16),
+  Trade(u8)
 }
 
 #[derive(Message, Clone, Copy)]
@@ -242,6 +261,19 @@ fn profile_page(page: &mut ChildSpawnerCommands) {
   ));
 }
 
+fn sign_page(page: &mut ChildSpawnerCommands) {
+  page.spawn(words("Write on the sign", 17.0, INK));
+  (0..sign::LINES as u8).for_each(|line| field(page, Entry::Line(line), 320.0));
+  page.spawn(Node { column_gap: px(10), ..default() }).with_children(|row| {
+    button(row, "Done", Act::Resume);
+  });
+  page.spawn(words(
+    "Enter goes to the next line. Closing the menu keeps what is written.",
+    14.0,
+    FAINT
+  ));
+}
+
 fn build(mut commands: Commands, draft: Res<Draft>, palette: Res<Palette>) {
   commands
     .spawn((
@@ -288,6 +320,7 @@ fn build(mut commands: Commands, draft: Res<Draft>, palette: Res<Palette>) {
               }));
               Tab::ALL
                 .into_iter()
+                .filter(|tab| tab.listed())
                 .for_each(|tab| button(header, tab.label(), Act::Open(tab)));
               header.spawn(Node { flex_grow: 1.0, ..default() });
               button(header, "Resume", Act::Resume);
@@ -305,7 +338,9 @@ fn build(mut commands: Commands, draft: Res<Draft>, palette: Res<Palette>) {
                 Tab::Settings => settings_page(page),
                 Tab::Profile => profile_page(page),
                 Tab::Skin => editor::page(page, &draft),
-                Tab::Waystones => waystone::page(page)
+                Tab::Waystones => waystone::page(page),
+                Tab::Sign => sign_page(page),
+                Tab::Trade => trade::page(page)
               });
           })
         });
@@ -372,6 +407,19 @@ fn click(
   })
 }
 
+fn resume(
+  menu: &mut Menu,
+  focus: &mut Focus,
+  cursor: &mut Query<&mut CursorOptions, With<PrimaryWindow>>
+) {
+  menu.open = false;
+  focus.0 = None;
+  if let Ok(mut cursor) = cursor.single_mut() {
+    cursor.grab_mode = CursorGrabMode::Locked;
+    cursor.visible = false
+  }
+}
+
 fn obey(
   mut pressed: MessageReader<Pressed>,
   time: Res<Time>,
@@ -384,14 +432,7 @@ fn obey(
 ) {
   let now = time.elapsed_secs();
   pressed.read().for_each(|&Pressed(act)| match act {
-    Act::Resume => {
-      menu.open = false;
-      focus.0 = None;
-      if let Ok(mut cursor) = cursor.single_mut() {
-        cursor.grab_mode = CursorGrabMode::Locked;
-        cursor.visible = false
-      }
-    }
+    Act::Resume => resume(&mut menu, &mut focus, &mut cursor),
     Act::Open(tab) => {
       menu.tab = tab;
       focus.0 = None
@@ -418,17 +459,22 @@ fn obey(
 fn type_text(
   mut typed: MessageReader<KeyboardInput>,
   keys: Res<ButtonInput<KeyCode>>,
-  menu: Res<Menu>,
+  mut menu: ResMut<Menu>,
   mut focus: ResMut<Focus>,
   mut identity: ResMut<Identity>,
-  mut search: ResMut<Search>
+  mut search: ResMut<Search>,
+  mut inscription: ResMut<Inscription>,
+  mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>
 ) {
   let pasted = local::pasted();
+  if menu.showing(Tab::Sign) && focus.0.is_none() {
+    focus.0 = Some(Entry::Line(0))
+  }
   if let Some(entry) = focus.0
     && menu.open
   {
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-    let mut text = entry.of(&mut identity.fields, &mut search).clone();
+    let mut text = entry.of(&mut identity.fields, &mut search, &mut inscription).clone();
     let mut submit = false;
     typed.read().filter(|key| key.state == ButtonState::Pressed).for_each(
       |key| match &key.logical_key {
@@ -449,11 +495,16 @@ fn type_text(
       .iter()
       .for_each(|paste| text.extend(paste.trim().chars().filter(|c| !c.is_control())));
     let text: String = text.chars().take(entry.longest()).collect();
-    if *entry.of(&mut identity.fields, &mut search) != text {
-      *entry.of(&mut identity.fields, &mut search) = text
+    if *entry.of(&mut identity.fields, &mut search, &mut inscription) != text {
+      *entry.of(&mut identity.fields, &mut search, &mut inscription) = text
     }
     if submit && entry == Entry::Search {
       focus.0 = None
+    } else if submit && let Entry::Line(line) = entry {
+      match usize::from(line) + 1 < sign::LINES {
+        true => focus.0 = Some(Entry::Line(line + 1)),
+        false => resume(&mut menu, &mut focus, &mut cursor)
+      }
     } else if submit {
       focus.0 = None;
       identity.submit()
@@ -468,6 +519,7 @@ fn show(
   settings: Res<Settings>,
   identity: Res<Identity>,
   search: Res<Search>,
+  inscription: Res<Inscription>,
   focus: Res<Focus>,
   notice: Res<Notice>,
   time: Res<Time>,
@@ -515,7 +567,8 @@ fn show(
     let value = match typed.0 {
       Entry::Name => identity.fields.name.clone(),
       Entry::Password => identity.fields.password.clone(),
-      Entry::Search => search.0.clone()
+      Entry::Search => search.0.clone(),
+      Entry::Line(line) => inscription.lines[usize::from(line)].clone()
     };
     let cursor = if focus.0 == Some(typed.0) && caret { "|" } else { "" };
     set(&mut text, format!("{value}{cursor}"))
@@ -544,6 +597,7 @@ impl Plugin for Menus {
       Some("profile") => Tab::Profile,
       Some("skin") => Tab::Skin,
       Some("waystones") => Tab::Waystones,
+      Some("sign") => Tab::Sign,
       _ => Tab::Settings
     };
     app

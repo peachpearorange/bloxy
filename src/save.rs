@@ -21,7 +21,9 @@ pub struct World {
   #[serde(default)]
   pub shroomlings: Vec<(IVec2, Hopper)>,
   #[serde(default)]
-  pub boats: Vec<(Vec3, f32)>
+  pub boats: Vec<(Vec3, f32)>,
+  #[serde(default)]
+  pub signs: Vec<Sign>
 }
 
 pub fn load() -> Option<World> {
@@ -50,6 +52,7 @@ fn store(
   players: Query<(&Controller, Kept)>,
   shroomlings: Query<(&Hopper, &Wander)>,
   boats: Query<&Vessel>,
+  signs: Query<&Sign>,
   altered: Query<
     (),
     Or<(
@@ -59,7 +62,8 @@ fn store(
       Changed<Visited>,
       Changed<Bookmarks>,
       Changed<Hopper>,
-      Changed<Vessel>
+      Changed<Vessel>,
+      Changed<Sign>
     )>
   >,
   mut exits: MessageReader<AppExit>,
@@ -89,7 +93,8 @@ fn store(
         .iter()
         .map(|(&hopper, wander)| (wander.home, hopper))
         .collect(),
-      boats: boats.iter().map(|vessel| (vessel.at, vessel.yaw)).collect()
+      boats: boats.iter().map(|vessel| (vessel.at, vessel.yaw)).collect(),
+      signs: signs.iter().cloned().collect()
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

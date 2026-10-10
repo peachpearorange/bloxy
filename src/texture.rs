@@ -1,4 +1,4 @@
-use {crate::{block::{Block, Tile},
+use {crate::{block::{Block, Look, Tile},
              model},
      bevy::{asset::RenderAssetUsages,
             image::{ImageAddressMode, ImageFilterMode, ImageSampler,
@@ -38,7 +38,7 @@ impl Texel {
 }
 
 type Art = [&'static str; 16];
-type Palette = [[f32; 3]; 4];
+pub type Palette = [[f32; 3]; 4];
 
 const STONE: Art = [
   "2222223322222122",
@@ -696,6 +696,40 @@ const WOOD: Palette =
 const TOOLS: Palette =
   [[0.2, 0.2, 0.2], [0.42, 0.28, 0.15], [0.6, 0.6, 0.62], [0.55, 0.55, 0.58]];
 
+const SIGN: Art = [
+  "................",
+  "................",
+  "0000000000000000",
+  "0333333333333330",
+  "0322222222222220",
+  "0201010110101120",
+  "0222222222222220",
+  "0210110101011020",
+  "0222222222222220",
+  "0211111111111110",
+  "0000000110000000",
+  ".......120......",
+  ".......120......",
+  ".......120......",
+  ".......120......",
+  ".......000......"
+];
+
+pub fn timber(sign: Block) -> Palette {
+  match sign {
+    Block::BirchSign => {
+      [[0.42, 0.37, 0.26], [0.66, 0.6, 0.45], [0.8, 0.74, 0.57], [0.88, 0.83, 0.67]]
+    }
+    Block::SpruceSign => {
+      [[0.14, 0.09, 0.05], [0.27, 0.18, 0.1], [0.37, 0.25, 0.14], [0.45, 0.31, 0.18]]
+    }
+    Block::PalmSign => {
+      [[0.36, 0.23, 0.12], [0.6, 0.41, 0.22], [0.74, 0.54, 0.31], [0.82, 0.63, 0.4]]
+    }
+    _ => WOOD
+  }
+}
+
 fn flame(x: u32, y: u32) -> Texel {
   let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
   let heat = (1.0 - (dx * dx + dy * dy).sqrt() / 9.0).clamp(0.0, 1.0);
@@ -870,6 +904,10 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::WaterBucket => bucket(Some(Texel::rgb(0.2, 0.45, 0.85)), x, y),
     Tile::LavaBucket => bucket(Some(Texel::rgb(1.0, 0.5, 0.1).glowing(0.4)), x, y),
     Tile::Torch => model_icon(Block::Torch, x, y),
+    Tile::OakSign => cutout(&SIGN, &timber(Block::OakSign), x, y),
+    Tile::BirchSign => cutout(&SIGN, &timber(Block::BirchSign), x, y),
+    Tile::SpruceSign => cutout(&SIGN, &timber(Block::SpruceSign), x, y),
+    Tile::PalmSign => cutout(&SIGN, &timber(Block::PalmSign), x, y),
     Tile::Poppy
     | Tile::Dandelion
     | Tile::Cornflower
@@ -987,6 +1025,79 @@ pub fn glow() -> Image {
     let [r, g, b] = paint(tile, x, y).glow;
     [r, g, b, 1.0]
   }))
+}
+
+pub const ICON: u32 = 32;
+pub const ICON_COLUMNS: u32 = 10;
+
+fn iso(block: Block, x: u32, y: u32) -> [f32; 4] {
+  let [top, side, _] = block.tiles();
+  let at = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+  let half = ICON as f32 / 2.0;
+  let faces = [
+    (
+      top,
+      Vec2::new(half, 1.0),
+      Vec2::new(half - 1.0, 7.5),
+      Vec2::new(1.0 - half, 7.5),
+      1.0
+    ),
+    (side, Vec2::new(1.0, 8.5), Vec2::new(half - 1.0, 7.5), Vec2::new(0.0, 15.0), 0.8),
+    (
+      side,
+      Vec2::new(half, 16.0),
+      Vec2::new(half - 1.0, -7.5),
+      Vec2::new(0.0, 15.0),
+      0.62
+    )
+  ];
+  faces
+    .into_iter()
+    .find_map(|(tile, origin, across, down, shade)| {
+      let local = Mat2::from_cols(across, down).inverse() * (at - origin);
+      ((0.0..1.0).contains(&local.x) && (0.0..1.0).contains(&local.y))
+        .then(|| {
+          let [r, g, b, a] = paint(
+            tile,
+            (local.x * PIXELS as f32) as u32,
+            (local.y * PIXELS as f32) as u32
+          )
+          .color;
+          [r * shade, g * shade, b * shade, a]
+        })
+        .filter(|texel| texel[3] > 0.0)
+    })
+    .unwrap_or([0.0; 4])
+}
+
+fn icon_texel(block: Block, x: u32, y: u32) -> [f32; 4] {
+  match block.look() {
+    Look::Opaque | Look::Cutout | Look::Log if block.item() => iso(block, x, y),
+    _ => paint(block.tiles()[1], x / 2, y / 2).color
+  }
+}
+
+pub fn icons() -> Image {
+  let rows = Block::ALL.len() as u32 / ICON_COLUMNS + 1;
+  let (wide, tall) = (ICON_COLUMNS * ICON, rows * ICON);
+  let mut image = Image::new(
+    Extent3d { width: wide, height: tall, depth_or_array_layers: 1 },
+    TextureDimension::D2,
+    (0..wide * tall)
+      .flat_map(|index| {
+        let (x, y) = (index % wide, index / wide);
+        let cell = (y / ICON) * ICON_COLUMNS + x / ICON;
+        Block::ALL
+          .get(cell as usize)
+          .map_or([0.0; 4], |&block| icon_texel(block, x % ICON, y % ICON))
+          .map(to_srgb)
+      })
+      .collect(),
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::default()
+  );
+  image.sampler = ImageSampler::nearest();
+  image
 }
 
 pub fn uv_corner(tile: Tile, corner: Vec2) -> Vec2 {

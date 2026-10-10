@@ -21,7 +21,9 @@ pub struct Opts {
   pub pitch: Option<f32>,
   pub creative: bool,
   pub press: Vec<(f32, String)>,
-  pub hold: Vec<(f32, f32, String)>
+  pub hold: Vec<(f32, f32, String)>,
+  pub trader: Option<f32>,
+  pub raid: Option<(f32, String)>
 }
 
 impl Default for Opts {
@@ -43,7 +45,9 @@ impl Default for Opts {
       pitch: None,
       creative: false,
       press: Vec::new(),
-      hold: Vec::new()
+      hold: Vec::new(),
+      trader: None,
+      raid: None
     }
   }
 }

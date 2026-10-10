@@ -43,18 +43,10 @@ pub fn struck(vessel: &Vessel, from: Vec3, toward: Vec3) -> Option<f32> {
   (near <= far).then_some(near)
 }
 
-fn hull() -> Mesh {
-  let slabs = [
-    (Vec3::new(-0.55, 0.0, -0.95), Vec3::new(0.55, 0.1, 0.95)),
-    (Vec3::new(-0.65, 0.0, -1.05), Vec3::new(-0.55, HULL.y, 1.05)),
-    (Vec3::new(0.55, 0.0, -1.05), Vec3::new(0.65, HULL.y, 1.05)),
-    (Vec3::new(-0.55, 0.0, -1.05), Vec3::new(0.55, HULL.y, -0.95)),
-    (Vec3::new(-0.55, 0.0, 0.95), Vec3::new(0.55, HULL.y, 1.05)),
-    (Vec3::new(-0.55, 0.1, 0.1), Vec3::new(0.55, 0.22, 0.4))
-  ];
-  slabs
-    .into_iter()
-    .map(|(low, high)| {
+pub fn planked(slabs: &[(Vec3, Vec3)], tint: [f32; 3]) -> Mesh {
+  let mut hull = slabs
+    .iter()
+    .map(|&(low, high)| {
       let mut mesh =
         Cuboid::from_corners(low, high).mesh().build().translated_by((low + high) / 2.0);
       if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
@@ -70,7 +62,25 @@ fn hull() -> Mesh {
       all.merge(&part).ok();
       all
     })
-    .unwrap_or_else(|| Cuboid::default().into())
+    .unwrap_or_else(|| Cuboid::default().into());
+  let [r, g, b] = tint;
+  hull
+    .insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[r, g, b, 1.0]; hull.count_vertices()]);
+  hull
+}
+
+fn hull() -> Mesh {
+  planked(
+    &[
+      (Vec3::new(-0.55, 0.0, -0.95), Vec3::new(0.55, 0.1, 0.95)),
+      (Vec3::new(-0.65, 0.0, -1.05), Vec3::new(-0.55, HULL.y, 1.05)),
+      (Vec3::new(0.55, 0.0, -1.05), Vec3::new(0.65, HULL.y, 1.05)),
+      (Vec3::new(-0.55, 0.0, -1.05), Vec3::new(0.55, HULL.y, -0.95)),
+      (Vec3::new(-0.55, 0.0, 0.95), Vec3::new(0.55, HULL.y, 1.05)),
+      (Vec3::new(-0.55, 0.1, 0.1), Vec3::new(0.55, 0.22, 0.4))
+    ],
+    [1.0; 3]
+  )
 }
 
 #[derive(Resource)]

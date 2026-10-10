@@ -2,12 +2,14 @@
 
 mod account;
 mod authority;
+mod beast;
 mod block;
 mod boat;
 mod crafting;
 mod editor;
 mod figure;
 mod flow;
+mod folk;
 mod generate;
 mod hand;
 mod hud;
@@ -26,11 +28,14 @@ mod protocol;
 mod recipe;
 mod save;
 mod settings;
+mod ship;
 mod shroomling;
+mod sign;
 mod skin;
 mod sky;
 mod stream;
 mod texture;
+mod trade;
 mod voxels;
 mod waystone;
 
@@ -229,7 +234,12 @@ fn main() {
       save::Saving,
       boat::Boats,
       flow::Flowing,
-      shroomling::Shroomlings
+      shroomling::Shroomlings,
+      beast::Beasts,
+      folk::People,
+      ship::Ships,
+      sign::Signs,
+      trade::Trading
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

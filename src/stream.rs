@@ -27,7 +27,8 @@ const GLOW: f32 = 6.0;
 pub struct Palette {
   pub solid: Handle<StandardMaterial>,
   pub liquid: Handle<StandardMaterial>,
-  pub atlas: Handle<Image>
+  pub atlas: Handle<Image>,
+  pub icons: Handle<Image>
 }
 
 #[derive(Resource, Default)]
@@ -64,7 +65,12 @@ pub fn paint(
     reflectance: 0.55,
     ..default()
   });
-  commands.insert_resource(Palette { solid, liquid, atlas })
+  commands.insert_resource(Palette {
+    solid,
+    liquid,
+    atlas,
+    icons: images.add(texture::icons())
+  })
 }
 
 const RIPPLE_EVERY: f32 = 0.18;

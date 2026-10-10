@@ -23,10 +23,10 @@ struct Tag(Entity);
 
 #[derive(Resource, Clone)]
 pub struct Kit {
-  head: Handle<Mesh>,
-  body: Handle<Mesh>,
+  pub head: Handle<Mesh>,
+  pub body: Handle<Mesh>,
   pub arm: Handle<Mesh>,
-  leg: Handle<Mesh>
+  pub leg: Handle<Mesh>
 }
 
 #[derive(Component)]

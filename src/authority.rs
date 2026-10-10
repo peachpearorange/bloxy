@@ -1,13 +1,13 @@
 use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              block::{Block, Fluid},
              flow::Flows,
-             generate,
+             folk, generate,
              island::{FACING_STONE, Island},
              opts::opts,
              protocol::*,
              recipe::RECIPES,
              save::{self, World},
-             shroomling,
+             shroomling, sign,
              voxels::Voxels},
      bevy::prelude::*,
      bevy_replicon::prelude::*};
@@ -28,6 +28,7 @@ fn starter(creative: bool) -> Inventory {
     Block::Furnace,
     Block::Boat,
     Block::Bucket,
+    Block::OakSign,
     Block::Log,
     Block::Stone,
     Block::Lamp,
@@ -38,7 +39,10 @@ fn starter(creative: bool) -> Inventory {
     Block::Diorite,
     Block::Andesite,
     Block::Limestone,
-    Block::Slate
+    Block::Slate,
+    Block::BirchSign,
+    Block::SpruceSign,
+    Block::PalmSign
   ];
   let mut inventory = Inventory::default();
   if creative {
@@ -69,7 +73,9 @@ fn embody(
       inventory,
       skin,
       visited,
-      bookmarks
+      bookmarks,
+      Health(Health::FULL),
+      folk::Vigour::default()
     ))
     .id();
   commands.write_message(ToClients {
@@ -80,14 +86,18 @@ fn embody(
 }
 
 fn found_world(mut commands: Commands) {
-  let World { seed, edits, accounts, shroomlings, boats } =
-    save::load().unwrap_or_else(|| World {
+  let World { seed, edits, accounts, shroomlings, boats, signs } = save::load()
+    .unwrap_or_else(|| World {
       seed: opts().seed,
       edits: default(),
       accounts: default(),
       shroomlings: default(),
-      boats: default()
+      boats: default(),
+      signs: default()
     });
+  signs.into_iter().for_each(|sign| {
+    commands.spawn((Replicated, sign));
+  });
   boats.into_iter().for_each(|(at, yaw)| {
     commands.spawn((Replicated, Vessel { at, yaw, rider: None }));
   });
@@ -291,7 +301,8 @@ fn put(
   mut voxels: ResMut<Voxels>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   everyone: Query<&Avatar>,
-  mut changes: MessageWriter<ToClients<Altered>>
+  mut changes: MessageWriter<ToClients<Altered>>,
+  mut commands: Commands
 ) {
   puts.read().for_each(|&FromClient { client_id, message: Put { at, block } }| {
     let present = voxels.ensure(at);
@@ -303,25 +314,32 @@ fn put(
     });
     let footed =
       block.solid() || (block.modelled() && voxels.ensure(at - IVec3::Y).solid());
-    let granted = block.placeable()
+    if block.placeable()
       && !(crowded && block.solid())
       && footed
       && !present.solid()
-      && player_of(players.iter_mut(), client_id).is_some_and(
-        |(avatar, mut inventory)| within_reach(avatar, at) && inventory.take(block)
-      );
-    match granted {
-      true => {
-        voxels.set(at, block);
-        flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
-        changes
-          .write(ToClients { targets: SendTargets::All, message: Altered { at, block } })
+      && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
+      && within_reach(avatar, at)
+      && inventory.take(block)
+    {
+      voxels.set(at, block);
+      flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
+      if block.sign() {
+        commands.spawn((Replicated, Sign {
+          at,
+          yaw: sign::facing(avatar.at, at),
+          wood: block,
+          text: String::new()
+        }));
       }
-      false => changes.write(ToClients {
+      changes
+        .write(ToClients { targets: SendTargets::All, message: Altered { at, block } });
+    } else {
+      changes.write(ToClients {
         targets: SendTargets::Single(client_id),
         message: Altered { at, block: present }
-      })
-    };
+      });
+    }
   })
 }
 

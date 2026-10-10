@@ -2,7 +2,7 @@ use {crate::{block::Block,
              generate,
              island::{Island, Kind, SEA},
              noise::{hash, unit},
-             player::{Bulk, cells, slide},
+             player::{Bulk, Marched, cells, march},
              protocol::{Avatar, Hopper, authority, plays},
              voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
@@ -21,7 +21,6 @@ const WALK: f32 = 1.6;
 const HOP: f32 = 6.0;
 const LEAP: f32 = 8.0;
 const GRAVITY: f32 = 30.0;
-const STEP: f32 = 1.0 / 60.0;
 
 #[derive(Component)]
 pub struct Wander {
@@ -175,25 +174,12 @@ fn wander(
       };
       let mut velocity = Vec3::new(walk.x, wander.velocity.y, walk.z);
       velocity.y = jump.unwrap_or((velocity.y - GRAVITY * dt).max(-40.0));
-      let steps = (dt / STEP).ceil().max(1.0);
-      let (moved, blocked, landed) =
-        (0..steps as u32).fold((at, false, false), |(at, blocked, landed), _| {
-          [1, 0, 2].into_iter().fold(
-            (at, blocked, landed),
-            |(at, blocked, landed), axis| {
-              let falling = velocity[axis] < 0.0;
-              let (at, hit) = slide(&voxels, BULK, at, axis, velocity[axis] * dt / steps);
-              if hit {
-                velocity[axis] = 0.0
-              }
-              (at, blocked || (hit && axis != 1), landed || (hit && axis == 1 && falling))
-            }
-          )
-        });
-      if blocked && landed {
-        velocity.y = LEAP
-      }
-      wander.velocity = velocity;
+      let Marched { at: moved, velocity, blocked, landed } =
+        march(&voxels, BULK, at, velocity, dt);
+      wander.velocity = match blocked && landed {
+        true => velocity.with_y(LEAP),
+        false => velocity
+      };
       wander.grounded = landed;
       hopper.set_if_neq(Hopper { at: moved, yaw: yaw.rem_euclid(TAU), aloft: !landed });
     }

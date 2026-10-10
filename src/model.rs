@@ -158,11 +158,13 @@ pub fn bits(block: Block) -> &'static [Bit] {
 
 pub fn shift(block: Block, seed: u32, at: IVec3) -> Vec3 {
   let jitter = |salt: u32| (hash(seed ^ salt, at.x, at.y, at.z) % 5) as f32 - 2.0;
-  match block.modelled() && block != Block::Torch {
+  match block.plant() {
     true => Vec3::new(jitter(0x51), 0.0, jitter(0x52)),
     false => Vec3::ZERO
   }
 }
+
+const SIGN_BOUNDS: (Vec3, Vec3) = (Vec3::new(1.0, 0.0, 1.0), Vec3::new(15.0, 16.0, 15.0));
 
 pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
   let shift = shift(block, seed, at);
@@ -170,6 +172,7 @@ pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
     .iter()
     .map(|bit| (Vec3::from(bit.low.map(f32::from)), Vec3::from(bit.high.map(f32::from))))
     .reduce(|(low, high), (bit_low, bit_high)| (low.min(bit_low), high.max(bit_high)))
+    .or(block.sign().then_some(SIGN_BOUNDS))
     .map(|(low, high)| {
       let corner = at.as_vec3();
       (corner + (low + shift) / 16.0, corner + (high + shift) / 16.0)

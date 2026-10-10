@@ -44,9 +44,9 @@ struct Tooltip;
 #[derive(Resource, Default)]
 struct Nearby(Vec<Block>);
 
-fn icon(block: Block, size: f32, palette: &Palette) -> impl Bundle {
+pub fn icon(block: Block, size: f32, palette: &Palette) -> impl Bundle {
   (
-    ImageNode { rect: Some(icon_rect(block)), ..ImageNode::new(palette.atlas.clone()) },
+    ImageNode { rect: Some(icon_rect(block)), ..ImageNode::new(palette.icons.clone()) },
     Node { width: px(size), height: px(size), ..default() }
   )
 }

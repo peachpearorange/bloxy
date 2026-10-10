@@ -90,7 +90,11 @@ pub enum Block {
   LavaFlow3,
   Bucket,
   WaterBucket,
-  LavaBucket
+  LavaBucket,
+  OakSign,
+  BirchSign,
+  SpruceSign,
+  PalmSign
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -168,11 +172,15 @@ pub enum Tile {
   Boat,
   Bucket,
   WaterBucket,
-  LavaBucket
+  LavaBucket,
+  OakSign,
+  BirchSign,
+  SpruceSign,
+  PalmSign
 }
 
 impl Tile {
-  pub const ALL: [Tile; 74] = [
+  pub const ALL: [Tile; 78] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -246,7 +254,11 @@ impl Tile {
     Tile::Boat,
     Tile::Bucket,
     Tile::WaterBucket,
-    Tile::LavaBucket
+    Tile::LavaBucket,
+    Tile::OakSign,
+    Tile::BirchSign,
+    Tile::SpruceSign,
+    Tile::PalmSign
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -311,7 +323,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 75] = [
+  pub const ALL: [Block; 79] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -386,7 +398,11 @@ impl Block {
     Block::LavaFlow3,
     Block::Bucket,
     Block::WaterBucket,
-    Block::LavaBucket
+    Block::LavaBucket,
+    Block::OakSign,
+    Block::BirchSign,
+    Block::SpruceSign,
+    Block::PalmSign
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -427,6 +443,15 @@ impl Block {
   }
 
   pub fn waystone(self) -> bool { matches!(self, Block::Waystone | Block::WaystoneTop) }
+
+  pub const SIGNS: [(Block, Block); 4] = [
+    (Block::Log, Block::OakSign),
+    (Block::BirchLog, Block::BirchSign),
+    (Block::SpruceLog, Block::SpruceSign),
+    (Block::PalmLog, Block::PalmSign)
+  ];
+
+  pub fn sign(self) -> bool { Block::SIGNS.iter().any(|&(_, sign)| sign == self) }
 
   pub fn station(self) -> bool { matches!(self, Block::CraftingTable | Block::Furnace) }
 
@@ -477,9 +502,9 @@ impl Block {
     Block::BrownMushroom
   ];
 
-  pub fn modelled(self) -> bool {
-    (Block::Poppy..=Block::BrownMushroom).contains(&self) || self == Block::Torch
-  }
+  pub fn modelled(self) -> bool { self.plant() || self == Block::Torch || self.sign() }
+
+  pub fn plant(self) -> bool { (Block::Poppy..=Block::BrownMushroom).contains(&self) }
 
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
 
@@ -498,6 +523,7 @@ impl Block {
   pub fn seconds_to_break(self) -> f32 {
     match self {
       Block::Glass => 0.3,
+      sign if sign.sign() => 0.6,
       model if model.modelled() => 0.05,
       leaves if leaves.leafy() => 0.3,
       Block::Dirt
@@ -610,7 +636,11 @@ impl Block {
       Block::LavaFlow3 => "Flowing Lava",
       Block::Bucket => "Bucket",
       Block::WaterBucket => "Water Bucket",
-      Block::LavaBucket => "Lava Bucket"
+      Block::LavaBucket => "Lava Bucket",
+      Block::OakSign => "Oak Sign",
+      Block::BirchSign => "Birch Sign",
+      Block::SpruceSign => "Spruce Sign",
+      Block::PalmSign => "Palm Sign"
     }
   }
 
@@ -692,7 +722,11 @@ impl Block {
       Block::LavaFlow3 => all(Tile::Lava),
       Block::Bucket => all(Tile::Bucket),
       Block::WaterBucket => all(Tile::WaterBucket),
-      Block::LavaBucket => all(Tile::LavaBucket)
+      Block::LavaBucket => all(Tile::LavaBucket),
+      Block::OakSign => all(Tile::OakSign),
+      Block::BirchSign => all(Tile::BirchSign),
+      Block::SpruceSign => all(Tile::SpruceSign),
+      Block::PalmSign => all(Tile::PalmSign)
     }
   }
 }

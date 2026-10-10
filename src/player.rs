@@ -4,6 +4,7 @@ use {crate::{block::Block,
              opts::opts,
              protocol::*,
              settings::Settings,
+             sign::Inscription,
              stream::ready_around,
              voxels::{Hit, Voxels}},
      bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -209,6 +210,38 @@ pub fn slide(
   }
 }
 
+pub struct Marched {
+  pub at: Vec3,
+  pub velocity: Vec3,
+  pub blocked: bool,
+  pub landed: bool
+}
+
+pub fn march(voxels: &Voxels, bulk: Bulk, at: Vec3, velocity: Vec3, dt: f32) -> Marched {
+  let steps = (dt / (1.0 / 60.0)).ceil().max(1.0);
+  (0..steps as u32).fold(
+    Marched { at, velocity, blocked: false, landed: false },
+    |marched, _| {
+      [1, 0, 2].into_iter().fold(
+        marched,
+        |Marched { at, mut velocity, blocked, landed }, axis| {
+          let falling = velocity[axis] < 0.0;
+          let (at, hit) = slide(voxels, bulk, at, axis, velocity[axis] * dt / steps);
+          if hit {
+            velocity[axis] = 0.0
+          }
+          Marched {
+            at,
+            velocity,
+            blocked: blocked || (hit && axis != 1),
+            landed: landed || (hit && axis == 1 && falling)
+          }
+        }
+      )
+    }
+  )
+}
+
 fn fly(
   time: Res<Time>,
   keys: Res<ButtonInput<KeyCode>>,
@@ -356,20 +389,28 @@ fn work(
   inventories: Query<&Inventory>,
   mut voxels: Option<ResMut<Voxels>>,
   mut aim: ResMut<Aim>,
-  mut digs: MessageWriter<Dig>,
-  mut puts: MessageWriter<Put>,
-  mut attunes: MessageWriter<Attune>,
-  (mut scoops, mut pours): (MessageWriter<Scoop>, MessageWriter<Pour>),
-  boats: Query<&Vessel>,
+  (mut digs, mut puts, mut attunes, mut scoops, mut pours): (
+    MessageWriter<Dig>,
+    MessageWriter<Put>,
+    MessageWriter<Attune>,
+    MessageWriter<Scoop>,
+    MessageWriter<Pour>
+  ),
+  (boats, folk): (Query<&Vessel>, Query<&Folk>),
+  (mut inscription, signs): (ResMut<Inscription>, Query<&Sign>),
   mut cooldown: Local<f32>
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
     let (eye, toward) = (pilot.eye(), pilot.facing() * Vec3::NEG_Z);
     aim.hit = voxels.cast(eye, toward, REACH).filter(|hit| {
       let distance = (hit.at.as_vec3() + 0.5).distance(eye);
-      !boats.iter().any(|vessel| {
+      let boat = boats.iter().any(|vessel| {
         crate::boat::struck(vessel, eye, toward).is_some_and(|near| near < distance)
-      })
+      });
+      let person = folk.iter().any(|folk| {
+        crate::folk::struck(folk.at, eye, toward).is_some_and(|near| near < distance)
+      });
+      !boat && !person
     });
     let active = captured(&cursor, &menu);
     let target = aim.hit.as_ref().map(|hit| (hit.at, hit.block));
@@ -401,17 +442,26 @@ fn work(
     *cooldown = (*cooldown - time.delta_secs()).max(0.0);
     let stack =
       inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
-    let used = aim.hit.as_ref().filter(|hit| hit.block.waystone() || hit.block.station());
+    let used = aim
+      .hit
+      .as_ref()
+      .filter(|hit| hit.block.waystone() || hit.block.station() || hit.block.sign());
     if active
       && buttons.just_pressed(MouseButton::Right)
       && let Some(hit) = used
     {
-      match hit.block.waystone() {
-        true => {
+      match hit.block {
+        waystone if waystone.waystone() => {
           attunes.write(Attune(hit.at));
           menu.show(Tab::Waystones, time.elapsed_secs())
         }
-        false => menu.show(Tab::Inventory, time.elapsed_secs())
+        sign if sign.sign() => {
+          let text =
+            signs.iter().find(|sign| sign.at == hit.at).map(|sign| sign.text.as_str());
+          inscription.begin(hit.at, text.unwrap_or_default());
+          menu.show(Tab::Sign, time.elapsed_secs())
+        }
+        _ => menu.show(Tab::Inventory, time.elapsed_secs())
       }
     } else if active
       && buttons.just_pressed(MouseButton::Right)
@@ -447,6 +497,10 @@ fn work(
         puts.write(Put { at, block: stack.block });
         if *role == Role::Guest {
           voxels.set(at, stack.block)
+        }
+        if stack.block.sign() && voxels.block(at - IVec3::Y).is_some_and(Block::solid) {
+          inscription.begin(at, "");
+          menu.show(Tab::Sign, time.elapsed_secs())
         }
       }
     }
