@@ -10,6 +10,7 @@ mod block;
 mod boat;
 mod chart;
 mod claim;
+mod console;
 mod crafting;
 mod crumble;
 mod editor;
@@ -235,14 +236,18 @@ fn main() {
       StatesPlugin,
       bevy::log::LogPlugin::default()
     )),
-    _ => app.add_plugins(DefaultPlugins.set(WindowPlugin {
-      primary_window: Some(Window {
-        title: "Bloxy".into(),
-        fit_canvas_to_parent: true,
-        ..default()
-      }),
-      ..default()
-    }))
+    _ => app.add_plugins(
+      DefaultPlugins
+        .set(WindowPlugin {
+          primary_window: Some(Window {
+            title: "Bloxy".into(),
+            fit_canvas_to_parent: true,
+            ..default()
+          }),
+          ..default()
+        })
+        .set(bevy::log::LogPlugin { custom_layer: console::tap, ..default() })
+    )
   };
   app
     .insert_resource(role)
@@ -293,7 +298,7 @@ fn main() {
         chart::Charting,
         fx::Sparkle
       ))
-      .add_plugins((crumble::Crumbles, water::Waters, glance::Glances))
+      .add_plugins((crumble::Crumbles, water::Waters, glance::Glances, console::Console))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)
   };

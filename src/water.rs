@@ -69,10 +69,6 @@ fn submerge(
   eyes.iter_mut().for_each(|(entity, place, mut fog, submerged)| {
     let eye = place.translation();
     let under = voxels.as_deref().is_some_and(|voxels| underwater(voxels, eye));
-    info!(
-      "SUBMERGE eye {eye} under {under} block {:?}",
-      voxels.as_deref().and_then(|v| v.block(eye.floor().as_ivec3()))
-    );
     match (under, submerged) {
       (true, submerged) => {
         let dim = 1.0 - daylight(opts().hour).dark * 0.85;
