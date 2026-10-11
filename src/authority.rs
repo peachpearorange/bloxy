@@ -243,7 +243,7 @@ fn sign_in(
                 let learned: Vec<u16> = (1..crate::skill::TREE.len() as u16).collect();
                 let level =
                   Skills { learned: learned.clone(), ..default() }.spent() as u32;
-                Skills { learned, level, xp: 0 }
+                Skills { learned, level, xp: 0, stance: None }
               }
               false => default()
             },

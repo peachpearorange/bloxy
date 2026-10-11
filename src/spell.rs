@@ -4,12 +4,15 @@ use {crate::{authority::{Controller, player_of},
              block::Block,
              condition::{Conditions, Kind},
              death::Dying,
+             figure::Clad,
              folk::{Raider, Vigour, ray_box},
              haunt::{Blamed, Haunt, fell},
              menu::Menu,
              player::{Me, Pilot, Poke, Selected, captured},
              protocol::*,
              skill::Skills,
+             stance::Stance,
+             summon::{MOST, Servant, summon},
              voxels::Voxels},
      bevy::{platform::collections::HashMap,
             prelude::*,
@@ -24,9 +27,13 @@ const WISP_LUMENS: f32 = 90_000.0;
 
 pub fn fuel(spell: Block) -> Block {
   match spell {
-    Block::SpellFirebolt | Block::SpellFrost | Block::SpellMissile => Block::ArcaneDust,
-    Block::SpellHeal | Block::SpellLight => Block::Candle,
-    Block::SpellHaste => Block::LizardClaw,
+    Block::SpellFirebolt
+    | Block::SpellFrost
+    | Block::SpellMissile
+    | Block::SpellFireball
+    | Block::SpellIceStorm => Block::ArcaneDust,
+    Block::SpellHeal | Block::SpellLight | Block::SpellGuardian => Block::Candle,
+    Block::SpellHaste | Block::SpellInvisibility => Block::LizardClaw,
     Block::SpellLeap => Block::Feather,
     _ => Block::BoneDust
   }
@@ -40,8 +47,27 @@ pub fn cooldown(spell: Block) -> f32 {
     Block::SpellHeal => 4.0,
     Block::SpellThunder => 3.0,
     Block::SpellLight => 5.0,
+    Block::SpellFireball => 2.5,
+    Block::SpellAnimate | Block::SpellGuardian => 12.0,
+    Block::SpellInvisibility => 15.0,
     _ => 8.0
   }
+}
+
+pub fn recharge(spell: Block, stance: Option<Stance>) -> f32 {
+  cooldown(spell) * stance.map_or(1.0, Stance::recharge)
+}
+
+fn offensive(spell: Block) -> bool {
+  matches!(
+    spell,
+    Block::SpellFirebolt
+      | Block::SpellFrost
+      | Block::SpellMissile
+      | Block::SpellThunder
+      | Block::SpellFireball
+      | Block::SpellIceStorm
+  )
 }
 
 fn hue(spell: Block) -> [f32; 3] {
@@ -54,6 +80,11 @@ fn hue(spell: Block) -> [f32; 3] {
     Block::SpellStoneskin => [0.7, 0.68, 0.6],
     Block::SpellLeap => [0.75, 0.92, 1.0],
     Block::SpellLight => [1.0, 0.9, 0.6],
+    Block::SpellFireball => [1.0, 0.5, 0.12],
+    Block::SpellIceStorm => [0.65, 0.88, 1.0],
+    Block::SpellAnimate => [0.6, 1.0, 0.45],
+    Block::SpellGuardian => [0.55, 0.75, 1.0],
+    Block::SpellInvisibility => [0.75, 0.6, 0.95],
     _ => [0.55, 0.7, 1.0]
   }
 }
@@ -91,7 +122,21 @@ struct Flight {
 }
 
 #[derive(Component, Default)]
-pub struct Spellbook(HashMap<Block, f32>);
+pub struct Spellbook {
+  ready: HashMap<Block, f32>,
+  pub lunge: f32
+}
+
+#[derive(Component)]
+struct Storm {
+  at: Vec3,
+  left: f32,
+  radius: f32,
+  damage: u8,
+  caster: Entity,
+  hail: f32,
+  sting: f32
+}
 
 fn conjure(
   mut conjures: MessageReader<FromClient<Conjure>>,
@@ -107,14 +152,14 @@ fn conjure(
   }
 }
 
-struct Target {
-  entity: Entity,
-  centre: Vec3,
-  low: Vec3,
-  high: Vec3
+pub struct Target {
+  pub entity: Entity,
+  pub centre: Vec3,
+  pub low: Vec3,
+  pub high: Vec3
 }
 
-fn targets(
+pub fn targets(
   folk: &Query<(Entity, &Folk), Without<Dying>>,
   beasts: &Query<(Entity, &Beast), Without<Dying>>,
   birds: &Query<(Entity, &Bird), Without<Dying>>
@@ -171,6 +216,8 @@ fn invoke(
     (&mut Health, Option<&mut Haunt>, Option<&mut Raider>, Option<&mut Roam>),
     Without<Controller>
   >,
+  servants: Query<(Entity, &Servant), Without<Dying>>,
+  voxels: Res<Voxels>,
   mut flourishes: MessageWriter<ToClients<Flourish>>,
   mut notices: MessageWriter<ToClients<Notice>>,
   mut commands: Commands
@@ -190,7 +237,7 @@ fn invoke(
       && spell.spell()
       && skills.spells().contains(&spell)
       && toward.is_finite()
-      && book.0.get(&spell).is_none_or(|&ready| now >= ready)
+      && book.ready.get(&spell).is_none_or(|&ready| now >= ready)
     {
       let rank = skills.rank(spell);
       let thrifty = rand_unit(caster, now) < skills.stats().thrift;
@@ -203,7 +250,10 @@ fn invoke(
           });
         }
         true => {
-          book.0.insert(spell, now + cooldown(spell) * 0.9);
+          book.ready.insert(spell, now + recharge(spell, skills.stance) * 0.9);
+          if offensive(spell) {
+            conditions.0.retain(|condition| condition.kind != Kind::Invisible)
+          }
           let toward = toward.normalize_or(Vec3::NEG_Z);
           let eye = avatar.at + Vec3::Y * EYE;
           let mut launch =
@@ -270,6 +320,60 @@ fn invoke(
             Block::SpellLight => {
               conditions.afflict(Kind::Lit, 120.0 + f32::from(rank) * 60.0);
               flourish(avatar.at + Vec3::Y * 2.2, 0.8)
+            }
+            Block::SpellInvisibility => {
+              conditions.afflict(Kind::Invisible, 30.0 + f32::from(rank) * 10.0);
+              flourish(avatar.at + Vec3::Y, 1.0)
+            }
+            Block::SpellFireball => launch(18.0, 5 + rank * 2, None, Vec3::ZERO),
+            Block::SpellIceStorm => {
+              let point = voxels
+                .cast(eye, toward, SEEK)
+                .map_or(eye + toward * SEEK, |hit| (hit.at + hit.normal).as_vec3() + 0.5);
+              let radius = 3.5 + f32::from(rank) * 0.5;
+              commands.spawn(Storm {
+                at: point,
+                left: 6.0 + f32::from(rank),
+                radius,
+                damage: 2 + rank,
+                caster,
+                hail: 0.0,
+                sting: 0.0
+              });
+              flourish(point, radius)
+            }
+            Block::SpellAnimate | Block::SpellGuardian => {
+              let (band, secs, count) = match spell {
+                Block::SpellAnimate => (
+                  Band::Thrall,
+                  45.0 + f32::from(rank) * 15.0,
+                  1 + usize::from(rank >= 2)
+                ),
+                _ => (Band::Phantom, 40.0 + f32::from(rank) * 15.0, 1)
+              };
+              let mut mine: Vec<(Entity, f32)> = servants
+                .iter()
+                .filter(|(_, servant)| servant.owner == caster)
+                .map(|(entity, servant)| (entity, servant.left))
+                .collect();
+              mine.sort_by(|a, b| a.1.total_cmp(&b.1));
+              for &(old, _) in mine.iter().take((mine.len() + count).saturating_sub(MOST))
+              {
+                fell(&mut commands, old)
+              }
+              let across = toward.cross(Vec3::Y).normalize_or(Vec3::X);
+              for index in 0..count {
+                let side = if index % 2 == 0 { 1.2 } else { -1.2 };
+                let at = avatar.at + across * side + Vec3::Y * 0.2;
+                let luck = crate::noise::hash(
+                  caster.index_u32(),
+                  (now * 100.0) as i32,
+                  index as i32,
+                  9
+                );
+                summon(&mut commands, band, at, caster, secs, luck);
+                flourish(at + Vec3::Y, 1.0)
+              }
             }
             _ => {
               let reach = 4.0 + f32::from(rank) * 0.75;
@@ -367,7 +471,9 @@ fn fly(
     flight.life -= dt;
     let ended = match (struck, wall) {
       (Some((target, near)), wall) if wall.is_none_or(|wall| near <= wall) => {
-        if let Ok((mut health, conditions, haunt)) = creatures.get_mut(target) {
+        if bolt.spell != Block::SpellFireball
+          && let Ok((mut health, conditions, haunt)) = creatures.get_mut(target)
+        {
           harm(&mut commands, target, &mut health, flight.damage, flight.caster);
           if let Some(mut conditions) = conditions {
             match bolt.spell {
@@ -392,13 +498,134 @@ fn fly(
     };
     match ended {
       Some(at) => {
+        let blast = match bolt.spell {
+          Block::SpellFireball => 3.5 + f32::from(flight.rank) * 0.5,
+          _ => 0.7
+        };
+        if bolt.spell == Block::SpellFireball {
+          for target in all.iter().filter(|target| target.centre.distance(at) < blast) {
+            if let Ok((mut health, conditions, haunt)) = creatures.get_mut(target.entity)
+            {
+              harm(
+                &mut commands,
+                target.entity,
+                &mut health,
+                flight.damage,
+                flight.caster
+              );
+              if let Some(mut conditions) = conditions {
+                conditions.afflict(Kind::Burning, 3.0)
+              }
+              if let Some(mut haunt) = haunt {
+                haunt.shove(
+                  (target.centre - at).with_y(0.0).normalize_or_zero() * 6.0
+                    + Vec3::Y * 4.0
+                )
+              }
+            }
+          }
+        }
         flourishes.write(ToClients {
           targets: SendTargets::All,
-          message: Flourish { spell: bolt.spell, at, reach: 0.7 }
+          message: Flourish { spell: bolt.spell, at, reach: blast }
         });
         commands.entity(entity).despawn()
       }
       None => bolt.at = from + step
+    }
+  }
+}
+
+fn rage(
+  time: Res<Time>,
+  mut storms: Query<(Entity, &mut Storm)>,
+  folk: Query<(Entity, &Folk), Without<Dying>>,
+  beasts: Query<(Entity, &Beast), Without<Dying>>,
+  birds: Query<(Entity, &Bird), Without<Dying>>,
+  mut creatures: Query<(&mut Health, Option<&mut Conditions>), Without<Controller>>,
+  mut flourishes: MessageWriter<ToClients<Flourish>>,
+  mut commands: Commands
+) {
+  let dt = time.delta_secs();
+  for (entity, mut storm) in storms.iter_mut() {
+    storm.left -= dt;
+    storm.hail += dt;
+    storm.sting += dt;
+    if storm.hail >= 0.2 {
+      storm.hail = 0.0;
+      let roll = |salt: i32| {
+        crate::noise::unit(entity.index_u32(), (storm.left * 50.0) as i32, salt, 3)
+      };
+      let angle = roll(1) * std::f32::consts::TAU;
+      let spot = storm.at
+        + Vec3::new(angle.cos(), 0.0, angle.sin()) * storm.radius * roll(2).sqrt();
+      flourishes.write(ToClients {
+        targets: SendTargets::All,
+        message: Flourish {
+          spell: Block::SpellFrost,
+          at: spot + Vec3::Y * roll(3) * 2.0,
+          reach: 0.5
+        }
+      });
+    }
+    if storm.sting >= 1.0 {
+      storm.sting = 0.0;
+      for target in targets(&folk, &beasts, &birds)
+        .into_iter()
+        .filter(|target| {
+          target.centre.with_y(0.0).distance(storm.at.with_y(0.0)) < storm.radius
+        })
+        .filter(|target| (target.centre.y - storm.at.y).abs() < 4.0)
+      {
+        if let Ok((mut health, conditions)) = creatures.get_mut(target.entity) {
+          harm(&mut commands, target.entity, &mut health, storm.damage, storm.caster);
+          if let Some(mut conditions) = conditions {
+            conditions.afflict(Kind::Chilled, 3.0)
+          }
+        }
+      }
+    }
+    if storm.left <= 0.0 {
+      commands.entity(entity).despawn()
+    }
+  }
+}
+
+fn unveil(
+  mut strikes: MessageReader<FromClient<Strike>>,
+  mut players: Query<(&Controller, &mut Conditions)>
+) {
+  for &FromClient { client_id, .. } in strikes.read() {
+    if let Some(mut conditions) = player_of(players.iter_mut(), client_id)
+      && conditions.has(Kind::Invisible)
+    {
+      conditions.0.retain(|condition| condition.kind != Kind::Invisible)
+    }
+  }
+}
+
+fn veil(
+  players: Query<(Entity, &Clad, &Conditions), With<Player>>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut hidden: Local<Vec<Entity>>
+) {
+  for (entity, clad, conditions) in players.iter() {
+    let unseen = conditions.has(Kind::Invisible);
+    if unseen != hidden.contains(&entity)
+      && let Some(mut material) = materials.get_mut(&clad.material)
+    {
+      match unseen {
+        true => {
+          material.alpha_mode = AlphaMode::Blend;
+          material.base_color = Color::WHITE.with_alpha(0.15);
+          hidden.push(entity)
+        }
+        false => {
+          material.alpha_mode = AlphaMode::Opaque;
+          material.base_color = Color::WHITE;
+          hidden.retain(|&other| other != entity)
+        }
+      }
     }
   }
 }
@@ -414,6 +641,7 @@ fn cast(
   pilot: Res<Pilot>,
   selected: Res<Selected>,
   inventories: Query<&Inventory>,
+  skills: Query<&Skills>,
   mut recharge: ResMut<Recharge>,
   mut invocations: MessageWriter<Invoke>,
   mut pokes: MessageWriter<Poke>
@@ -426,7 +654,8 @@ fn cast(
     && stack.block.spell()
     && recharge.0.get(&stack.block).is_none_or(|&ready| now >= ready)
   {
-    recharge.0.insert(stack.block, now + cooldown(stack.block));
+    let stance = skills.get(pilot.me).ok().and_then(|skills| skills.stance);
+    recharge.0.insert(stack.block, now + crate::spell::recharge(stack.block, stance));
     invocations
       .write(Invoke { spell: stack.block, toward: pilot.facing() * Vec3::NEG_Z });
     pokes.write(Poke);
@@ -536,7 +765,7 @@ fn bloom(
       Bloom {
         age: 0.0,
         reach,
-        flat: spell == Block::SpellThunder,
+        flat: matches!(spell, Block::SpellThunder | Block::SpellIceStorm),
         glow: LinearRgba::rgb(r, g, b) * 7.0
       },
       Mesh3d(sparks.ball.clone()),
@@ -629,7 +858,12 @@ impl Plugin for Spells {
         PreUpdate,
         (conjure, invoke).after(ServerSystems::Receive).run_if(authority)
       )
-      .add_systems(Update, fly.run_if(authority).run_if(resource_exists::<Voxels>))
+      .add_systems(
+        Update,
+        (fly, rage).run_if(authority).run_if(resource_exists::<Voxels>)
+      )
+      .add_systems(PreUpdate, unveil.after(ServerSystems::Receive).run_if(authority))
+      .add_systems(Update, veil.run_if(plays))
       .add_systems(Startup, kindle.run_if(plays))
       .add_systems(Update, (show_bolts, bloom, wisps).run_if(plays))
       .add_systems(Update, cast.run_if(plays).run_if(resource_exists::<Pilot>));

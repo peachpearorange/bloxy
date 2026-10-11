@@ -19,7 +19,6 @@ const GIVE_UP: f32 = 40.0;
 const MEND_AFTER: f32 = 8.0;
 const MEND_EVERY: f32 = 3.0;
 pub const PUNCH: u8 = 3;
-const STRIKE_EVERY: f32 = 0.35;
 const ARM_REACH: f32 = 1.4;
 const GRAVITY: f32 = 30.0;
 const SCRAMBLE: f32 = 11.5;
@@ -34,7 +33,9 @@ impl Band {
       Band::Viking => 12,
       Band::Skeleton => 10,
       Band::Shade => 8,
-      Band::Warden => 60
+      Band::Warden => 60,
+      Band::Thrall => 12,
+      Band::Phantom => 10
     }
   }
 
@@ -44,6 +45,8 @@ impl Band {
       Band::Skeleton => 3.3,
       Band::Shade => 2.8,
       Band::Warden => 2.9,
+      Band::Thrall => 3.9,
+      Band::Phantom => 3.6,
       _ => 3.4
     }
   }
@@ -53,9 +56,12 @@ impl Band {
       Band::Viking => 3,
       Band::Shade => 1,
       Band::Warden => 5,
+      Band::Thrall => 3,
       _ => 2
     }
   }
+
+  pub fn ghostly(self) -> bool { matches!(self, Band::Shade | Band::Phantom) }
 
   pub fn scale(self) -> f32 {
     match self {
@@ -105,7 +111,8 @@ pub struct Vigour {
   pub most: u8,
   pub ward: f32,
   pub punch: u8,
-  pub mend: f32
+  pub mend: f32,
+  pub quick: f32
 }
 
 impl Default for Vigour {
@@ -118,7 +125,8 @@ impl Default for Vigour {
       most: Health::FULL,
       ward: 1.0,
       punch: PUNCH,
-      mend: 1.0
+      mend: 1.0,
+      quick: crate::stance::STRIKE_EVERY
     }
   }
 }
@@ -170,7 +178,13 @@ fn raid(
   time: Res<Time>,
   mut voxels: ResMut<Voxels>,
   mut raiders: Query<(Entity, &mut Folk, &mut Raider)>,
-  mut players: Query<(&Controller, &Avatar, &mut Health, &mut Vigour)>,
+  mut players: Query<(
+    &Controller,
+    &Avatar,
+    &mut Health,
+    &mut Vigour,
+    &crate::condition::Conditions
+  )>,
   mut knocks: MessageWriter<ToClients<Knock>>,
   mut commands: Commands
 ) {
@@ -193,7 +207,10 @@ fn raid(
       voxels.block((at + Vec3::Y * 1.2).floor().as_ivec3()).is_some_and(Block::fluid);
     let target = players
       .iter_mut()
-      .map(|(controller, avatar, health, vigour)| (controller, avatar.at, health, vigour))
+      .filter(|(.., conditions)| !conditions.has(crate::condition::Kind::Invisible))
+      .map(|(controller, avatar, health, vigour, _)| {
+        (controller, avatar.at, health, vigour)
+      })
       .filter(|(_, spot, ..)| spot.distance(at) < CHASE)
       .min_by(|a, b| a.1.distance(at).total_cmp(&b.1.distance(at)));
     raider.reload -= dt;
@@ -282,7 +299,7 @@ fn strike(
   let now = time.elapsed_secs();
   for &FromClient { client_id, message: Strike(target) } in strikes.read() {
     if let Some((player, avatar, mut vigour)) = player_of(players.iter_mut(), client_id)
-      && now - vigour.swung >= STRIKE_EVERY
+      && now - vigour.swung >= vigour.quick
       && let Ok((folk, mut health, raider, haunt)) = folk.get_mut(target)
       && folk.band.hostile()
       && (avatar.at + Vec3::Y * EYE).distance(folk.at + Vec3::Y * 0.9 * folk.band.scale())
@@ -347,6 +364,7 @@ fn perish(
       ward: vigour.ward,
       punch: vigour.punch,
       mend: vigour.mend,
+      quick: vigour.quick,
       ..default()
     };
     for mut vessel in boats.iter_mut().filter(|vessel| vessel.rider == Some(entity)) {
@@ -423,13 +441,18 @@ fn bones(skin: &mut Skin, armoured: bool) {
 fn outfit(band: Band, luck: u32) -> Skin {
   let mut skin = Skin::fresh(u64::from(luck));
   match band {
-    Band::Skeleton | Band::Warden => bones(&mut skin, band == Band::Warden),
-    Band::Shade => repaint(&mut skin, |part, face, row, col, _| match (part, face) {
-      (Part::Head, Face::Front) if row == 4 && (col == 2 || col == 5) => 22,
-      (Part::Head, Face::Front) if (2..7).contains(&row) && (1..7).contains(&col) => 0,
-      _ if (row + col) % 5 == 0 => 18,
-      _ => 0
-    }),
+    Band::Skeleton | Band::Warden | Band::Thrall => {
+      bones(&mut skin, band == Band::Warden)
+    }
+    Band::Shade | Band::Phantom => {
+      let (robe, fleck) = if band == Band::Phantom { (19, 21) } else { (0, 18) };
+      repaint(&mut skin, |part, face, row, col, _| match (part, face) {
+        (Part::Head, Face::Front) if row == 4 && (col == 2 || col == 5) => 22,
+        (Part::Head, Face::Front) if (2..7).contains(&row) && (1..7).contains(&col) => 0,
+        _ if (row + col) % 5 == 0 => fleck,
+        _ => robe
+      })
+    }
     _ => clothes(&mut skin, band, luck)
   }
   skin
@@ -516,7 +539,11 @@ fn hat(band: Band, luck: u32) -> Gear {
       (at(0.0, 7.0, 0.0), at(8.8, 2.4, 8.8), RUST),
       (at(0.0, 5.0, -4.5), at(1.0, 2.5, 0.5), RUST),
     ],
-    Band::Skeleton => vec![],
+    Band::Skeleton | Band::Thrall => vec![],
+    Band::Phantom => vec![
+      (at(0.0, 4.5, 0.6), at(9.2, 9.4, 9.0), [0.1, 0.16, 0.4]),
+      (at(0.0, 9.6, 1.5), at(7.0, 1.4, 7.0), [0.1, 0.16, 0.4]),
+    ],
     Band::Shade => vec![
       (at(0.0, 4.5, 0.6), at(9.2, 9.4, 9.0), SHROUD),
       (at(0.0, 9.6, 1.5), at(7.0, 1.4, 7.0), SHROUD),
@@ -542,9 +569,17 @@ fn eyes(band: Band) -> Gear {
       (at(1.5, 4.5, -4.05), at(1.2, 1.0, 0.2), [0.5, 1.0, 1.0]),
       (at(-1.5, 4.5, -4.05), at(1.2, 1.0, 0.2), [0.5, 1.0, 1.0]),
     ],
+    Band::Phantom => vec![
+      (at(1.5, 4.5, -4.05), at(1.2, 1.0, 0.2), [0.9, 0.95, 1.0]),
+      (at(-1.5, 4.5, -4.05), at(1.2, 1.0, 0.2), [0.9, 0.95, 1.0]),
+    ],
     Band::Skeleton | Band::Warden => vec![
       (at(1.5, 4.5, -4.03), at(0.8, 0.8, 0.1), [1.0, 0.35, 0.1]),
       (at(-1.5, 4.5, -4.03), at(0.8, 0.8, 0.1), [1.0, 0.35, 0.1]),
+    ],
+    Band::Thrall => vec![
+      (at(1.5, 4.5, -4.03), at(0.8, 0.8, 0.1), [0.4, 1.0, 0.35]),
+      (at(-1.5, 4.5, -4.03), at(0.8, 0.8, 0.1), [0.4, 1.0, 0.35]),
     ],
     _ => vec![]
   }
@@ -561,7 +596,7 @@ fn weapon(band: Band) -> Gear {
       (at(0.0, -11.0, -5.0), at(1.0, 1.0, 12.0), HAFT),
       (at(0.0, -9.5, -10.0), at(0.8, 5.0, 3.0), IRON),
     ],
-    Band::Skeleton => vec![
+    Band::Skeleton | Band::Thrall => vec![
       (at(0.0, -11.0, -5.5), at(0.8, 1.4, 9.0), RUST),
       (at(0.0, -11.0, -1.0), at(2.6, 1.6, 0.8), HAFT),
     ],
@@ -616,7 +651,7 @@ fn dress(
 ) {
   for (entity, folk) in arrivals.iter() {
     let clad = clothe(&outfit(folk.band, folk.luck), &mut images, &mut materials);
-    if folk.band == Band::Shade
+    if folk.band.ghostly()
       && let Some(mut material) = materials.get_mut(&clad.material)
     {
       material.alpha_mode = AlphaMode::Blend;
@@ -747,14 +782,14 @@ fn animate(
     shown.health = health.0;
     shown.flushed -= dt;
     if let Some(mut material) = materials.get_mut(&clad.material) {
-      let alpha = if folk.band == Band::Shade { GHOSTLY } else { 1.0 };
+      let alpha = if folk.band.ghostly() { GHOSTLY } else { 1.0 };
       material.base_color = match shown.flushed > 0.0 {
         true => Color::srgb(1.0, 0.35, 0.35),
         false => Color::WHITE
       }
       .with_alpha(alpha)
     }
-    let floating = folk.band == Band::Shade;
+    let floating = folk.band.ghostly();
     let swing = match floating {
       true => 0.0,
       false => shown.stride.sin() * (shown.pace / 4.3).min(1.0) * 0.7

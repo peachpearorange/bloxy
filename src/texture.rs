@@ -8,7 +8,7 @@ use {crate::{block::{Block, Look, Tile},
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 14;
+pub const ROWS: u32 = 15;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -1356,6 +1356,11 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::SpellLeap => spell(crate::glyph::Glyph::Feather, [0.75, 0.9, 0.98], x, y),
     Tile::SpellLight => spell(crate::glyph::Glyph::Sun, [1.0, 0.9, 0.55], x, y),
     Tile::SpellThunder => spell(crate::glyph::Glyph::Thunder, [0.5, 0.7, 1.0], x, y),
+    Tile::SpellFireball => spell(crate::glyph::Glyph::Burst, [1.0, 0.55, 0.15], x, y),
+    Tile::SpellIceStorm => spell(crate::glyph::Glyph::Storm, [0.6, 0.85, 1.0], x, y),
+    Tile::SpellAnimate => spell(crate::glyph::Glyph::Skull, [0.75, 0.95, 0.55], x, y),
+    Tile::SpellGuardian => spell(crate::glyph::Glyph::Ghost, [0.55, 0.75, 1.0], x, y),
+    Tile::SpellInvisibility => spell(crate::glyph::Glyph::Cloak, [0.7, 0.6, 0.85], x, y),
     Tile::WaystoneTop => {
       let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
       let ring = (dx * dx + dy * dy).sqrt();

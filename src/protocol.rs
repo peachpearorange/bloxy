@@ -370,11 +370,15 @@ pub enum Band {
   Viking,
   Skeleton,
   Shade,
-  Warden
+  Warden,
+  Thrall,
+  Phantom
 }
 
 impl Band {
-  pub fn hostile(self) -> bool { self != Band::Trader }
+  pub fn hostile(self) -> bool {
+    !matches!(self, Band::Trader | Band::Thrall | Band::Phantom)
+  }
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
@@ -526,7 +530,9 @@ impl Plugin for Protocol {
       .add_client_message::<crate::spell::Invoke>(Channel::Ordered)
       .add_client_message::<crate::spell::Conjure>(Channel::Ordered)
       .add_server_message::<crate::spell::Flourish>(Channel::Ordered)
-      .add_client_message::<Open>(Channel::Ordered);
+      .add_client_message::<Open>(Channel::Ordered)
+      .add_client_message::<crate::stance::Adopt>(Channel::Ordered)
+      .add_client_message::<crate::stance::Lunge>(Channel::Ordered);
   }
 }
 

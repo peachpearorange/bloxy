@@ -367,11 +367,16 @@ fn refresh(
   selected: Res<Selected>,
   recharge: Res<crate::spell::Recharge>,
   inventories: Query<&Inventory>,
+  skills: Query<&crate::skill::Skills>,
   mut slots: Query<(&Slot, &mut BorderColor)>,
   mut icons: Query<(&Icon, &mut ImageNode, &mut Visibility)>,
   mut counts: Query<(&Count, &mut Text, &mut TextColor)>,
   mut cooling: Query<(&Cooling, &mut Node)>
 ) {
+  let stance = pilot
+    .as_ref()
+    .and_then(|pilot| skills.get(pilot.me).ok())
+    .and_then(|skills| skills.stance);
   let inventory =
     pilot.and_then(|pilot| inventories.get(pilot.me).ok().cloned()).unwrap_or_default();
   for (slot, mut border) in slots.iter_mut() {
@@ -418,7 +423,7 @@ fn refresh(
         recharge
           .0
           .get(&stack.block)
-          .map(|&ready| (ready - now) / crate::spell::cooldown(stack.block))
+          .map(|&ready| (ready - now) / crate::spell::recharge(stack.block, stance))
       })
       .unwrap_or(0.0)
       .clamp(0.0, 1.0);

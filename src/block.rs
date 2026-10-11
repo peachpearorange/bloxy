@@ -140,7 +140,12 @@ pub enum Block {
   SpellStoneskin,
   SpellLeap,
   SpellLight,
-  SpellThunder
+  SpellThunder,
+  SpellFireball,
+  SpellIceStorm,
+  SpellAnimate,
+  SpellGuardian,
+  SpellInvisibility
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -254,11 +259,16 @@ pub enum Tile {
   SpellStoneskin,
   SpellLeap,
   SpellLight,
-  SpellThunder
+  SpellThunder,
+  SpellFireball,
+  SpellIceStorm,
+  SpellAnimate,
+  SpellGuardian,
+  SpellInvisibility
 }
 
 impl Tile {
-  pub const ALL: [Tile; 110] = [
+  pub const ALL: [Tile; 115] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -368,7 +378,12 @@ impl Tile {
     Tile::SpellStoneskin,
     Tile::SpellLeap,
     Tile::SpellLight,
-    Tile::SpellThunder
+    Tile::SpellThunder,
+    Tile::SpellFireball,
+    Tile::SpellIceStorm,
+    Tile::SpellAnimate,
+    Tile::SpellGuardian,
+    Tile::SpellInvisibility
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -433,7 +448,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 124] = [
+  pub const ALL: [Block; 129] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -557,7 +572,12 @@ impl Block {
     Block::SpellStoneskin,
     Block::SpellLeap,
     Block::SpellLight,
-    Block::SpellThunder
+    Block::SpellThunder,
+    Block::SpellFireball,
+    Block::SpellIceStorm,
+    Block::SpellAnimate,
+    Block::SpellGuardian,
+    Block::SpellInvisibility
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -596,7 +616,7 @@ impl Block {
       || self.spell()
   }
 
-  pub const SPELLS: [Block; 9] = [
+  pub const SPELLS: [Block; 14] = [
     Block::SpellFirebolt,
     Block::SpellFrost,
     Block::SpellMissile,
@@ -605,7 +625,12 @@ impl Block {
     Block::SpellStoneskin,
     Block::SpellLeap,
     Block::SpellLight,
-    Block::SpellThunder
+    Block::SpellThunder,
+    Block::SpellFireball,
+    Block::SpellIceStorm,
+    Block::SpellAnimate,
+    Block::SpellGuardian,
+    Block::SpellInvisibility
   ];
 
   pub fn spell(self) -> bool { Block::SPELLS.contains(&self) }
@@ -968,7 +993,12 @@ impl Block {
       Block::SpellStoneskin => "Stoneskin",
       Block::SpellLeap => "Jump",
       Block::SpellLight => "Dancing Light",
-      Block::SpellThunder => "Thunderwave"
+      Block::SpellThunder => "Thunderwave",
+      Block::SpellFireball => "Fireball",
+      Block::SpellIceStorm => "Ice Storm",
+      Block::SpellAnimate => "Animate Dead",
+      Block::SpellGuardian => "Spirit Guardian",
+      Block::SpellInvisibility => "Invisibility"
     }
   }
 
@@ -1098,7 +1128,12 @@ impl Block {
       Block::SpellStoneskin => all(Tile::SpellStoneskin),
       Block::SpellLeap => all(Tile::SpellLeap),
       Block::SpellLight => all(Tile::SpellLight),
-      Block::SpellThunder => all(Tile::SpellThunder)
+      Block::SpellThunder => all(Tile::SpellThunder),
+      Block::SpellFireball => all(Tile::SpellFireball),
+      Block::SpellIceStorm => all(Tile::SpellIceStorm),
+      Block::SpellAnimate => all(Tile::SpellAnimate),
+      Block::SpellGuardian => all(Tile::SpellGuardian),
+      Block::SpellInvisibility => all(Tile::SpellInvisibility)
     }
   }
 }

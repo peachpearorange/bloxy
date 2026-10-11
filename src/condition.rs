@@ -23,14 +23,20 @@ pub enum Kind {
   Burning,
   Chilled,
   Weakened,
-  Frightened
+  Frightened,
+  Invisible
 }
 
 impl Kind {
   pub fn boon(self) -> bool {
     matches!(
       self,
-      Kind::Hasted | Kind::Stoneskin | Kind::Leaping | Kind::Lit | Kind::Regenerating
+      Kind::Hasted
+        | Kind::Stoneskin
+        | Kind::Leaping
+        | Kind::Lit
+        | Kind::Regenerating
+        | Kind::Invisible
     )
   }
 
@@ -45,7 +51,8 @@ impl Kind {
       Kind::Burning => Glyph::Flame,
       Kind::Chilled => Glyph::Snowflake,
       Kind::Weakened => Glyph::Broken,
-      Kind::Frightened => Glyph::Eye
+      Kind::Frightened => Glyph::Eye,
+      Kind::Invisible => Glyph::Cloak
     }
   }
 
@@ -60,7 +67,8 @@ impl Kind {
       Kind::Burning => [0.98, 0.45, 0.12],
       Kind::Chilled => [0.5, 0.78, 1.0],
       Kind::Weakened => [0.85, 0.3, 0.28],
-      Kind::Frightened => [0.7, 0.45, 0.95]
+      Kind::Frightened => [0.7, 0.45, 0.95],
+      Kind::Invisible => [0.78, 0.68, 0.95]
     }
   }
 
@@ -75,7 +83,8 @@ impl Kind {
       Kind::Burning => "Burning",
       Kind::Chilled => "Chilled",
       Kind::Weakened => "Weakened",
-      Kind::Frightened => "Frightened"
+      Kind::Frightened => "Frightened",
+      Kind::Invisible => "Invisible"
     }
   }
 
@@ -90,7 +99,8 @@ impl Kind {
       Kind::Burning => "On fire: losing health quickly",
       Kind::Chilled => "Slowed to 60% speed",
       Kind::Weakened => "Punches hit half as hard",
-      Kind::Frightened => "Too shaken to sprint"
+      Kind::Frightened => "Too shaken to sprint",
+      Kind::Invisible => "Unseen by foes until you attack"
     }
   }
 }
@@ -275,10 +285,19 @@ fn strip(mut commands: Commands, glyphs: Res<Glyphs>) {
     });
 }
 
+struct Shown {
+  glyph: Glyph,
+  colour: [f32; 3],
+  edge: Color,
+  line: String,
+  fading: bool
+}
+
 fn show(
   time: Res<Time>,
   pilot: Option<Res<Pilot>>,
   mine: Query<Ref<Conditions>>,
+  skills: Query<&crate::skill::Skills>,
   mut badges: Query<(&Badge, &mut Node, &Children)>,
   mut borders: Query<&mut BorderColor>,
   mut glyphs: Query<(&BadgeGlyph, &mut ImageNode)>,
@@ -287,6 +306,10 @@ fn show(
   mut since: Local<f32>,
   mut known: Local<Vec<Kind>>
 ) {
+  let stance = pilot
+    .as_ref()
+    .and_then(|pilot| skills.get(pilot.me).ok())
+    .and_then(|skills| skills.stance);
   let conditions = pilot.and_then(|pilot| mine.get(pilot.me).ok());
   *since = match conditions.as_ref().is_some_and(|conditions| conditions.is_changed()) {
     true => 0.0,
@@ -303,26 +326,48 @@ fn show(
     )));
   }
   *known = listed.iter().map(|condition| condition.kind).collect();
+  let stance = stance.map(|stance| Shown {
+    glyph: stance.glyph(),
+    colour: stance.colour(),
+    edge: Color::srgb(0.95, 0.85, 0.45),
+    line: "stance".into(),
+    fading: false
+  });
+  let shown: Vec<Shown> = stance
+    .into_iter()
+    .chain(listed.iter().map(|condition| {
+      let left = (condition.left - *since).max(0.0);
+      Shown {
+        glyph: condition.kind.glyph(),
+        colour: condition.kind.colour(),
+        edge: match condition.kind.boon() {
+          true => Color::srgb(0.45, 0.9, 0.45),
+          false => Color::srgb(0.95, 0.35, 0.3)
+        },
+        line: match left >= 60.0 {
+          true => format!("{}m", (left / 60.0).ceil() as u32),
+          false => format!("{}s", left.ceil() as u32)
+        },
+        fading: left < 5.0 && condition.kind.boon()
+      }
+    }))
+    .collect();
   for (badge, mut node, children) in badges.iter_mut() {
-    let shown = listed.get(badge.0);
-    let display = if shown.is_some() { Display::Flex } else { Display::None };
+    let found = shown.get(badge.0);
+    let display = if found.is_some() { Display::Flex } else { Display::None };
     if node.display != display {
       node.display = display
     }
-    if let Some(condition) = shown {
-      let [r, g, b] = condition.kind.colour();
+    if let Some(found) = found {
+      let [r, g, b] = found.colour;
       for child in children.iter() {
         if let Ok(mut border) = borders.get_mut(child) {
-          let edge = match condition.kind.boon() {
-            true => Color::srgb(0.45, 0.9, 0.45),
-            false => Color::srgb(0.95, 0.35, 0.3)
-          };
-          border.set_if_neq(BorderColor::all(edge));
+          border.set_if_neq(BorderColor::all(found.edge));
         }
       }
       for (_, mut image) in glyphs.iter_mut().filter(|(glyph, _)| glyph.0 == badge.0) {
-        let rect = Some(crate::glyph::cell(condition.kind.glyph().index()));
-        if image.rect != rect {
+        let rect = Some(crate::glyph::cell(found.glyph.index()));
+        if image.rect != rect || image.color != Color::srgb(r, g, b) {
           image.rect = rect;
           image.color = Color::srgb(r, g, b)
         }
@@ -330,15 +375,10 @@ fn show(
       for (_, mut text, mut colour) in
         times.iter_mut().filter(|(time, ..)| time.0 == badge.0)
       {
-        let left = (condition.left - *since).max(0.0);
-        let line = match left >= 60.0 {
-          true => format!("{}m", (left / 60.0).ceil() as u32),
-          false => format!("{}s", left.ceil() as u32)
-        };
-        if text.0 != line {
-          text.0 = line
+        if text.0 != found.line {
+          text.0 = found.line.clone()
         }
-        colour.set_if_neq(TextColor(match left < 5.0 && condition.kind.boon() {
+        colour.set_if_neq(TextColor(match found.fading {
           true => Color::srgb(1.0, 0.75, 0.4),
           false => Color::WHITE
         }));

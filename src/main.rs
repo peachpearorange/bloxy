@@ -54,7 +54,9 @@ mod skill;
 mod skin;
 mod sky;
 mod spell;
+mod stance;
 mod stream;
+mod summon;
 mod texture;
 mod trade;
 mod voxels;
@@ -287,7 +289,9 @@ fn main() {
       condition::Afflictions,
       haunt::Haunting,
       skill::Skilling,
-      spell::Spells
+      spell::Spells,
+      stance::Stances,
+      summon::Summoning
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

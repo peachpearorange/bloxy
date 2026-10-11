@@ -11,6 +11,7 @@ use {crate::{authority::{Controller, player_of},
              player::{Bulk, Marched, march},
              protocol::*,
              skill::Earned,
+             summon::Servant,
              voxels::Voxels},
      bevy::{platform::collections::{HashMap, HashSet},
             prelude::*},
@@ -27,7 +28,6 @@ const LEAP: f32 = 9.4;
 const RESPAWN: f32 = 600.0;
 const WARDEN_RESPAWN: f32 = 1500.0;
 const MUSTER_EVERY: f32 = 0.5;
-const STRIKE_EVERY: f32 = 0.35;
 
 type Lair = (IVec2, u16);
 
@@ -117,6 +117,11 @@ impl Haunt {
 
 #[derive(Component, Clone, Copy)]
 pub struct Blamed(pub Entity);
+
+enum Prey {
+  Player(Entity),
+  Servant(Entity)
+}
 
 #[derive(Resource, Default)]
 struct Lairs {
@@ -269,10 +274,15 @@ fn prowl(
     Without<Dying>
   >,
   mut players: Query<
-    (&Controller, &Avatar, &mut Health, &mut Vigour, &mut Conditions),
+    (Entity, &Controller, &Avatar, &mut Health, &mut Vigour, &mut Conditions),
     Without<Haunt>
   >,
-  mut knocks: MessageWriter<ToClients<Knock>>
+  mut servants: Query<
+    (Entity, &Folk, &mut Health),
+    (With<Servant>, Without<Haunt>, Without<Controller>, Without<Dying>)
+  >,
+  mut knocks: MessageWriter<ToClients<Knock>>,
+  mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
   for (mut haunt, mut folk, mut beast, conditions) in haunts.iter_mut() {
@@ -296,19 +306,27 @@ fn prowl(
     }
     let eye = at + Vec3::Y * bulk.tall * 0.8;
     let home = haunt.home;
+    let sighted = |spot: Vec3| {
+      let distance = spot.distance(at);
+      let seen = || {
+        let sight = spot + Vec3::Y * EYE - eye;
+        voxels.cast_for(eye, sight, sight.length(), Block::solid).is_none()
+      };
+      spot.distance(home) < LEASH && (distance < SMELL || (distance < SENSE && seen()))
+    };
     let target = players
-      .iter_mut()
-      .filter(|(_, avatar, health, ..)| {
-        let distance = avatar.at.distance(at);
-        let seen = || {
-          let sight = avatar.at + Vec3::Y * EYE - eye;
-          voxels.cast_for(eye, sight, sight.length(), Block::solid).is_none()
-        };
-        health.0 > 0
-          && avatar.at.distance(home) < LEASH
-          && (distance < SMELL || (distance < SENSE && seen()))
+      .iter()
+      .filter(|(_, _, avatar, health, _, afflicted)| {
+        health.0 > 0 && !afflicted.has(Kind::Invisible) && sighted(avatar.at)
       })
-      .min_by(|a, b| a.1.at.distance(at).total_cmp(&b.1.at.distance(at)));
+      .map(|(entity, _, avatar, ..)| (Prey::Player(entity), avatar.at))
+      .chain(
+        servants
+          .iter()
+          .filter(|(_, servant, health)| health.0 > 0 && sighted(servant.at))
+          .map(|(entity, servant, _)| (Prey::Servant(entity), servant.at))
+      )
+      .min_by(|a, b| a.1.distance(at).total_cmp(&b.1.distance(at)));
     haunt.reload -= dt;
     haunt.stagger -= dt;
     haunt.detour -= dt;
@@ -316,8 +334,8 @@ fn prowl(
     let pace = foe.speed() * conditions.pace();
     let side = if haunt.luck % 2 == 0 { 1.5 } else { -1.5 };
     let (wish, lift, yaw, chasing) = match target {
-      Some((controller, avatar, mut health, mut vigour, mut afflicted)) => {
-        let offset = avatar.at - at;
+      Some((prey, spot)) => {
+        let offset = spot - at;
         let facing = toward(offset.xz()) + if haunt.detour > 0.0 { side } else { 0.0 };
         let close =
           offset.xz().length() < foe.reach() && offset.y.abs() < bulk.tall.max(2.0);
@@ -326,24 +344,40 @@ fn prowl(
           if let Some(folk) = folk.as_mut() {
             folk.blows = folk.blows.wrapping_add(1)
           }
-          hurt(&mut health, &mut vigour, foe.blow());
-          for &(kind, secs) in foe.afflicts() {
-            afflicted.afflict(kind, secs)
+          match prey {
+            Prey::Player(player) => {
+              if let Ok((_, controller, _, mut health, mut vigour, mut afflicted)) =
+                players.get_mut(player)
+              {
+                hurt(&mut health, &mut vigour, foe.blow());
+                for &(kind, secs) in foe.afflicts() {
+                  afflicted.afflict(kind, secs)
+                }
+                let heft = if foe == Foe::Warden { 1.8 } else { 1.0 };
+                knocks.write(ToClients {
+                  targets: SendTargets::Single(controller.client),
+                  message: Knock(
+                    offset.xz().normalize_or_zero().extend(0.0).xzy() * KNOCK * heft
+                      + Vec3::Y * 5.0
+                  )
+                });
+              }
+            }
+            Prey::Servant(servant) => {
+              if let Ok((_, _, mut health)) = servants.get_mut(servant) {
+                health.0 = health.0.saturating_sub(foe.blow());
+                if health.0 == 0 {
+                  fell(&mut commands, servant)
+                }
+              }
+            }
           }
-          let heft = if foe == Foe::Warden { 1.8 } else { 1.0 };
-          knocks.write(ToClients {
-            targets: SendTargets::Single(controller.client),
-            message: Knock(
-              offset.xz().normalize_or_zero().extend(0.0).xzy() * KNOCK * heft
-                + Vec3::Y * 5.0
-            )
-          });
         }
         let wish = match close {
           true => Vec3::ZERO,
           false => ahead(facing) * pace
         };
-        (wish, avatar.at.y + 0.4 - at.y, facing, true)
+        (wish, spot.y + 0.4 - at.y, facing, true)
       }
       None => {
         if haunt.timer <= 0.0 {
@@ -423,7 +457,7 @@ fn swat(
   for &FromClient { client_id, message: Strike(target) } in strikes.read() {
     if let Ok((beast, mut health, mut haunt)) = beasts.get_mut(target)
       && let Some((player, avatar, mut vigour)) = player_of(players.iter_mut(), client_id)
-      && now - vigour.swung >= STRIKE_EVERY
+      && now - vigour.swung >= vigour.quick
       && (avatar.at + Vec3::Y * EYE).distance(beast.at) <= REACH + 1.0
       && health.0 > 0
     {

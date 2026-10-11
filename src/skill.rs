@@ -6,7 +6,8 @@ use {crate::{authority::{Controller, player_of},
              hud::SHADE,
              menu::{Act, EDGE, FAINT, INK, LIT, Menu, Pressed, Tab, words},
              player::Pilot,
-             protocol::{Health, Notice, authority, plays}},
+             protocol::{Health, Notice, authority, plays},
+             stance::Stance},
      bevy::{input::mouse::AccumulatedMouseScroll, prelude::*,
             ui::RelativeCursorPosition, window::PrimaryWindow},
      bevy_replicon::prelude::*,
@@ -67,7 +68,10 @@ pub enum Boon {
   Fortune(f32),
   Thrift(f32),
   Spell(Block),
-  Empower(Block)
+  Empower(Block),
+  Stance(Stance),
+  Lunge,
+  Momentum
 }
 
 pub fn spell_glyph(spell: Block) -> Glyph {
@@ -80,6 +84,11 @@ pub fn spell_glyph(spell: Block) -> Glyph {
     Block::SpellStoneskin => Glyph::Stone,
     Block::SpellLeap => Glyph::Feather,
     Block::SpellLight => Glyph::Sun,
+    Block::SpellFireball => Glyph::Burst,
+    Block::SpellIceStorm => Glyph::Storm,
+    Block::SpellAnimate => Glyph::Skull,
+    Block::SpellGuardian => Glyph::Ghost,
+    Block::SpellInvisibility => Glyph::Cloak,
     _ => Glyph::Thunder
   }
 }
@@ -94,6 +103,11 @@ pub fn mastery(spell: Block) -> &'static str {
     Block::SpellStoneskin => "Each rank lasts 15 s longer",
     Block::SpellLeap => "Each rank lasts 20 s longer",
     Block::SpellLight => "Each rank lasts a minute longer",
+    Block::SpellFireball => "Each rank adds 2 damage and a wider blast",
+    Block::SpellIceStorm => "Each rank adds 1 damage, a second and a wider storm",
+    Block::SpellAnimate => "Each rank keeps the dead up 15 s longer; rank 2 raises two",
+    Block::SpellGuardian => "Each rank keeps the guardian 15 s longer",
+    Block::SpellInvisibility => "Each rank lasts 10 s longer",
     _ => "Each rank adds 1 damage and a wider blast"
   }
 }
@@ -108,6 +122,13 @@ pub fn spell_text(spell: Block) -> &'static str {
     Block::SpellStoneskin => "Your skin turns to stone: take half damage",
     Block::SpellLeap => "Leap far higher and fall gently",
     Block::SpellLight => "A floating light follows you through the dark",
+    Block::SpellFireball => "A ball of fire that bursts, burning everything near it",
+    Block::SpellIceStorm => {
+      "Call a storm of hail where you aim: it hurts and chills all within"
+    }
+    Block::SpellAnimate => "Raise a skeleton thrall that fights at your side for a while",
+    Block::SpellGuardian => "Summon a spirit guardian whose touch chills your foes",
+    Block::SpellInvisibility => "Vanish from your foes' sight until you attack",
     _ => "A thunderous wave throws back everything around you"
   }
 }
@@ -126,7 +147,9 @@ impl Boon {
       Boon::Delve(_) => Glyph::Pick,
       Boon::Fortune(_) => Glyph::Gem,
       Boon::Thrift(_) => Glyph::Rune,
-      Boon::Spell(spell) | Boon::Empower(spell) => spell_glyph(spell)
+      Boon::Spell(spell) | Boon::Empower(spell) => spell_glyph(spell),
+      Boon::Stance(stance) => stance.glyph(),
+      Boon::Lunge | Boon::Momentum => Glyph::Dash
     }
   }
 
@@ -144,7 +167,10 @@ impl Boon {
       Boon::Fortune(_) => "Prospector".into(),
       Boon::Thrift(_) => "Frugal Casting".into(),
       Boon::Spell(spell) => format!("Learn {}", spell.name()),
-      Boon::Empower(spell) => format!("{} Mastery", spell.name())
+      Boon::Empower(spell) => format!("{} Mastery", spell.name()),
+      Boon::Stance(stance) => stance.name().into(),
+      Boon::Lunge => "Lunge".into(),
+      Boon::Momentum => "Momentum".into()
     }
   }
 
@@ -167,7 +193,15 @@ impl Boon {
         spell_text(spell),
         crate::spell::fuel(spell).name()
       ),
-      Boon::Empower(spell) => mastery(spell).into()
+      Boon::Empower(spell) => mastery(spell).into(),
+      Boon::Stance(stance) => format!(
+        "{}. Only one stance can be active: switch with G or on this page",
+        stance.describe()
+      ),
+      Boon::Lunge => {
+        "Press F to dash forward, striking up to three foes in your path".into()
+      }
+      Boon::Momentum => "Lunges deal 2 more damage".into()
     }
   }
 }
@@ -186,7 +220,7 @@ struct Grower(Vec<Talent>);
 impl Grower {
   fn add(&mut self, parent: Option<u16>, at: Vec2, boon: Boon, branch: Branch) -> u16 {
     let cost = match boon {
-      Boon::Spell(_) => 2,
+      Boon::Spell(_) | Boon::Stance(_) | Boon::Lunge => 2,
       Boon::Origin => 0,
       _ => 1
     };
@@ -202,6 +236,9 @@ impl Grower {
     boons: &[Boon],
     branch: Branch
   ) -> Vec<u16> {
+    let heading = self.0[usize::from(from)].parent.map_or(heading, |parent| {
+      (self.0[usize::from(from)].at - self.0[usize::from(parent)].at).to_angle()
+    });
     boons
       .iter()
       .enumerate()
@@ -418,6 +455,96 @@ fn grow() -> Vec<Talent> {
   );
   spell_arm(&mut grower, runes[4], arcanist, 1.0, Block::SpellFrost, Branch::Arcanist);
   spell_arm(&mut grower, runes[8], arcanist, -1.0, Block::SpellMissile, Branch::Arcanist);
+  spell_arm(
+    &mut grower,
+    ways[16],
+    wayfarer,
+    1.0,
+    Block::SpellInvisibility,
+    Branch::Wayfarer
+  );
+  spell_arm(&mut grower, guards[14], warden, -1.0, Block::SpellGuardian, Branch::Warden);
+  grower.arm(
+    guards[15],
+    warden,
+    1.0,
+    &[Boon::Stance(Stance::Defender), Boon::Guard(0.04), Boon::Vigor(2)],
+    Branch::Warden
+  );
+  grower.arm(
+    fists[1],
+    brawler,
+    -1.0,
+    &[
+      Boon::Stance(Stance::Berserker),
+      Boon::Might(1),
+      Boon::Stance(Stance::Duelist),
+      Boon::Stride(0.03)
+    ],
+    Branch::Brawler
+  );
+  grower.arm(
+    fists[12],
+    brawler,
+    1.0,
+    &[Boon::Lunge, Boon::Momentum, Boon::Stride(0.03), Boon::Momentum, Boon::Momentum],
+    Branch::Brawler
+  );
+  let tip = runes[runes.len() - 1];
+  let onward = (grower.0[usize::from(tip)].at
+    - grower.0[usize::from(runes[runes.len() - 2])].at)
+    .to_angle();
+  let runes: Vec<u16> = runes
+    .iter()
+    .copied()
+    .chain(grower.stem(
+      tip,
+      onward + degrees(1.6),
+      degrees(1.6),
+      &[
+        Boon::Thrift(0.04),
+        Boon::Mend(0.1),
+        Boon::Thrift(0.05),
+        Boon::Vigor(2),
+        Boon::Thrift(0.05),
+        Boon::Thrift(0.06),
+        Boon::Vigor(2),
+        Boon::Thrift(0.08)
+      ],
+      Branch::Arcanist
+    ))
+    .collect();
+  spell_arm(
+    &mut grower,
+    runes[10],
+    arcanist,
+    1.0,
+    Block::SpellFireball,
+    Branch::Arcanist
+  );
+  spell_arm(
+    &mut grower,
+    runes[13],
+    arcanist,
+    -1.0,
+    Block::SpellIceStorm,
+    Branch::Arcanist
+  );
+  grower.arm(
+    runes[15],
+    arcanist,
+    1.0,
+    &[Boon::Stance(Stance::Mystic), Boon::Thrift(0.05), Boon::Mend(0.1)],
+    Branch::Arcanist
+  );
+  spell_arm(
+    &mut grower,
+    runes[17],
+    arcanist,
+    -1.0,
+    Block::SpellAnimate,
+    Branch::Arcanist
+  );
   grower.0
 }
 
@@ -427,7 +554,9 @@ pub static TREE: LazyLock<Vec<Talent>> = LazyLock::new(grow);
 pub struct Skills {
   pub xp: u32,
   pub level: u32,
-  pub learned: Vec<u16>
+  pub learned: Vec<u16>,
+  #[serde(default)]
+  pub stance: Option<Stance>
 }
 
 pub fn needed(level: u32) -> u32 { 60 + level * 35 }
@@ -444,6 +573,19 @@ pub struct Stats {
   pub delve: f32,
   pub fortune: f32,
   pub thrift: f32
+}
+
+impl Stats {
+  fn with(self, stance: Option<Stance>) -> Stats {
+    match stance {
+      Some(stance) => Stats {
+        stride: self.stride * stance.pace(),
+        thrift: (self.thrift + stance.thrift()).min(0.8),
+        ..self
+      },
+      None => self
+    }
+  }
 }
 
 impl Skills {
@@ -484,38 +626,54 @@ impl Skills {
       .collect()
   }
 
+  pub fn stances(&self) -> Vec<Stance> {
+    Stance::ALL
+      .into_iter()
+      .filter(|&stance| self.boons().any(|boon| boon == Boon::Stance(stance)))
+      .collect()
+  }
+
+  pub fn lunges(&self) -> bool { self.boons().any(|boon| boon == Boon::Lunge) }
+
+  pub fn momentum(&self) -> u8 {
+    self.boons().filter(|&boon| boon == Boon::Momentum).count() as u8
+  }
+
   pub fn rank(&self, spell: Block) -> u8 {
     self.boons().filter(|&boon| boon == Boon::Empower(spell)).count() as u8
   }
 
   pub fn stats(&self) -> Stats {
-    self.boons().fold(
-      Stats {
-        stride: 1.0,
-        spring: 1.0,
-        swim: 1.0,
-        vigor: 0,
-        mend: 1.0,
-        guard: 0.0,
-        might: 0,
-        delve: 1.0,
-        fortune: 0.0,
-        thrift: 0.0
-      },
-      |stats, boon| match boon {
-        Boon::Stride(by) => Stats { stride: stats.stride + by, ..stats },
-        Boon::Spring(by) => Stats { spring: stats.spring + by, ..stats },
-        Boon::Swim(by) => Stats { swim: stats.swim + by, ..stats },
-        Boon::Vigor(by) => Stats { vigor: stats.vigor + by, ..stats },
-        Boon::Mend(by) => Stats { mend: stats.mend + by, ..stats },
-        Boon::Guard(by) => Stats { guard: (stats.guard + by).min(0.6), ..stats },
-        Boon::Might(by) => Stats { might: stats.might + by, ..stats },
-        Boon::Delve(by) => Stats { delve: stats.delve + by, ..stats },
-        Boon::Fortune(by) => Stats { fortune: stats.fortune + by, ..stats },
-        Boon::Thrift(by) => Stats { thrift: (stats.thrift + by).min(0.6), ..stats },
-        _ => stats
-      }
-    )
+    self
+      .boons()
+      .fold(
+        Stats {
+          stride: 1.0,
+          spring: 1.0,
+          swim: 1.0,
+          vigor: 0,
+          mend: 1.0,
+          guard: 0.0,
+          might: 0,
+          delve: 1.0,
+          fortune: 0.0,
+          thrift: 0.0
+        },
+        |stats, boon| match boon {
+          Boon::Stride(by) => Stats { stride: stats.stride + by, ..stats },
+          Boon::Spring(by) => Stats { spring: stats.spring + by, ..stats },
+          Boon::Swim(by) => Stats { swim: stats.swim + by, ..stats },
+          Boon::Vigor(by) => Stats { vigor: stats.vigor + by, ..stats },
+          Boon::Mend(by) => Stats { mend: stats.mend + by, ..stats },
+          Boon::Guard(by) => Stats { guard: (stats.guard + by).min(0.6), ..stats },
+          Boon::Might(by) => Stats { might: stats.might + by, ..stats },
+          Boon::Delve(by) => Stats { delve: stats.delve + by, ..stats },
+          Boon::Fortune(by) => Stats { fortune: stats.fortune + by, ..stats },
+          Boon::Thrift(by) => Stats { thrift: (stats.thrift + by).min(0.6), ..stats },
+          _ => stats
+        }
+      )
+      .with(self.stance)
   }
 
   pub fn most(&self) -> u8 { Health::FULL + self.stats().vigor }
@@ -577,20 +735,25 @@ fn earn(
 fn temper(mut players: Query<(&Skills, &Conditions, &mut Vigour), With<Controller>>) {
   for (skills, conditions, mut vigour) in players.iter_mut() {
     let stats = skills.stats();
+    let stance = skills.stance;
     let stone = if conditions.has(Kind::Stoneskin) { 0.5 } else { 1.0 };
-    let might = PUNCH + stats.might;
+    let might =
+      stance.map_or(PUNCH + stats.might, |stance| stance.punch(PUNCH + stats.might));
     let punch = if conditions.has(Kind::Weakened) { might.div_ceil(2) } else { might };
     let most = Health::FULL + stats.vigor;
-    let ward = (1.0 - stats.guard) * stone;
+    let ward = (1.0 - stats.guard) * stone * stance.map_or(1.0, Stance::ward);
+    let quick = stance.map_or(crate::stance::STRIKE_EVERY, Stance::quick);
     if vigour.most != most
       || vigour.ward != ward
       || vigour.punch != punch
       || vigour.mend != stats.mend
+      || vigour.quick != quick
     {
       vigour.most = most;
       vigour.ward = ward;
       vigour.punch = punch;
-      vigour.mend = stats.mend
+      vigour.mend = stats.mend;
+      vigour.quick = quick
     }
   }
 }
@@ -628,6 +791,9 @@ struct Canvas;
 struct Header;
 
 #[derive(Component)]
+struct Stances;
+
+#[derive(Component)]
 struct Spot(u16);
 
 #[derive(Component)]
@@ -660,6 +826,12 @@ pub fn page(page: &mut ChildSpawnerCommands) {
     .with_children(|row| {
       row.spawn((Header, words("", 18.0, INK)));
     });
+  page.spawn((Stances, Node {
+    column_gap: px(6),
+    align_items: AlignItems::Center,
+    min_height: px(30),
+    ..default()
+  }));
   page.spawn((
     Canvas,
     Button,
@@ -676,7 +848,7 @@ pub fn page(page: &mut ChildSpawnerCommands) {
     BackgroundColor(Color::srgba(0.02, 0.025, 0.04, 0.9))
   ));
   page.spawn(words(
-    "Drag to pan and scroll to zoom. Click a glowing node next to one you know to learn it. \
+    "Drag to pan and scroll to zoom. Click a glowing node next to one you know to learn it. G switches stance, F lunges once learned. \
      Earn experience by defeating foes, mining ore, opening chests and finding waystones.",
     13.0,
     FAINT
@@ -737,6 +909,10 @@ fn plant(
       }
     });
   }
+}
+
+fn notable(boon: Boon) -> bool {
+  matches!(boon, Boon::Spell(_) | Boon::Origin | Boon::Stance(_) | Boon::Lunge)
 }
 
 fn branch_end(branch: Branch) -> Vec2 {
@@ -805,8 +981,7 @@ fn arrange(
     let wide = NODE * view.zoom.max(0.55);
     for (spot, mut node) in spots.iter_mut() {
       let centre = place(TREE[usize::from(spot.0)].at);
-      let notable =
-        matches!(TREE[usize::from(spot.0)].boon, Boon::Spell(_) | Boon::Origin);
+      let notable = notable(TREE[usize::from(spot.0)].boon);
       let wide = if notable { wide * 1.3 } else { wide };
       node.left = px(centre.x - wide / 2.0);
       node.top = px(centre.y - wide / 2.0);
@@ -814,8 +989,7 @@ fn arrange(
       node.height = px(wide);
     }
     for (mark, mut node) in marks.iter_mut() {
-      let notable =
-        matches!(TREE[usize::from(mark.0)].boon, Boon::Spell(_) | Boon::Origin);
+      let notable = notable(TREE[usize::from(mark.0)].boon);
       let glyph = (wide - 10.0).max(8.0) * if notable { 1.3 } else { 1.0 };
       node.width = px(glyph);
       node.height = px(glyph);
@@ -1004,16 +1178,70 @@ fn obey(
   view: Res<View>,
   pilot: Option<Res<Pilot>>,
   skills: Query<&Skills>,
-  mut lessons: MessageWriter<Learn>
+  mut lessons: MessageWriter<Learn>,
+  mut adoptions: MessageWriter<crate::stance::Adopt>
 ) {
   let skills =
     pilot.and_then(|pilot| skills.get(pilot.me).ok().cloned()).unwrap_or_default();
   for &Pressed(act) in pressed.read() {
-    if let Act::Learn(node) = act
-      && !view.dragged
-      && standing(&skills, node) == (false, true)
-    {
-      lessons.write(Learn(node));
+    match act {
+      Act::Learn(node) if !view.dragged && standing(&skills, node) == (false, true) => {
+        lessons.write(Learn(node));
+      }
+      Act::Stance(stance) if stance != skills.stance => {
+        adoptions.write(crate::stance::Adopt(stance));
+      }
+      _ => ()
+    }
+  }
+}
+
+fn postures(
+  menu: Res<Menu>,
+  pilot: Option<Res<Pilot>>,
+  skills: Query<&Skills>,
+  rows: Query<Entity, With<Stances>>,
+  mut buttons: Query<(&Act, &mut BorderColor)>,
+  mut commands: Commands,
+  mut shown: Local<Option<(Vec<Stance>, Option<Stance>)>>
+) {
+  if menu.showing(Tab::Skills) {
+    let skills =
+      pilot.and_then(|pilot| skills.get(pilot.me).ok().cloned()).unwrap_or_default();
+    let state = (skills.stances(), skills.stance);
+    if shown.as_ref() != Some(&state) {
+      let (known, active) = &state;
+      for row in rows.iter() {
+        commands.entity(row).despawn_children().with_children(|row| {
+          row.spawn(words("Stance (G):", 16.0, FAINT));
+          match known.is_empty() {
+            true => {
+              row.spawn(words(
+                "learn one in the Brawler, Warden or Arcanist branches; only one can be \
+                 active at a time",
+                14.0,
+                FAINT
+              ));
+            }
+            false => {
+              crate::menu::button(row, "None", Act::Stance(None));
+              for &stance in known.iter() {
+                crate::menu::button(row, stance.short(), Act::Stance(Some(stance)))
+              }
+              row.spawn(words(active.map_or("", Stance::describe), 14.0, FAINT));
+            }
+          }
+        });
+      }
+      *shown = Some(state.clone())
+    }
+    for (act, mut border) in buttons.iter_mut() {
+      if let &Act::Stance(stance) = act {
+        border.set_if_neq(BorderColor::all(match stance == skills.stance {
+          true => LIT,
+          false => EDGE
+        }));
+      }
     }
   }
 }
@@ -1031,7 +1259,7 @@ impl Plugin for Skilling {
       .add_systems(Startup, tooltip.run_if(plays))
       .add_systems(
         Update,
-        (plant, steer, arrange, paint, explain, obey).chain().run_if(plays)
+        (plant, steer, arrange, paint, explain, obey, postures).chain().run_if(plays)
       );
   }
 }
@@ -1051,6 +1279,23 @@ mod tests {
     }
     let reach = tree.iter().map(|node| node.at.length()).fold(0.0, f32::max);
     assert!(reach > 15.0, "{reach}")
+  }
+
+  fn fingerprint(count: usize) -> u64 {
+    TREE.iter().take(count).fold(0xCBF29CE484222325, |sum, talent| {
+      format!("{:?}{:?}{:?}", talent.boon, talent.parent, talent.branch)
+        .bytes()
+        .fold(sum, |sum, byte| (sum ^ u64::from(byte)).wrapping_mul(0x100000001B3))
+    })
+  }
+
+  #[test]
+  fn learned_talents_keep_their_ids() {
+    assert_eq!(
+      fingerprint(137),
+      16156405072829733998,
+      "talents saved by players were renumbered: append new ones"
+    )
   }
 
   #[test]
