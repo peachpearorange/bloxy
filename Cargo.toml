@@ -45,15 +45,18 @@ bevy = { version = "0.19.1", default-features = false, features = ["multi_thread
 tungstenite = "0.28"
 ctrlc = { version = "3", features = ["termination"] }
 png = "0.18"
+cpal = { version = "0.17.3", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bevy = { version = "0.19.1", default-features = false, features = ["webgpu", "web"] }
 tracing = { version = "0.1", features = ["release_max_level_info"] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "ErrorEvent", "Window", "Location", "UrlSearchParams", "Storage", "Crypto", "Navigator", "Clipboard", "Document", "Element", "ClipboardEvent", "MouseEvent", "DataTransfer", "Event", "EventTarget"] }
+web-sys = { version = "0.3", features = ["WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "ErrorEvent", "Window", "Location", "UrlSearchParams", "Storage", "Crypto", "Navigator", "Clipboard", "Document", "Element", "ClipboardEvent", "MouseEvent", "DataTransfer", "Event", "EventTarget", "AudioContext", "AudioContextState", "BaseAudioContext", "AudioBuffer", "AudioBufferSourceNode", "AudioScheduledSourceNode", "AudioNode", "AudioParam", "GainNode", "StereoPannerNode", "AudioDestinationNode"] }
 
 [features]
+default = ["sound"]
+sound = ["dep:cpal"]
 dev = ["bevy/dynamic_linking"]
 
 [profile.release]

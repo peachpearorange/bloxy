@@ -26,7 +26,7 @@ jobs:
       - name: System libraries
         run: sudo apt-get update -q && sudo apt-get install -y -q pkg-config libwayland-dev libxkbcommon-dev libudev-dev libasound2-dev
       - name: Build
-        run: cargo build --profile server
+        run: cargo build --profile server --no-default-features
       - name: Trust the server
         if: env.DEPLOY_KEY != ''
         run: |

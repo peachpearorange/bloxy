@@ -1,4 +1,5 @@
-use {crate::{block::Block,
+use {crate::{audio::{Cue, Sound, footing},
+             block::Block,
              condition::{Conditions, Kind},
              gear::Material,
              local,
@@ -461,7 +462,7 @@ impl Gait {
   }
 }
 
-const STEP_LENGTH: f32 = 1.3;
+pub const STEP_LENGTH: f32 = 1.3;
 
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -613,11 +614,12 @@ fn work(
     MessageWriter<Shuffle>
   ),
   (boats, folk): (Query<&Vessel>, Query<&Folk>),
-  (mut inscription, signs, mut rests, mut pokes): (
+  (mut inscription, signs, mut rests, mut pokes, mut sounds): (
     ResMut<Inscription>,
     Query<&Sign>,
     MessageWriter<Rest>,
-    MessageWriter<Poke>
+    MessageWriter<Poke>,
+    MessageWriter<Sound>
   ),
   mut cooldown: Local<f32>
 ) {
@@ -664,6 +666,9 @@ fn work(
           aim.progress = 0.0;
           aim.digging = None;
           digs.write(Dig { at });
+          let middle = at.as_vec3() + 0.5;
+          sounds.write(Sound::at(footing(block), middle).louder(2.6));
+          sounds.write(Sound::at(Cue::Crumble, middle));
           if *role == Role::Guest {
             voxels.set(at, Block::Air)
           }
@@ -720,6 +725,7 @@ fn work(
         }
         Block::Chest => {
           opens.write(Open(hit.at));
+          sounds.write(Sound::at(Cue::Creak, hit.at.as_vec3() + 0.5));
         }
         _ => menu.show(Tab::Inventory, time.elapsed_secs())
       }
@@ -767,6 +773,8 @@ fn work(
         laid.is_none() || open(at + facing) && voxels.solid(at + facing - IVec3::Y);
       if !inside && hung && roomy && open(at) {
         puts.write(Put { at, block });
+        sounds.write(Sound::at(Cue::Thud, at.as_vec3() + 0.5));
+        sounds.write(Sound::at(footing(block), at.as_vec3() + 0.5).louder(2.0));
         if *role == Role::Guest {
           voxels.set(at, block);
           for (_, head) in laid.into_iter() {

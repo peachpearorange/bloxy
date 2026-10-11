@@ -118,7 +118,7 @@ fn turn(time: Res<Time>, mut weathers: Query<(&mut Weather, &mut Spell)>) {
 }
 
 #[derive(Resource)]
-struct Climate {
+pub struct Climate {
   cover: f32,
   wet: f32,
   sun: f32,
@@ -128,6 +128,8 @@ struct Climate {
 }
 
 impl Climate {
+  pub fn wet(&self) -> f32 { self.wet }
+
   fn dice(&mut self) -> f32 {
     self.luck = hash(self.luck, 0x2B, 0x57, 0x11);
     unit(self.luck, 0, 0, 0)
@@ -380,6 +382,7 @@ fn darken(
   mut suns: Query<&mut DirectionalLight>,
   mut fogs: Query<&mut DistanceFog, With<Eye>>,
   mut bolts: Query<(Entity, &mut Bolt)>,
+  mut sounds: MessageWriter<crate::audio::Sound>,
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -395,6 +398,10 @@ fn darken(
     let foot = pilot.at.xz() + Vec2::from_angle(angle) * reach;
     let ground = crate::generate::height(voxels.seed, foot.x as i32, foot.y as i32)
       .max(crate::island::SEA) as f32;
+    sounds.write(crate::audio::Sound::at(
+      crate::audio::Cue::Thunder,
+      Vec3::new(foot.x, ground + 20.0, foot.y)
+    ));
     let points: Vec<Vec3> = (0..=10)
       .map(|step| {
         let along = step as f32 / 10.0;

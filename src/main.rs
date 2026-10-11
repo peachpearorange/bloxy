@@ -3,6 +3,7 @@
 mod account;
 #[cfg(not(target_arch = "wasm32"))]
 mod admin;
+mod audio;
 mod authority;
 mod beast;
 mod bird;
@@ -293,7 +294,8 @@ fn main() {
       skill::Skilling,
       spell::Spells,
       stance::Stances,
-      summon::Summoning
+      summon::Summoning,
+      audio::Sounds
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

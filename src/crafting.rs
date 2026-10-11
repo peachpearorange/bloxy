@@ -865,7 +865,8 @@ fn obey(
   mut chosen: ResMut<Chosen>,
   mut shuffles: MessageWriter<Shuffle>,
   mut picks: MessageWriter<Picked>,
-  mut crafts: MessageWriter<Craft>
+  mut crafts: MessageWriter<Craft>,
+  mut sounds: MessageWriter<crate::audio::Sound>
 ) {
   let inventory = carried(&pilot, &inventories);
   let holding = inventory.slots[CURSOR].is_some();
@@ -891,6 +892,7 @@ fn obey(
       Act::Equipment => chosen.0 = None,
       Act::Craft(index) => {
         crafts.write(Craft(index));
+        sounds.write(crate::audio::Sound::here(crate::audio::Cue::Craft));
       }
       _ => ()
     }

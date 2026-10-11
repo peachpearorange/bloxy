@@ -642,7 +642,8 @@ fn cast(
   mut recharge: ResMut<Recharge>,
   mut charging: ResMut<Charging>,
   mut invocations: MessageWriter<Invoke>,
-  mut pokes: MessageWriter<Poke>
+  mut pokes: MessageWriter<Poke>,
+  mut sounds: MessageWriter<crate::audio::Sound>
 ) {
   let now = time.elapsed_secs();
   let free = captured(&cursor, &menu);
@@ -660,6 +661,7 @@ fn cast(
         let stance = skills.get(pilot.me).ok().and_then(|skills| skills.stance);
         recharge.0.insert(spell, now + crate::spell::recharge(spell, stance));
         invocations.write(Invoke { spell, toward: pilot.facing() * Vec3::NEG_Z });
+        sounds.write(crate::audio::Sound::here(crate::audio::Cue::Cast));
         pokes.write(Poke);
       }
       charging.spell = None

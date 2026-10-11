@@ -1368,10 +1368,11 @@ fn terracotta(x: u32, y: u32) -> Texel {
   }
 }
 
-fn spell(glyph: crate::glyph::Glyph, base: [f32; 3], x: u32, y: u32) -> Texel {
+fn spell(glyph: crate::glyph::Glyph, palette: Palette, x: u32, y: u32) -> Texel {
   glyph.shade(x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |shade| {
-    let [r, g, b] = crate::glyph::shades(base)[shade];
-    Texel::rgb(r, g, b).glowing(if shade == 3 { 0.5 } else { 0.0 })
+    let lit = 1.08 - (x + y) as f32 / 30.0 * 0.24;
+    let [r, g, b] = palette[shade];
+    Texel::rgb(r * lit, g * lit, b * lit).glowing(if shade == 3 { 0.5 } else { 0.0 })
   })
 }
 
@@ -1598,20 +1599,90 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
       (true, texel) if texel.color[3] > 0.0 => flame(x, y + 5),
       (_, texel) => texel
     },
-    Tile::SpellFirebolt => spell(crate::glyph::Glyph::Flame, [0.95, 0.42, 0.12], x, y),
-    Tile::SpellFrost => spell(crate::glyph::Glyph::Snowflake, [0.45, 0.75, 1.0], x, y),
-    Tile::SpellMissile => spell(crate::glyph::Glyph::Missile, [0.72, 0.45, 1.0], x, y),
-    Tile::SpellHeal => spell(crate::glyph::Glyph::Mend, [0.4, 0.92, 0.45], x, y),
-    Tile::SpellHaste => spell(crate::glyph::Glyph::Hourglass, [0.98, 0.82, 0.25], x, y),
-    Tile::SpellStoneskin => spell(crate::glyph::Glyph::Stone, [0.62, 0.6, 0.55], x, y),
-    Tile::SpellLeap => spell(crate::glyph::Glyph::Feather, [0.75, 0.9, 0.98], x, y),
-    Tile::SpellLight => spell(crate::glyph::Glyph::Sun, [1.0, 0.9, 0.55], x, y),
-    Tile::SpellThunder => spell(crate::glyph::Glyph::Thunder, [0.5, 0.7, 1.0], x, y),
-    Tile::SpellFireball => spell(crate::glyph::Glyph::Burst, [1.0, 0.55, 0.15], x, y),
-    Tile::SpellIceStorm => spell(crate::glyph::Glyph::Storm, [0.6, 0.85, 1.0], x, y),
-    Tile::SpellAnimate => spell(crate::glyph::Glyph::Skull, [0.75, 0.95, 0.55], x, y),
-    Tile::SpellGuardian => spell(crate::glyph::Glyph::Ghost, [0.55, 0.75, 1.0], x, y),
-    Tile::SpellInvisibility => spell(crate::glyph::Glyph::Cloak, [0.7, 0.6, 0.85], x, y),
+    Tile::SpellFirebolt => spell(
+      crate::glyph::Glyph::Flame,
+      [[0.45, 0.08, 0.05], [0.85, 0.25, 0.06], [1.0, 0.55, 0.1], [1.0, 0.88, 0.45]],
+      x,
+      y
+    ),
+    Tile::SpellFrost => spell(
+      crate::glyph::Glyph::Snowflake,
+      [[0.1, 0.2, 0.45], [0.25, 0.5, 0.85], [0.55, 0.82, 1.0], [0.9, 0.98, 1.0]],
+      x,
+      y
+    ),
+    Tile::SpellMissile => spell(
+      crate::glyph::Glyph::Missile,
+      [[0.28, 0.08, 0.45], [0.55, 0.2, 0.85], [0.82, 0.45, 1.0], [1.0, 0.8, 1.0]],
+      x,
+      y
+    ),
+    Tile::SpellHeal => spell(
+      crate::glyph::Glyph::Mend,
+      [[0.06, 0.3, 0.16], [0.2, 0.62, 0.3], [0.5, 0.88, 0.45], [0.88, 1.0, 0.75]],
+      x,
+      y
+    ),
+    Tile::SpellHaste => spell(
+      crate::glyph::Glyph::Hourglass,
+      [[0.45, 0.25, 0.05], [0.8, 0.55, 0.1], [0.98, 0.82, 0.3], [1.0, 0.97, 0.7]],
+      x,
+      y
+    ),
+    Tile::SpellStoneskin => spell(
+      crate::glyph::Glyph::Stone,
+      [[0.25, 0.22, 0.18], [0.5, 0.45, 0.36], [0.7, 0.65, 0.52], [0.9, 0.86, 0.72]],
+      x,
+      y
+    ),
+    Tile::SpellLeap => spell(
+      crate::glyph::Glyph::Feather,
+      [[0.15, 0.35, 0.4], [0.35, 0.65, 0.7], [0.65, 0.9, 0.88], [0.92, 1.0, 0.98]],
+      x,
+      y
+    ),
+    Tile::SpellLight => spell(
+      crate::glyph::Glyph::Sun,
+      [[0.5, 0.32, 0.06], [0.9, 0.66, 0.15], [1.0, 0.88, 0.45], [1.0, 1.0, 0.85]],
+      x,
+      y
+    ),
+    Tile::SpellThunder => spell(
+      crate::glyph::Glyph::Thunder,
+      [[0.25, 0.12, 0.45], [0.55, 0.35, 0.9], [0.95, 0.85, 0.35], [1.0, 1.0, 0.8]],
+      x,
+      y
+    ),
+    Tile::SpellFireball => spell(
+      crate::glyph::Glyph::Burst,
+      [[0.4, 0.05, 0.12], [0.8, 0.2, 0.1], [1.0, 0.48, 0.12], [1.0, 0.82, 0.35]],
+      x,
+      y
+    ),
+    Tile::SpellIceStorm => spell(
+      crate::glyph::Glyph::Storm,
+      [[0.16, 0.18, 0.4], [0.38, 0.45, 0.75], [0.65, 0.78, 0.95], [0.92, 0.96, 1.0]],
+      x,
+      y
+    ),
+    Tile::SpellAnimate => spell(
+      crate::glyph::Glyph::Skull,
+      [[0.18, 0.2, 0.1], [0.42, 0.5, 0.25], [0.75, 0.8, 0.55], [0.75, 1.0, 0.5]],
+      x,
+      y
+    ),
+    Tile::SpellGuardian => spell(
+      crate::glyph::Glyph::Ghost,
+      [[0.12, 0.2, 0.4], [0.3, 0.48, 0.78], [0.6, 0.8, 0.98], [0.9, 0.98, 1.0]],
+      x,
+      y
+    ),
+    Tile::SpellInvisibility => spell(
+      crate::glyph::Glyph::Cloak,
+      [[0.2, 0.12, 0.3], [0.42, 0.32, 0.58], [0.66, 0.58, 0.82], [0.88, 0.84, 0.98]],
+      x,
+      y
+    ),
     Tile::Pickaxe => forged(Block::Pickaxe, Material::Iron, x, y),
     Tile::Axe => forged(Block::Axe, Material::Iron, x, y),
     Tile::Shovel => forged(Block::Shovel, Material::Iron, x, y),

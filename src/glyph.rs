@@ -714,15 +714,6 @@ impl Glyph {
   }
 }
 
-pub fn shades(base: [f32; 3]) -> Shades {
-  [
-    base.map(|channel| channel * 0.18),
-    base.map(|channel| channel * 0.62),
-    base,
-    base.map(|channel| (channel * 1.25 + 0.22).min(1.0))
-  ]
-}
-
 pub const CELL: u32 = 16;
 
 pub fn sheet(paints: &[(Glyph, Shades)]) -> Image {
@@ -777,7 +768,9 @@ mod tests {
         match (x.checked_sub(1), y.checked_sub(1)) {
           (Some(x), Some(y)) if x < 16 && y < 16 => {
             Glyph::ALL[cell as usize].shade(x, y).map_or([40, 44, 50], |shade| {
-              shades([0.9, 0.7, 0.3])[shade].map(|channel| (channel * 255.0) as u8)
+              [[0.16, 0.13, 0.05], [0.56, 0.43, 0.19], [0.9, 0.7, 0.3], [1.0, 0.9, 0.6]]
+                [shade]
+                .map(|channel: f32| (channel * 255.0) as u8)
             })
           }
           _ => [20, 22, 26]
