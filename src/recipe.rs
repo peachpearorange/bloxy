@@ -87,7 +87,7 @@ pub const RECIPES: &[Recipe] = &[
   table(&[(Block::Planks, 3), (Block::Wool, 3)], (Block::Bed, 1)),
   table(&[(Block::Planks, 3), (Block::Feather, 6)], (Block::Bed, 1)),
   table(&[(Block::Planks, 3), (Block::Wool, 1)], (Block::FishingRod, 1)),
-  hand(&[(Block::Adra, 1)], (Block::ArcaneDust, 4)),
+  hand(&[(Block::Lumen, 1)], (Block::ArcaneDust, 4)),
   hand(&[(Block::BonePile, 1)], (Block::BoneDust, 3)),
   table(&[(Block::Wool, 1), (Block::Cod, 1)], (Block::Candle, 3)),
   table(&[(Block::Wool, 1), (Block::Salmon, 1)], (Block::Candle, 3)),

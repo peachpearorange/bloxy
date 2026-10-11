@@ -393,7 +393,7 @@ fn ore(block: Block) -> u32 {
     Block::CopperOre | Block::TinOre | Block::IronOre => 2,
     Block::GoldOre => 5,
     Block::DiamondOre => 12,
-    Block::Adra => 4,
+    Block::Lumen => 4,
     _ => 0
   }
 }

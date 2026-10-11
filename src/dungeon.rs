@@ -473,7 +473,7 @@ impl Plan {
                 .into_iter()
                 .any(|way| self.cells.get(&(at + way)) == Some(&Stamp::Open));
               if bordered && self.speck(at, 0xAD7A) < 0.06 {
-                self.put(at, Block::Adra)
+                self.put(at, Block::Lumen)
               }
             }
           }
@@ -587,7 +587,7 @@ impl Plan {
           IVec3::new(high.x - 1, low.y, low.z + 1)
         ] {
           for up in -2..tall {
-            self.put(corner + IVec3::Y * up, Block::Adra)
+            self.put(corner + IVec3::Y * up, Block::Lumen)
           }
         }
         self.light(centre);
@@ -966,7 +966,7 @@ pub fn loot(seed: u32, at: IVec3, tier: u8) -> Vec<(Block, u16)> {
     (Block::IronOre, 2, 5),
     (Block::GoldOre, 1, 3),
     (Block::Torch, 4, 8),
-    (Block::Adra, 1, 3)
+    (Block::Lumen, 1, 3)
   ];
   let picks = 2 + u32::from(tier) * 2;
   let mut found: Vec<(Block, u16)> = (0..picks)

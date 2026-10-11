@@ -218,7 +218,10 @@ fn animate(
   let dt = time.delta_secs();
   for (avatar, mirrored, mut figure, mut transform, children) in figures.iter_mut() {
     let avatar = match mirrored {
-      true => pilot.as_ref().map_or_else(Avatar::default, |pilot| pilot.avatar()),
+      true => pilot.as_ref().map_or_else(Avatar::default, |pilot| Avatar {
+        at: pilot.at + Vec3::Y * pilot.lift,
+        ..pilot.avatar()
+      }),
       false => avatar.copied().unwrap_or_default()
     };
     let before = figure.shown;

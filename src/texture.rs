@@ -1085,7 +1085,7 @@ const CANDLE: Art = [
   "................"
 ];
 
-fn adra(x: u32, y: u32) -> Texel {
+fn lumen(x: u32, y: u32) -> Texel {
   let facet = ((x + y * 2) / 5 + (x * 3 + 16 - y) / 7) % 4;
   let vein = (x * 7 + y * 3) % 11 == 0 || (x + 16 - y) % 9 == 0;
   let base =
@@ -1324,7 +1324,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
       }
       _ => ancient(x, y)
     },
-    Tile::Adra => adra(x, y),
+    Tile::Lumen => lumen(x, y),
     Tile::BonePile => drawn(&BONES, &IVORY, x, y)
       .unwrap_or_else(|| ramp(&BLACK, 0.2 + lattice(0x7B, 8, x, y) * 0.3)),
     Tile::Cobweb => drawn(&WEB, &WHITE, x, y)

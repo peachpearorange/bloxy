@@ -44,6 +44,7 @@ pub struct Pilot {
   pub walled: bool,
   pub dried: f32,
   pub staggered: f32,
+  pub lift: f32,
   pub riding: Option<Riding>,
   pub held: Option<Block>
 }
@@ -121,6 +122,7 @@ fn possess(
       walled: false,
       dried: 0.0,
       staggered: 0.0,
+      lift: 0.0,
       riding: None,
       held: None
     })
@@ -236,6 +238,16 @@ pub fn slide(
       (moved, true)
     }
   }
+}
+
+const STEP_UP: f32 = 1.05;
+const LIFT_EASE: f32 = 10.0;
+
+fn step_up(voxels: &Voxels, at: Vec3, axis: usize, distance: f32) -> Option<Vec3> {
+  let (raised, bumped) = slide(voxels, Bulk::PERSON, at, 1, STEP_UP);
+  let (ahead, blocked) = slide(voxels, Bulk::PERSON, raised, axis, distance);
+  let (settled, _) = slide(voxels, Bulk::PERSON, ahead, 1, -STEP_UP);
+  (!bumped && !blocked && settled.y > at.y + 0.01).then_some(settled)
 }
 
 pub struct Marched {
@@ -368,19 +380,45 @@ fn fly(
       };
       pilot.velocity = Vec3::new(horizontal.x, vertical, horizontal.y);
       pilot.swimming = swimming;
+      let footed = !swimming && !climbing && pilot.staggered <= 0.0;
       let (at, mut velocity) = (pilot.at, pilot.velocity);
-      let (at, landed, walled) =
-        [1, 0, 2].into_iter().fold((at, false, false), |(at, landed, walled), axis| {
-          let (at, hit) = slide(&voxels, Bulk::PERSON, at, axis, velocity[axis] * STEP);
-          if hit {
-            velocity[axis] = 0.0
+      let (at, landed, walled, lifted) = [1, 0, 2].into_iter().fold(
+        (at, false, false, 0.0),
+        |(at, landed, walled, lifted), axis| {
+          let distance = velocity[axis] * STEP;
+          let (moved, hit) = slide(&voxels, Bulk::PERSON, at, axis, distance);
+          let stepped = (axis != 1 && hit && landed && footed)
+            .then(|| step_up(&voxels, at, axis, distance))
+            .flatten();
+          match stepped {
+            Some(stepped) => (stepped, landed, walled, lifted + stepped.y - at.y),
+            None => {
+              if hit {
+                velocity[axis] = 0.0
+              }
+              (
+                moved,
+                landed || (axis == 1 && hit && pilot.velocity.y < 0.0),
+                walled || (axis != 1 && hit),
+                lifted
+              )
+            }
           }
-          (
-            at,
-            landed || (axis == 1 && hit && pilot.velocity.y < 0.0),
-            walled || (axis != 1 && hit)
-          )
-        });
+        }
+      );
+      let (dropped, floored) =
+        match pilot.grounded && !landed && footed && velocity.y <= 0.0 {
+          true => slide(&voxels, Bulk::PERSON, at, 1, -STEP_UP),
+          false => (at, false)
+        };
+      let (at, landed, lifted) = match floored {
+        true => (dropped, true, lifted + dropped.y - at.y),
+        false => (at, landed, lifted)
+      };
+      if floored {
+        velocity.y = 0.0
+      }
+      pilot.lift = (pilot.lift - lifted).clamp(-1.5, 1.5) * (1.0 - STEP * LIFT_EASE);
       pilot.at = at;
       pilot.velocity = velocity;
       pilot.grounded = landed;
@@ -448,15 +486,15 @@ fn follow(
   let placed = match *view {
     View::First => {
       let sway = gait.sway() * BOB;
-      Transform::from_translation(pilot.eye() + pilot.facing() * sway)
-        .with_rotation(pilot.facing() * Quat::from_rotation_z(sway.x * 0.25))
+      Transform::from_translation(
+        pilot.eye() + Vec3::Y * pilot.lift + pilot.facing() * sway
+      )
+      .with_rotation(pilot.facing() * Quat::from_rotation_z(sway.x * 0.25))
     }
     View::Behind => {
-      let back = pilot.facing() * Vec3::Z;
-      Transform::from_translation(
-        pilot.eye() + back * backed(voxels.as_deref(), pilot.eye(), back)
-      )
-      .with_rotation(pilot.facing())
+      let (back, eye) = (pilot.facing() * Vec3::Z, pilot.eye() + Vec3::Y * pilot.lift);
+      Transform::from_translation(eye + back * backed(voxels.as_deref(), eye, back))
+        .with_rotation(pilot.facing())
     }
   };
   for mut eye in eyes.iter_mut() {

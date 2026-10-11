@@ -1,7 +1,7 @@
 use {crate::{block::Block,
              dungeon::Dungeon,
-             island::{Island, Kind, Rise, SEA, Wood},
-             noise::{fbm2, hash, perlin2, perlin3, unit},
+             island::{Island, Kind, Rise, SEA, Wood, landmass},
+             noise::{fbm2, hash, perlin2, perlin3, smoothstep, unit},
              voxels::{Chunk, SIZE, VOLUME, origin_of}},
      bevy::prelude::*};
 
@@ -28,8 +28,9 @@ struct Surface {
 }
 
 fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
-  let floor = SEA as f32 - 16.0
-    + fbm2(seed.wrapping_add(32), x as f32 / 60.0, z as f32 / 60.0, 2) * 5.0;
+  let deep = smoothstep(0.12, -0.16, landmass(seed, Vec2::new(x as f32, z as f32)));
+  let floor = SEA as f32 - 9.0 - deep * 18.0
+    + fbm2(seed.wrapping_add(32), x as f32 / 60.0, z as f32 / 60.0, 2) * 4.0;
   islands
     .iter()
     .filter_map(|island| island.rise(seed, x, z).map(|rise| (*island, rise)))
@@ -42,7 +43,7 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     })
 }
 
-pub const GENERATION: u32 = 4;
+pub const GENERATION: u32 = 5;
 
 pub fn overview(seed: u32, x: i32, z: i32) -> (Block, i32, i32) {
   let spot = IVec2::new(x, z);
@@ -782,7 +783,7 @@ mod tests {
   #[test]
   #[ignore]
   fn map() {
-    let (span, step) = (1280, 2);
+    let (span, step) = (2560, 2);
     let pixels = span / step;
     let islands = Island::within(1, IVec2::splat(-span / 2), IVec2::splat(span / 2));
     let image: Vec<u8> = (0..pixels * pixels)
@@ -799,7 +800,11 @@ mod tests {
             [255, 120, 0]
           }
           _ if ground.height < SEA && ground.ice => [200, 225, 245],
-          _ if ground.height < SEA => [30, 60, 140],
+          _ if ground.height < SEA => {
+            let depth = ((SEA - ground.height) as f32 / 28.0).clamp(0.0, 1.0);
+            [60.0 - depth * 40.0, 150.0 - depth * 100.0, 170.0 - depth * 40.0]
+              .map(|channel| channel as u8)
+          }
           Block::Grass => [70, 130, 50],
           Block::Sand => [220, 205, 140],
           Block::Snow => [240, 240, 250],
@@ -809,7 +814,10 @@ mod tests {
           Block::Gravel => [130, 130, 130],
           _ => [110, 110, 110]
         };
-        let shade = (0.6 + (ground.height - SEA) as f32 / 120.0).clamp(0.5, 1.2);
+        let shade = match ground.height < SEA {
+          true => 1.0,
+          false => (0.6 + (ground.height - SEA) as f32 / 120.0).clamp(0.5, 1.2)
+        };
         colour.map(|channel| (channel as f32 * shade).min(255.0) as u8)
       })
       .collect();
