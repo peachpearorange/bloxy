@@ -39,9 +39,6 @@ struct Recipes;
 struct Marks;
 
 #[derive(Component)]
-struct Grimoire;
-
-#[derive(Component)]
 struct Tooltip;
 
 #[derive(Component)]
@@ -206,14 +203,6 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
           13.0,
           FAINT
         ));
-        left.spawn(words("Spells", 15.0, FAINT));
-        left.spawn((Grimoire, Node { flex_shrink: 0.0, ..grid() }));
-        left.spawn(words(
-          "Spells you learn in the skill tree (K) show here. Click one, then a hotbar slot, \
-           to equip it; right-click with it selected to cast. Each cast burns its fuel.",
-          13.0,
-          FAINT
-        ));
       });
       columns
         .spawn(column(Some(HOTBAR as f32 * (CELL + GAP) + 180.0), 0.0))
@@ -296,6 +285,14 @@ fn carried(pilot: &Option<Res<Pilot>>, inventories: &Query<&Inventory>) -> Inven
     .unwrap_or_default()
 }
 
+fn known(pilot: &Option<Res<Pilot>>, skills: &Query<&Skills>) -> Vec<Block> {
+  pilot
+    .as_ref()
+    .and_then(|pilot| skills.get(pilot.me).ok())
+    .map(Skills::spells)
+    .unwrap_or_default()
+}
+
 fn fill(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
@@ -367,37 +364,6 @@ fn entry(
   list.spawn(tile(Act::Inspect(block), border)).with_child(icon(block, 40.0, palette));
 }
 
-fn grimoire(
-  menu: Res<Menu>,
-  pilot: Option<Res<Pilot>>,
-  skills: Query<&Skills>,
-  palette: Res<Palette>,
-  lists: Query<Entity, With<Grimoire>>,
-  mut commands: Commands,
-  mut shown: Local<Option<Vec<Block>>>
-) {
-  if menu.showing(Tab::Inventory) {
-    let known = pilot
-      .and_then(|pilot| skills.get(pilot.me).ok().map(Skills::spells))
-      .unwrap_or_default();
-    if shown.as_ref() != Some(&known) {
-      for list in lists.iter() {
-        commands.entity(list).despawn_children().with_children(|list| {
-          for &spell in known.iter() {
-            list
-              .spawn(tile(Act::Conjure(spell), Color::srgb(0.5, 0.4, 0.85)))
-              .with_child(icon(spell, 40.0, &palette));
-          }
-          if known.is_empty() {
-            list.spawn(words("None yet", 14.0, FAINT));
-          }
-        });
-      }
-      *shown = Some(known)
-    }
-  }
-}
-
 fn catalogue(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
@@ -406,6 +372,7 @@ fn catalogue(
   nearby: Res<Nearby>,
   search: Res<Search>,
   bookmarks: Query<&Bookmarks>,
+  skills: Query<&Skills>,
   palette: Res<Palette>,
   lists: Query<Entity, With<Catalogue>>,
   marks: Query<Entity, With<Marks>>,
@@ -414,14 +381,21 @@ fn catalogue(
 ) {
   if menu.showing(Tab::Inventory) {
     let inventory = carried(&pilot, &inventories);
+    let spells = known(&pilot, &skills);
     let describe = |block: Block| {
-      (block, recipe::craftable(block, &inventory, &nearby.0), chosen.0 == Some(block))
+      (
+        block,
+        recipe::craftable(block, &inventory, &nearby.0, &spells),
+        chosen.0 == Some(block)
+      )
     };
     let query = search.0.trim().to_lowercase();
     let mut entries: Vec<(Block, bool, bool)> = Block::ALL
       .into_iter()
       .filter(|block| {
-        block.item() && !block.spell() && block.name().to_lowercase().contains(&query)
+        block.item()
+          && (!block.spell() || spells.contains(block))
+          && block.name().to_lowercase().contains(&query)
       })
       .map(describe)
       .collect();
@@ -461,6 +435,7 @@ fn card(
   recipe: &Recipe,
   inventory: &Inventory,
   nearby: &[Block],
+  spells: &[Block],
   palette: &Palette
 ) {
   let ingredient = |row: &mut ChildSpawnerCommands, block: Block| {
@@ -477,6 +452,10 @@ fn card(
         .station
         .filter(|_| !recipe.housed(nearby))
         .map(|station| format!("a {} within reach", station.name()))
+    )
+    .chain(
+      (!recipe.learned(spells))
+        .then(|| format!("the {} talent (K)", recipe.output.0.name()))
     )
     .collect();
   parent
@@ -519,15 +498,17 @@ fn recipes(
   inventories: Query<&Inventory>,
   chosen: Res<Chosen>,
   nearby: Res<Nearby>,
+  skills: Query<&Skills>,
   palette: Res<Palette>,
   containers: Query<Entity, With<Recipes>>,
   mut commands: Commands,
-  mut shown: Local<Option<(Option<Block>, Inventory, Vec<Block>)>>
+  mut shown: Local<Option<(Option<Block>, Inventory, Vec<Block>, Vec<Block>)>>
 ) {
   if menu.showing(Tab::Inventory) {
-    let state = (chosen.0, carried(&pilot, &inventories), nearby.0.clone());
+    let state =
+      (chosen.0, carried(&pilot, &inventories), nearby.0.clone(), known(&pilot, &skills));
     if shown.as_ref() != Some(&state) {
-      let (chosen, inventory, nearby) = &state;
+      let (chosen, inventory, nearby, spells) = &state;
       for container in containers.iter() {
         commands.entity(container).despawn_children().with_children(
           |panel| match *chosen {
@@ -547,14 +528,14 @@ fn recipes(
                 panel.spawn(words("Not craftable: gather it in the world.", 14.0, INK));
               }
               for (index, recipe) in making.into_iter() {
-                card(panel, index, recipe, inventory, nearby, &palette)
+                card(panel, index, recipe, inventory, nearby, spells, &palette)
               }
               let using: Vec<_> = recipe::using(block).collect();
               if !using.is_empty() {
                 panel.spawn(words("Used in", 15.0, FAINT));
               }
               for (index, recipe) in using.into_iter() {
-                card(panel, index, recipe, inventory, nearby, &palette)
+                card(panel, index, recipe, inventory, nearby, spells, &palette)
               }
             }
           }
@@ -673,7 +654,7 @@ fn hint(
     .iter()
     .filter(|(interaction, _)| **interaction != Interaction::None)
     .find_map(|(_, act)| match *act {
-      Act::Inspect(block) | Act::Conjure(block) => Some((block, None)),
+      Act::Inspect(block) => Some((block, None)),
       Act::Slot(index) => {
         inventory.slots[usize::from(index)].map(|stack| (stack.block, Some(stack.count)))
       }
@@ -696,11 +677,9 @@ fn hint(
         visibility.set_if_neq(Visibility::Inherited);
         let line = match count {
           _ if block.spell() => format!(
-            "{} - {}. Uses {} ({} carried)",
+            "{} - {}. Hold right click to charge, release to cast; each cast uses one",
             block.name(),
-            crate::skill::spell_text(block),
-            crate::spell::fuel(block).name(),
-            inventory.count(crate::spell::fuel(block))
+            crate::skill::spell_text(block)
           ),
           Some(count) if count > 1 => format!("{} x{count}", block.name()),
           _ => block.name().to_string()
@@ -771,8 +750,7 @@ fn obey(
   mut chosen: ResMut<Chosen>,
   mut shuffles: MessageWriter<Shuffle>,
   mut picks: MessageWriter<Picked>,
-  mut crafts: MessageWriter<Craft>,
-  mut conjures: MessageWriter<crate::spell::Conjure>
+  mut crafts: MessageWriter<Craft>
 ) {
   let inventory = carried(&pilot, &inventories);
   let holding = inventory.slots[CURSOR].is_some();
@@ -798,9 +776,6 @@ fn obey(
       Act::Craft(index) => {
         crafts.write(Craft(index));
       }
-      Act::Conjure(spell) if !holding => {
-        conjures.write(crate::spell::Conjure(spell));
-      }
       _ => ()
     }
   }
@@ -816,7 +791,7 @@ impl Plugin for Crafting {
       .add_systems(Startup, tooltip.after(crate::stream::paint).run_if(plays))
       .add_systems(
         Update,
-        (obey, survey, fill, carry, catalogue, grimoire, recipes, rewind, scroll, hint)
+        (obey, survey, fill, carry, catalogue, recipes, rewind, scroll, hint)
           .chain()
           .run_if(plays)
       );

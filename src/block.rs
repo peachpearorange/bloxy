@@ -710,8 +710,8 @@ impl Block {
     match self {
       Block::WaterBucket | Block::LavaBucket | Block::Boat | Block::FishingRod => 1,
       Block::Bed => 1,
-      spell if spell.spell() => 1,
       Block::Bucket => 16,
+      spell if spell.spell() => 16,
       _ => 64
     }
   }

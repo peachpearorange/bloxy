@@ -396,17 +396,6 @@ fn refresh(
   }
   for (count, mut text, mut colour) in counts.iter_mut() {
     let (shown, tint) = match inventory.slots[count.0] {
-      Some(stack) if stack.block.spell() => {
-        let fuel = inventory.count(crate::spell::fuel(stack.block));
-        (
-          fuel.to_string(),
-          if fuel == 0 {
-            Color::srgb(1.0, 0.4, 0.35)
-          } else {
-            Color::srgb(0.75, 0.85, 1.0)
-          }
-        )
-      }
       Some(stack) if stack.count > 1 => (stack.count.to_string(), Color::WHITE),
       _ => (String::new(), Color::WHITE)
     };

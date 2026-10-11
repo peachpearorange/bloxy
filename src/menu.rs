@@ -146,8 +146,7 @@ pub enum Act {
   Trade(u8),
   Hue(u8),
   Learn(u16),
-  Stance(Option<crate::stance::Stance>),
-  Conjure(Block)
+  Stance(Option<crate::stance::Stance>)
 }
 
 #[derive(Message, Clone, Copy)]

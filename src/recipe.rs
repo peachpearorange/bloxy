@@ -23,14 +23,30 @@ impl Recipe {
     self.station.is_none_or(|station| stations.contains(&station))
   }
 
-  pub fn ready(&self, inventory: &Inventory, stations: &[Block]) -> bool {
-    self.housed(stations) && self.missing(inventory).is_empty()
+  pub fn learned(&self, spells: &[Block]) -> bool {
+    let (output, _) = self.output;
+    !output.spell() || spells.contains(&output)
   }
 
-  pub fn made(&self, inventory: &Inventory, stations: &[Block]) -> Option<Inventory> {
+  pub fn ready(
+    &self,
+    inventory: &Inventory,
+    stations: &[Block],
+    spells: &[Block]
+  ) -> bool {
+    self.housed(stations) && self.learned(spells) && self.missing(inventory).is_empty()
+  }
+
+  pub fn made(
+    &self,
+    inventory: &Inventory,
+    stations: &[Block],
+    spells: &[Block]
+  ) -> Option<Inventory> {
     let mut after = inventory.clone();
     let (output, count) = self.output;
     (self.housed(stations)
+      && self.learned(spells)
       && self.inputs.iter().all(|&(block, need)| (0..need).all(|_| after.take(block)))
       && (0..count).all(|_| after.add(output)))
     .then_some(after)
@@ -92,7 +108,21 @@ pub const RECIPES: &[Recipe] = &[
   table(&[(Block::Wool, 1), (Block::Cod, 1)], (Block::Candle, 3)),
   table(&[(Block::Wool, 1), (Block::Salmon, 1)], (Block::Candle, 3)),
   furnace(&[(Block::IronOre, 2), (Block::CoalOre, 1)], (Block::Brazier, 1)),
-  furnace(&[(Block::Cobblestone, 4), (Block::Clay, 1)], (Block::AncientBrick, 4))
+  furnace(&[(Block::Cobblestone, 4), (Block::Clay, 1)], (Block::AncientBrick, 4)),
+  hand(&[(Block::ArcaneDust, 1)], (Block::SpellFirebolt, 2)),
+  hand(&[(Block::ArcaneDust, 1)], (Block::SpellFrost, 3)),
+  hand(&[(Block::ArcaneDust, 1)], (Block::SpellMissile, 2)),
+  hand(&[(Block::Candle, 1)], (Block::SpellHeal, 1)),
+  hand(&[(Block::LizardClaw, 1)], (Block::SpellHaste, 1)),
+  hand(&[(Block::BoneDust, 1)], (Block::SpellStoneskin, 1)),
+  hand(&[(Block::Feather, 1)], (Block::SpellLeap, 1)),
+  hand(&[(Block::Candle, 1)], (Block::SpellLight, 2)),
+  hand(&[(Block::BoneDust, 1)], (Block::SpellThunder, 1)),
+  hand(&[(Block::ArcaneDust, 2)], (Block::SpellFireball, 1)),
+  hand(&[(Block::ArcaneDust, 3)], (Block::SpellIceStorm, 1)),
+  hand(&[(Block::BoneDust, 2)], (Block::SpellAnimate, 1)),
+  hand(&[(Block::Candle, 2)], (Block::SpellGuardian, 1)),
+  hand(&[(Block::LizardClaw, 2)], (Block::SpellInvisibility, 1))
 ];
 
 pub fn making(block: Block) -> impl Iterator<Item = (usize, &'static Recipe)> {
@@ -106,6 +136,11 @@ pub fn using(block: Block) -> impl Iterator<Item = (usize, &'static Recipe)> {
   })
 }
 
-pub fn craftable(block: Block, inventory: &Inventory, stations: &[Block]) -> bool {
-  making(block).any(|(_, recipe)| recipe.ready(inventory, stations))
+pub fn craftable(
+  block: Block,
+  inventory: &Inventory,
+  stations: &[Block],
+  spells: &[Block]
+) -> bool {
+  making(block).any(|(_, recipe)| recipe.ready(inventory, stations, spells))
 }

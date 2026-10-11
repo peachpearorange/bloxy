@@ -86,7 +86,7 @@ fn embody(
       Replicated,
       Controller { client, account },
       Player { name, hue },
-      avatar.unwrap_or(Avatar { at, yaw: FACING_STONE, pitch: 0.0, held: None }),
+      avatar.unwrap_or(Avatar { at, yaw: FACING_STONE, pitch: 0.0, ..default() }),
       inventory,
       skin,
       visited,
@@ -681,17 +681,18 @@ fn pick(
 fn craft(
   mut crafts: MessageReader<FromClient<Craft>>,
   mut voxels: ResMut<Voxels>,
-  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>
+  mut players: Query<(&Controller, (&Avatar, &mut Inventory, &Skills))>
 ) {
   for &FromClient { client_id, message: Craft(index) } in crafts.read() {
-    if let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
+    if let Some((avatar, mut inventory, skills)) =
+      player_of(players.iter_mut(), client_id)
       && let Some(recipe) = RECIPES.get(usize::from(index))
       && let eye = avatar.at + Vec3::Y * EYE
       && let stations = {
         voxels.ensure(eye.floor().as_ivec3());
         voxels.stations_near(eye, REACH)
       }
-      && let Some(made) = recipe.made(&inventory, &stations)
+      && let Some(made) = recipe.made(&inventory, &stations, &skills.spells())
     {
       *inventory = made
     }

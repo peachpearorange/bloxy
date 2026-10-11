@@ -378,7 +378,8 @@ fn perish(
       at: bed.unwrap_or(generate::spawn_point(voxels.seed)),
       yaw: FACING_STONE,
       pitch: 0.0,
-      held: avatar.held
+      held: avatar.held,
+      charging: false
     };
     *avatar = revived;
     teleports.write(ToClients {

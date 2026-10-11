@@ -74,16 +74,14 @@ fn toss(
       let ahead =
         Quat::from_euler(EulerRot::YXZ, avatar.yaw, avatar.pitch, 0.0) * Vec3::NEG_Z;
       let from = avatar.at + Vec3::Y * (EYE - 0.35) + ahead.with_y(0.0) * 0.3;
-      if !stack.block.spell() {
-        scatter(
-          &mut commands,
-          stack.block,
-          count,
-          from,
-          ahead * THROW + Vec3::Y * 1.5,
-          TOSSED_WAIT
-        )
-      }
+      scatter(
+        &mut commands,
+        stack.block,
+        count,
+        from,
+        ahead * THROW + Vec3::Y * 1.5,
+        TOSSED_WAIT
+      )
     }
   }
 }

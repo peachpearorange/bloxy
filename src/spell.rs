@@ -6,6 +6,8 @@ use {crate::{authority::{Controller, player_of},
              death::Dying,
              figure::Clad,
              folk::{Raider, Vigour, ray_box},
+             fx::{Aura, Drift, Effects, flare},
+             hand::{Charge, Grip, HandSystems},
              haunt::{Blamed, Haunt, fell},
              menu::Menu,
              player::{Me, Pilot, Poke, Selected, captured},
@@ -14,9 +16,11 @@ use {crate::{authority::{Controller, player_of},
              stance::Stance,
              summon::{MOST, Servant, summon},
              voxels::Voxels},
-     bevy::{platform::collections::HashMap,
+     bevy::{light::NotShadowCaster,
+            platform::collections::HashMap,
             prelude::*,
             window::{CursorOptions, PrimaryWindow}},
+     bevy_hanabi::EffectAsset,
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
 
@@ -24,20 +28,6 @@ const BOLT_LIFE: f32 = 2.2;
 const SEEK: f32 = 24.0;
 const FLOURISH_FOR: f32 = 0.6;
 const WISP_LUMENS: f32 = 90_000.0;
-
-pub fn fuel(spell: Block) -> Block {
-  match spell {
-    Block::SpellFirebolt
-    | Block::SpellFrost
-    | Block::SpellMissile
-    | Block::SpellFireball
-    | Block::SpellIceStorm => Block::ArcaneDust,
-    Block::SpellHeal | Block::SpellLight | Block::SpellGuardian => Block::Candle,
-    Block::SpellHaste | Block::SpellInvisibility => Block::LizardClaw,
-    Block::SpellLeap => Block::Feather,
-    _ => Block::BoneDust
-  }
-}
 
 pub fn cooldown(spell: Block) -> f32 {
   match spell {
@@ -96,9 +86,6 @@ pub struct Invoke {
 }
 
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
-pub struct Conjure(pub Block);
-
-#[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Flourish {
   pub spell: Block,
   pub at: Vec3,
@@ -136,20 +123,6 @@ struct Storm {
   caster: Entity,
   hail: f32,
   sting: f32
-}
-
-fn conjure(
-  mut conjures: MessageReader<FromClient<Conjure>>,
-  mut players: Query<(&Controller, (&Skills, &mut Inventory))>
-) {
-  for &FromClient { client_id, message: Conjure(spell) } in conjures.read() {
-    if let Some((skills, mut inventory)) = player_of(players.iter_mut(), client_id)
-      && skills.spells().contains(&spell)
-      && inventory.slots[CURSOR].is_none()
-    {
-      inventory.slots[CURSOR] = Some(Stack { block: spell, count: 1 })
-    }
-  }
 }
 
 pub struct Target {
@@ -241,12 +214,12 @@ fn invoke(
     {
       let rank = skills.rank(spell);
       let thrifty = rand_unit(caster, now) < skills.stats().thrift;
-      let paid = thrifty || inventory.take(fuel(spell));
+      let paid = thrifty || inventory.take(spell);
       match paid {
         false => {
           notices.write(ToClients {
             targets: SendTargets::Single(client_id),
-            message: Notice(format!("{} needs {}", spell.name(), fuel(spell).name()))
+            message: Notice(format!("No {} left: craft more", spell.name()))
           });
         }
         true => {
@@ -633,39 +606,119 @@ fn veil(
 #[derive(Resource, Default)]
 pub struct Recharge(pub HashMap<Block, f32>);
 
+pub fn charge(spell: Block) -> f32 {
+  match spell {
+    Block::SpellFirebolt | Block::SpellFrost => 0.35,
+    Block::SpellMissile | Block::SpellLight | Block::SpellLeap => 0.5,
+    Block::SpellFireball | Block::SpellIceStorm | Block::SpellThunder => 0.8,
+    Block::SpellAnimate | Block::SpellGuardian => 1.0,
+    _ => 0.6
+  }
+}
+
+#[derive(Resource, Default)]
+pub struct Charging {
+  spell: Option<Block>,
+  since: f32
+}
+
+impl Charging {
+  pub fn level(&self, now: f32) -> Option<f32> {
+    self.spell.map(|spell| ((now - self.since) / charge(spell)).min(1.0))
+  }
+}
+
 fn cast(
   time: Res<Time>,
   buttons: Res<ButtonInput<MouseButton>>,
   cursor: Query<&CursorOptions, With<PrimaryWindow>>,
   menu: Res<Menu>,
-  pilot: Res<Pilot>,
+  mut pilot: ResMut<Pilot>,
   selected: Res<Selected>,
   inventories: Query<&Inventory>,
   skills: Query<&Skills>,
   mut recharge: ResMut<Recharge>,
+  mut charging: ResMut<Charging>,
   mut invocations: MessageWriter<Invoke>,
   mut pokes: MessageWriter<Poke>
 ) {
   let now = time.elapsed_secs();
-  if captured(&cursor, &menu)
-    && buttons.just_pressed(MouseButton::Right)
-    && let Ok(inventory) = inventories.get(pilot.me)
-    && let Some(stack) = inventory.slots[selected.0]
-    && stack.block.spell()
-    && recharge.0.get(&stack.block).is_none_or(|&ready| now >= ready)
-  {
-    let stance = skills.get(pilot.me).ok().and_then(|skills| skills.stance);
-    recharge.0.insert(stack.block, now + crate::spell::recharge(stack.block, stance));
-    invocations
-      .write(Invoke { spell: stack.block, toward: pilot.facing() * Vec3::NEG_Z });
-    pokes.write(Poke);
+  let free = captured(&cursor, &menu);
+  let held = inventories
+    .get(pilot.me)
+    .ok()
+    .and_then(|inventory| inventory.slots[selected.0])
+    .map(|stack| stack.block)
+    .filter(|block| block.spell());
+  match charging.spell {
+    Some(spell) if free && held == Some(spell) && buttons.pressed(MouseButton::Right) => {
+    }
+    Some(spell) => {
+      if free && held == Some(spell) && now - charging.since >= charge(spell) {
+        let stance = skills.get(pilot.me).ok().and_then(|skills| skills.stance);
+        recharge.0.insert(spell, now + crate::spell::recharge(spell, stance));
+        invocations.write(Invoke { spell, toward: pilot.facing() * Vec3::NEG_Z });
+        pokes.write(Poke);
+      }
+      charging.spell = None
+    }
+    None => {
+      if free
+        && buttons.just_pressed(MouseButton::Right)
+        && let Some(spell) = held
+        && recharge.0.get(&spell).is_none_or(|&ready| now >= ready)
+      {
+        *charging = Charging { spell: Some(spell), since: now }
+      }
+    }
   }
+  if pilot.charging != charging.spell.is_some() {
+    pilot.charging = charging.spell.is_some()
+  }
+}
+
+fn aura(spell: Block) -> Aura {
+  let [r, g, b] = hue(spell);
+  let tint = |by: f32| Vec4::new(r * by, g * by, b * by, 1.0);
+  let (drift, rate, speed, size, life) = match spell {
+    Block::SpellFirebolt => (Drift::Rise, 40.0, 0.5, 0.0525, 0.7),
+    Block::SpellFireball => (Drift::Rise, 60.0, 0.6, 0.075, 0.9),
+    Block::SpellFrost => (Drift::Fall, 28.0, 0.25, 0.0375, 1.2),
+    Block::SpellIceStorm => (Drift::Swirl, 50.0, 0.6, 0.045, 0.9),
+    Block::SpellMissile => (Drift::Swirl, 40.0, 0.5, 0.042, 0.8),
+    Block::SpellHeal => (Drift::Rise, 18.0, 0.25, 0.045, 1.4),
+    Block::SpellHaste => (Drift::Rays, 36.0, 1.7, 0.032, 0.4),
+    Block::SpellStoneskin => (Drift::Fall, 22.0, 0.15, 0.045, 1.0),
+    Block::SpellLeap => (Drift::Rise, 30.0, 0.7, 0.033, 0.8),
+    Block::SpellLight => (Drift::Rays, 30.0, 1.1, 0.035, 0.5),
+    Block::SpellThunder => (Drift::Rays, 50.0, 2.8, 0.026, 0.3),
+    Block::SpellAnimate => (Drift::Swirl, 25.0, 0.3, 0.045, 1.2),
+    Block::SpellGuardian => (Drift::Swirl, 30.0, 0.45, 0.045, 1.1),
+    _ => (Drift::Rise, 14.0, 0.2, 0.0525, 1.6)
+  };
+  let glow = match spell {
+    Block::SpellFirebolt | Block::SpellFireball => [
+      Vec4::new(9.0, 5.0, 1.5, 1.0),
+      Vec4::new(5.0, 1.4, 0.2, 0.9),
+      Vec4::new(0.8, 0.1, 0.02, 0.0)
+    ],
+    Block::SpellFrost | Block::SpellIceStorm => {
+      [Vec4::new(6.0, 7.0, 8.0, 1.0), tint(4.0), tint(1.5)]
+    }
+    Block::SpellThunder => [Vec4::new(10.0, 10.0, 12.0, 1.0), tint(6.0), tint(2.0)],
+    Block::SpellStoneskin => [tint(2.0), tint(1.2), tint(0.4)],
+    Block::SpellInvisibility => [tint(2.5), tint(1.5), tint(0.3)],
+    _ => [tint(6.0), tint(3.5), tint(1.0)]
+  };
+  Aura { drift, glow, rate, speed, size, life }
 }
 
 #[derive(Resource)]
 struct Sparks {
   ball: Handle<Mesh>,
-  looks: HashMap<Block, Handle<StandardMaterial>>
+  looks: HashMap<Block, Handle<StandardMaterial>>,
+  auras: HashMap<Block, Handle<EffectAsset>>,
+  flares: HashMap<Block, Handle<EffectAsset>>
 }
 
 fn glowing(
@@ -685,16 +738,158 @@ fn glowing(
 fn kindle(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
-  mut materials: ResMut<Assets<StandardMaterial>>
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut effects: ResMut<Assets<EffectAsset>>
 ) {
   let looks = Block::SPELLS
     .iter()
     .map(|&spell| (spell, glowing(&mut materials, hue(spell), 0.9)))
     .collect();
+  let auras = Block::SPELLS
+    .iter()
+    .map(|&spell| (spell, effects.add(crate::fx::aura(&aura(spell)))))
+    .collect();
+  let flares = Block::SPELLS
+    .iter()
+    .map(|&spell| (spell, effects.add(flare(aura(spell).glow))))
+    .collect();
   commands.insert_resource(Sparks {
     ball: meshes.add(Sphere::new(0.5).mesh().uv(12, 8)),
-    looks
+    looks,
+    auras,
+    flares
   })
+}
+
+const FLASH: f32 = 0.22;
+
+#[derive(Component)]
+struct Kindled {
+  spell: Block,
+  charge: f32,
+  flash: f32,
+  orb: Entity
+}
+
+#[derive(Component)]
+struct Fleeting(f32);
+
+fn ignite(
+  grips: Query<(Entity, &Grip, Option<&Children>), Changed<Grip>>,
+  kindled: Query<&Kindled>,
+  sparks: Res<Sparks>,
+  effects: Res<Effects>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut commands: Commands
+) {
+  for (grip, &Grip(held), children) in grips.iter() {
+    let lit: Vec<(Entity, Block)> = children
+      .into_iter()
+      .flatten()
+      .filter_map(|&child| kindled.get(child).ok().map(|kindled| (child, kindled.spell)))
+      .collect();
+    let wanted = held.filter(|block| block.spell());
+    if lit.iter().map(|&(_, spell)| spell).ne(wanted) {
+      for &(old, _) in lit.iter() {
+        commands.entity(old).despawn()
+      }
+      if let Some(spell) = wanted
+        && let Some(asset) = sparks.auras.get(&spell)
+      {
+        let [r, g, b] = hue(spell);
+        let orb = commands
+          .spawn((
+            Mesh3d(sparks.ball.clone()),
+            MeshMaterial3d(glowing(&mut materials, hue(spell), 0.8)),
+            NotShadowCaster,
+            Transform::from_scale(Vec3::ZERO),
+            PointLight {
+              intensity: 0.0,
+              range: 5.0,
+              color: Color::srgb(r, g, b),
+              shadow_maps_enabled: false,
+              ..default()
+            }
+          ))
+          .id();
+        commands
+          .spawn((
+            Kindled { spell, charge: 0.0, flash: FLASH, orb },
+            effects.emit(asset),
+            Transform::default(),
+            Visibility::default(),
+            ChildOf(grip)
+          ))
+          .add_child(orb);
+      }
+    }
+  }
+}
+
+fn brighten(
+  time: Res<Time>,
+  sparks: Res<Sparks>,
+  effects: Res<Effects>,
+  grips: Query<(&Charge, &Children), With<Grip>>,
+  mut kindled: Query<(&mut Kindled, &GlobalTransform)>,
+  mut orbs: Query<(&mut Transform, &MeshMaterial3d<StandardMaterial>, &mut PointLight)>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut fleeting: Query<(Entity, &mut Fleeting)>,
+  mut commands: Commands
+) {
+  let (dt, now) = (time.delta_secs(), time.elapsed_secs());
+  for (&Charge(charging), children) in grips.iter() {
+    for child in children.iter() {
+      if let Ok((mut lit, place)) = kindled.get_mut(child) {
+        let before = lit.charge;
+        lit.charge = match charging {
+          true => before + dt / charge(lit.spell),
+          false => 0.0
+        };
+        lit.flash += dt;
+        if before < 1.0
+          && lit.charge >= 1.0
+          && let Some(asset) = sparks.flares.get(&lit.spell)
+        {
+          lit.flash = 0.0;
+          commands.spawn((
+            Fleeting(1.0),
+            effects.emit(asset),
+            Transform::from_translation(place.translation())
+          ));
+        }
+        let level = lit.charge.min(1.0);
+        let flash = (1.0 - lit.flash / FLASH).max(0.0);
+        let full = f32::from(u8::from(lit.charge >= 1.0));
+        if let Ok((mut transform, material, mut light)) = orbs.get_mut(lit.orb) {
+          let pulse = full * (now * 14.0).sin() * 0.012;
+          transform.scale = Vec3::splat(
+            f32::from(u8::from(charging)) * 0.02 + level * 0.1 + flash * 0.16 + pulse
+          );
+          light.intensity = level * 40_000.0 + full * 20_000.0 + flash * 300_000.0;
+          if (charging || before > 0.0 || flash > 0.0)
+            && let Some(mut material) = materials.get_mut(&material.0)
+          {
+            let [r, g, b] = hue(lit.spell);
+            let whiten = |channel: f32| channel + (1.0 - channel) * flash;
+            let bright = 1.5 + level * 3.0 + flash * 12.0;
+            material.base_color = Color::LinearRgba(LinearRgba::new(
+              whiten(r) * bright,
+              whiten(g) * bright,
+              whiten(b) * bright,
+              0.55 + 0.35 * level.max(flash)
+            ))
+          }
+        }
+      }
+    }
+  }
+  for (entity, mut left) in fleeting.iter_mut() {
+    left.0 -= dt;
+    if left.0 <= 0.0 {
+      commands.entity(entity).despawn()
+    }
+  }
 }
 
 #[derive(Component)]
@@ -854,10 +1049,8 @@ impl Plugin for Spells {
   fn build(&self, app: &mut App) {
     app
       .init_resource::<Recharge>()
-      .add_systems(
-        PreUpdate,
-        (conjure, invoke).after(ServerSystems::Receive).run_if(authority)
-      )
+      .init_resource::<Charging>()
+      .add_systems(PreUpdate, invoke.after(ServerSystems::Receive).run_if(authority))
       .add_systems(
         Update,
         (fly, rage).run_if(authority).run_if(resource_exists::<Voxels>)
@@ -866,6 +1059,7 @@ impl Plugin for Spells {
       .add_systems(Update, veil.run_if(plays))
       .add_systems(Startup, kindle.run_if(plays))
       .add_systems(Update, (show_bolts, bloom, wisps).run_if(plays))
+      .add_systems(Update, (ignite, brighten).chain().after(HandSystems).run_if(plays))
       .add_systems(Update, cast.run_if(plays).run_if(resource_exists::<Pilot>));
   }
 }

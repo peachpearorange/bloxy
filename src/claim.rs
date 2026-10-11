@@ -252,7 +252,8 @@ pub fn regen(world: &mut World, seed: Option<u32>) -> String {
       at: generate::spawn_point(seed),
       yaw: FACING_STONE,
       pitch: 0.0,
-      held: None
+      held: None,
+      charging: false
     };
     let players: Vec<(Entity, ClientId)> = world
       .query::<(Entity, &Controller)>()

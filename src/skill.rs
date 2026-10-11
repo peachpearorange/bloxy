@@ -189,9 +189,13 @@ impl Boon {
       Boon::Fortune(by) => format!("{}% chance of a second ore", percent(by)),
       Boon::Thrift(by) => format!("{}% chance a spell costs nothing", percent(by)),
       Boon::Spell(spell) => format!(
-        "{}. Costs one {} per cast",
+        "{}. Craft it from {}: each cast uses one",
         spell_text(spell),
-        crate::spell::fuel(spell).name()
+        crate::recipe::making(spell)
+          .flat_map(|(_, recipe)| recipe.inputs.iter())
+          .map(|&(block, count)| format!("{count} {}", block.name()))
+          .collect::<Vec<_>>()
+          .join(" and ")
       ),
       Boon::Empower(spell) => mastery(spell).into(),
       Boon::Stance(stance) => format!(

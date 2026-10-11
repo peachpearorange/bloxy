@@ -5,6 +5,7 @@ use {crate::{block::Block,
              player::{Aim, Eye, Gait, Pilot, Poke, Selected, View},
              protocol::{Inventory, plays},
              skin::{PX, Skin},
+             spell::Charging,
              stream::Palette},
      bevy::{light::NotShadowCaster, prelude::*},
      std::f32::consts::PI};
@@ -21,7 +22,8 @@ const ROD_LENGTH: f32 = 1.3;
 #[derive(Component)]
 struct Hand {
   swung: f32,
-  poked: f32
+  poked: f32,
+  raised: f32
 }
 
 #[derive(Component)]
@@ -30,8 +32,16 @@ struct Rod;
 #[derive(Component, Default, PartialEq)]
 pub struct Grip(pub Option<Block>);
 
+#[derive(Component, Default, PartialEq)]
+pub struct Charge(pub bool);
+
 pub fn grip() -> impl Bundle {
-  (Grip::default(), Transform::from_xyz(0.0, -12.0 * PX, 0.0), Visibility::Hidden)
+  (
+    Grip::default(),
+    Charge::default(),
+    Transform::from_xyz(0.0, -12.0 * PX, 0.0),
+    Visibility::Hidden
+  )
 }
 
 fn hold(
@@ -166,7 +176,7 @@ fn raise(
     let clad = clothe(skin, &mut images, &mut materials);
     commands
       .spawn((
-        Hand { swung: SWING, poked: POKE },
+        Hand { swung: SWING, poked: POKE, raised: 0.0 },
         Mesh3d(kit.arm.clone()),
         MeshMaterial3d(clad.material.clone()),
         clad,
@@ -206,18 +216,21 @@ fn swing(
   pilot: Res<Pilot>,
   selected: Res<Selected>,
   view: Res<View>,
+  charging: Res<Charging>,
   inventories: Query<&Inventory>,
   mut hands: Query<(&mut Hand, &mut Transform, &mut Visibility), Without<Rod>>,
   mut rods: Query<(&mut Transform, &mut Visibility), With<Rod>>,
-  mut grips: Query<(&mut Grip, &ChildOf)>,
+  mut grips: Query<(&mut Grip, &mut Charge, &ChildOf)>,
   mut pokes: MessageReader<Poke>
 ) {
   let poking = pokes.read().count() > 0;
-  for (mut grip, _) in
-    grips.iter_mut().filter(|(_, parent)| hands.contains(parent.parent()))
+  for (mut grip, mut charge, _) in
+    grips.iter_mut().filter(|(.., parent)| hands.contains(parent.parent()))
   {
     grip.set_if_neq(Grip(pilot.held.filter(|&block| block != Block::FishingRod)));
+    charge.set_if_neq(Charge(pilot.charging));
   }
+  let level = charging.level(time.elapsed_secs());
   let fishing = inventories
     .get(pilot.me)
     .ok()
@@ -225,7 +238,8 @@ fn swing(
     .is_some_and(|stack| stack.block == Block::FishingRod);
   let pressed = !menu.open
     && (buttons.just_pressed(MouseButton::Left)
-      || buttons.just_pressed(MouseButton::Right));
+      || (buttons.just_pressed(MouseButton::Right)
+        && !pilot.held.is_some_and(Block::spell)));
   let first = *view == View::First;
   for (mut hand, mut transform, mut visibility) in hands.iter_mut() {
     visibility.set_if_neq(match first {
@@ -234,6 +248,8 @@ fn swing(
     });
     hand.swung += time.delta_secs();
     hand.poked += time.delta_secs();
+    let lifting = f32::from(u8::from(level.is_some()));
+    hand.raised += (lifting - hand.raised) * (time.delta_secs() * 12.0).min(1.0);
     if poking {
       hand.poked = 0.0;
       hand.swung = SWING
@@ -243,6 +259,17 @@ fn swing(
     let arc = ((hand.swung / SWING).min(1.0) * PI).sin();
     let thrust = ((hand.poked / POKE).min(1.0) * PI).sin();
     let sway = gait.sway() * 0.6;
+    let raised = hand.raised;
+    let full = level.is_some_and(|level| level >= 1.0);
+    let tremble = match full {
+      true => {
+        let now = time.elapsed_secs();
+        Vec3::new((now * 61.0).sin(), (now * 47.0).cos(), 0.0) * 0.004
+      }
+      false => Vec3::ZERO
+    };
+    let lift =
+      Vec3::new(-0.1, 0.1 + level.unwrap_or(0.0) * 0.03, -0.04) * raised + tremble;
     for (mut rod, mut visibility) in rods.iter_mut() {
       *visibility =
         if fishing && first { Visibility::Visible } else { Visibility::Hidden };
@@ -258,16 +285,20 @@ fn swing(
           sway.y * 0.5 - arc * 0.05 + thrust * 0.08,
           -arc * 0.12 - thrust * 0.22
         )
+        + lift
     )
     .with_scale(Vec3::splat(0.6))
     .with_rotation(Quat::from_euler(
       EulerRot::YXZ,
-      0.12 + arc * 0.3 + thrust * 0.15,
-      1.95 - arc * 0.9 - thrust * 0.25,
+      0.12 + arc * 0.3 + thrust * 0.15 + raised * 0.15,
+      1.95 - arc * 0.9 - thrust * 0.25 + raised * 0.3,
       -0.12
     ))
   }
 }
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HandSystems;
 
 pub struct Hands;
 
@@ -277,6 +308,7 @@ impl Plugin for Hands {
       Update,
       (raise, reskin, carve, swing.run_if(resource_exists::<Pilot>), hold)
         .chain()
+        .in_set(HandSystems)
         .run_if(plays)
     );
   }

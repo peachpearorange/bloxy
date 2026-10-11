@@ -189,6 +189,188 @@ fn poof() -> EffectAsset {
     .render(ParticleTextureModifier::new(slot))
 }
 
+#[derive(Clone, Copy)]
+pub enum Drift {
+  Rise,
+  Fall,
+  Swirl,
+  Rays
+}
+
+#[derive(Clone, Copy)]
+pub struct Aura {
+  pub drift: Drift,
+  pub glow: [Vec4; 3],
+  pub rate: f32,
+  pub speed: f32,
+  pub size: f32,
+  pub life: f32
+}
+
+fn glow([born, prime, faded]: [Vec4; 3]) -> ColorOverLifetimeModifier {
+  ColorOverLifetimeModifier::new(Gradient::from_keys([
+    (0.0, born.with_w(0.0)),
+    (0.12, born),
+    (0.55, prime),
+    (1.0, faded.with_w(0.0))
+  ]))
+}
+
+pub fn aura(
+  &Aura { drift, glow: colours, rate, speed, size: across, life }: &Aura
+) -> EffectAsset {
+  let writer = ExprWriter::new();
+  let age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+  let lifetime = SetAttributeModifier::new(
+    Attribute::LIFETIME,
+    writer.lit(life * 0.6).uniform(writer.lit(life)).expr()
+  );
+  let ball = |radius: f32| SetPositionSphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    radius: writer.lit(radius).expr(),
+    dimension: ShapeDimension::Volume
+  };
+  let scatter = |speed: f32| SetVelocitySphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    speed: writer.lit(speed * 0.5).uniform(writer.lit(speed)).expr()
+  };
+  let shape: Box<dyn FnOnce(EffectAsset) -> EffectAsset> = match drift {
+    Drift::Rise => {
+      let (from, scattered) = (ball(0.12), scatter(speed * 0.3));
+      let lift = AccelModifier::new(writer.lit(Vec3::Y * speed * 2.0).expr());
+      let drag = LinearDragModifier::new(writer.lit(2.0).expr());
+      Box::new(move |effect: EffectAsset| {
+        effect
+          .with_simulation_space(SimulationSpace::Global)
+          .init(from)
+          .init(scattered)
+          .update(lift)
+          .update(drag)
+          .render(size(across, across * 0.3))
+          .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
+      })
+    }
+    Drift::Fall => {
+      let (from, scattered) = (ball(0.15), scatter(speed * 0.4));
+      let sink = AccelModifier::new(writer.lit(Vec3::NEG_Y * speed * 1.2).expr());
+      let drag = LinearDragModifier::new(writer.lit(3.0).expr());
+      Box::new(move |effect: EffectAsset| {
+        effect
+          .with_simulation_space(SimulationSpace::Global)
+          .init(from)
+          .init(scattered)
+          .update(sink)
+          .update(drag)
+          .render(size(across, across * 0.6))
+          .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
+      })
+    }
+    Drift::Swirl => {
+      let ring = SetPositionCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        radius: writer.lit(0.15).uniform(writer.lit(0.25)).expr(),
+        dimension: ShapeDimension::Surface
+      };
+      let around = SetVelocityTangentModifier {
+        origin: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        speed: writer.lit(speed * 0.7).uniform(writer.lit(speed)).expr()
+      };
+      let swirl = TangentAccelModifier::new(
+        writer.lit(Vec3::ZERO).expr(),
+        writer.lit(Vec3::Y).expr(),
+        writer.lit(speed * 2.0).expr()
+      );
+      let lift = AccelModifier::new(writer.lit(Vec3::Y * speed * 0.6).expr());
+      Box::new(move |effect: EffectAsset| {
+        effect
+          .with_simulation_space(SimulationSpace::Local)
+          .init(ring)
+          .init(around)
+          .update(swirl)
+          .update(lift)
+          .render(size(across, across * 0.4))
+          .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
+      })
+    }
+    Drift::Rays => {
+      let (from, scattered) = (ball(0.02), scatter(speed));
+      let drag = LinearDragModifier::new(writer.lit(4.0).expr());
+      Box::new(move |effect: EffectAsset| {
+        effect
+          .with_simulation_space(SimulationSpace::Local)
+          .init(from)
+          .init(scattered)
+          .update(drag)
+          .render(SizeOverLifetimeModifier {
+            gradient: Gradient::from_keys([
+              (0.0, Vec3::new(across * 5.0, across * 0.5, 1.0)),
+              (1.0, Vec3::new(across * 1.5, across * 0.2, 1.0))
+            ]),
+            screen_space_size: false
+          })
+          .render(OrientModifier::new(OrientMode::AlongVelocity))
+      })
+    }
+  };
+  let slot = writer.lit(0u32).expr();
+  let mut module = writer.finish();
+  module.add_texture_slot("dot");
+  shape(EffectAsset::new(256, SpawnerSettings::rate(rate.into()), module))
+    .with_alpha_mode(Blending::Add)
+    .init(age)
+    .init(lifetime)
+    .render(glow(colours))
+    .render(ParticleTextureModifier::new(slot))
+}
+
+pub fn flare(colours: [Vec4; 3]) -> EffectAsset {
+  let writer = ExprWriter::new();
+  let position = SetPositionSphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    radius: writer.lit(0.03).expr(),
+    dimension: ShapeDimension::Volume
+  };
+  let velocity = SetVelocitySphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    speed: writer.lit(1.6).uniform(writer.lit(3.2)).expr()
+  };
+  let age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+  let lifetime = SetAttributeModifier::new(
+    Attribute::LIFETIME,
+    writer.lit(0.25).uniform(writer.lit(0.45)).expr()
+  );
+  let drag = LinearDragModifier::new(writer.lit(6.0).expr());
+  let slot = writer.lit(0u32).expr();
+  let mut module = writer.finish();
+  module.add_texture_slot("dot");
+  let [born, prime, faded] = colours;
+  EffectAsset::new(64, SpawnerSettings::once(40.0.into()), module)
+    .with_simulation_space(SimulationSpace::Global)
+    .with_alpha_mode(Blending::Add)
+    .init(position)
+    .init(velocity)
+    .init(age)
+    .init(lifetime)
+    .update(drag)
+    .render(ColorOverLifetimeModifier::new(Gradient::from_keys([
+      (0.0, Vec4::new(12.0, 12.0, 12.0, 1.0)),
+      (0.2, born * 2.0),
+      (0.6, prime),
+      (1.0, faded.with_w(0.0))
+    ])))
+    .render(SizeOverLifetimeModifier {
+      gradient: Gradient::from_keys([
+        (0.0, Vec3::new(0.16, 0.025, 1.0)),
+        (1.0, Vec3::new(0.04, 0.01, 1.0))
+      ]),
+      screen_space_size: false
+    })
+    .render(OrientModifier::new(OrientMode::AlongVelocity))
+    .render(ParticleTextureModifier::new(slot))
+}
+
 fn prepare(
   mut commands: Commands,
   mut effects: ResMut<Assets<EffectAsset>>,

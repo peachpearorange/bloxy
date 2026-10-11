@@ -79,7 +79,9 @@ pub struct Avatar {
   pub yaw: f32,
   pub pitch: f32,
   #[serde(default)]
-  pub held: Option<Block>
+  pub held: Option<Block>,
+  #[serde(default)]
+  pub charging: bool
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -528,7 +530,6 @@ impl Plugin for Protocol {
       .replicate::<crate::spell::Bolt>()
       .add_client_message::<crate::skill::Learn>(Channel::Ordered)
       .add_client_message::<crate::spell::Invoke>(Channel::Ordered)
-      .add_client_message::<crate::spell::Conjure>(Channel::Ordered)
       .add_server_message::<crate::spell::Flourish>(Channel::Ordered)
       .add_client_message::<Open>(Channel::Ordered)
       .add_client_message::<crate::stance::Adopt>(Channel::Ordered)

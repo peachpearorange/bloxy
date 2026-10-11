@@ -46,7 +46,8 @@ pub struct Pilot {
   pub staggered: f32,
   pub lift: f32,
   pub riding: Option<Riding>,
-  pub held: Option<Block>
+  pub held: Option<Block>,
+  pub charging: bool
 }
 
 #[derive(Clone, Copy)]
@@ -64,7 +65,13 @@ impl Pilot {
   }
 
   pub fn avatar(&self) -> Avatar {
-    Avatar { at: self.at, yaw: self.yaw, pitch: self.pitch, held: self.held }
+    Avatar {
+      at: self.at,
+      yaw: self.yaw,
+      pitch: self.pitch,
+      held: self.held,
+      charging: self.charging
+    }
   }
 }
 
@@ -124,7 +131,8 @@ fn possess(
       staggered: 0.0,
       lift: 0.0,
       riding: None,
-      held: None
+      held: None,
+      charging: false
     })
   }
 }

@@ -1,4 +1,4 @@
-use {crate::{hand::{Grip, grip},
+use {crate::{hand::{Charge, Grip, grip},
              plate::{Plate, plate},
              player::{Me, Pilot, View},
              protocol::{Avatar, Player, hue, plays},
@@ -213,7 +213,7 @@ fn animate(
     (&Limb, &mut Transform, Option<&Children>),
     (Without<Figure>, Without<Head>)
   >,
-  mut grips: Query<&mut Grip>
+  mut grips: Query<(&mut Grip, &mut Charge)>
 ) {
   let dt = time.delta_secs();
   for (avatar, mirrored, mut figure, mut transform, children) in figures.iter_mut() {
@@ -238,13 +238,18 @@ fn animate(
       }
       if let Ok((limb, mut limb_transform, held)) = limbs.get_mut(child) {
         let raised = held.is_some() && avatar.held.is_some();
-        limb_transform.rotation = Quat::from_rotation_x(
-          swing * (limb.phase).cos() * if raised { 0.4 } else { 1.0 }
-            + if raised { 0.35 } else { 0.0 }
-        );
+        let casting = held.is_some() && avatar.charging;
+        limb_transform.rotation = match casting {
+          true => Quat::from_euler(EulerRot::YXZ, -0.3, 2.5 + avatar.pitch * 0.5, 0.0),
+          false => Quat::from_rotation_x(
+            swing * (limb.phase).cos() * if raised { 0.4 } else { 1.0 }
+              + if raised { 0.35 } else { 0.0 }
+          )
+        };
         for &grip in held.into_iter().flatten() {
-          if let Ok(mut grip) = grips.get_mut(grip) {
+          if let Ok((mut grip, mut charge)) = grips.get_mut(grip) {
             grip.set_if_neq(Grip(avatar.held));
+            charge.set_if_neq(Charge(avatar.charging));
           }
         }
       }
