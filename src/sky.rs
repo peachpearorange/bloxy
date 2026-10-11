@@ -161,7 +161,7 @@ fn kindle(
     let mut near: Vec<IVec3> = voxels
       .torches_near(chunk_of(eye.floor().as_ivec3()))
       .into_iter()
-      .filter(|torch| voxels.block(*torch) == Some(Block::Torch))
+      .filter(|torch| voxels.block(*torch).is_some_and(Block::lit))
       .filter(|torch| torch.as_vec3().distance(eye) < TORCH_SEEN)
       .collect();
     near.sort_by(|a, b| a.as_vec3().distance(eye).total_cmp(&b.as_vec3().distance(eye)));

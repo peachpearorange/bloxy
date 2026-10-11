@@ -1,4 +1,5 @@
 use {crate::{block::Block,
+             dungeon::Dungeon,
              island::{Island, Kind, Rise, SEA, Wood},
              noise::{fbm2, hash, perlin2, perlin3, unit},
              voxels::{Chunk, SIZE, VOLUME, origin_of}},
@@ -41,7 +42,7 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     })
 }
 
-pub const GENERATION: u32 = 3;
+pub const GENERATION: u32 = 4;
 
 pub fn overview(seed: u32, x: i32, z: i32) -> (Block, i32, i32) {
   let spot = IVec2::new(x, z);
@@ -479,7 +480,7 @@ fn trunk(block: Block) -> bool {
   )
 }
 
-pub fn chunk(seed: u32, key: IVec3) -> Chunk {
+fn terrain(seed: u32, key: IVec3) -> Chunk {
   let origin = origin_of(key);
   let reach = SIZE + TREE_REACH * 2;
   let wide = reach + 2;
@@ -667,6 +668,28 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
             }
           }
         }
+      }
+      Chunk::Mixed(blocks).settled()
+    }
+  }
+}
+
+pub fn chunk(seed: u32, key: IVec3) -> Chunk {
+  let origin = origin_of(key);
+  let dungeons = Dungeon::within(seed, origin.xz(), origin.xz() + SIZE)
+    .into_iter()
+    .filter(|dungeon| !dungeon.stamps(key).is_empty())
+    .collect::<Vec<_>>();
+  match (terrain(seed, key), dungeons.is_empty()) {
+    (base, true) => base,
+    (base, false) => {
+      let mut blocks = match base {
+        Chunk::Uniform(block) => Box::new([block; VOLUME]),
+        Chunk::Mixed(blocks) => blocks
+      };
+      for &(index, stamp) in dungeons.iter().flat_map(|dungeon| dungeon.stamps(key)) {
+        let slot = &mut blocks[usize::from(index)];
+        *slot = stamp.over(*slot)
       }
       Chunk::Mixed(blocks).settled()
     }

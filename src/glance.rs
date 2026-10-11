@@ -33,20 +33,24 @@ fn sighted(
     name: match folk.band {
       Band::Trader => "Trader",
       Band::Pirate => "Pirate",
-      Band::Viking => "Viking"
+      Band::Viking => "Viking",
+      Band::Skeleton => "Skeleton",
+      Band::Shade => "Shade",
+      Band::Warden => "Bone Warden"
     },
-    top: folk.at + Vec3::Y * 2.1,
+    top: folk.at + Vec3::Y * (2.1 * folk.band.scale() + 0.2 * (folk.band.scale() - 1.0)),
     full: folk.band.health(),
     hostile: folk.band.hostile()
   });
   let animal = beast.map(|beast| Sighted {
     name: match beast.breed {
       Breed::Sheep(_) => "Sheep",
-      Breed::Lizard => "Water Lizard"
+      Breed::Lizard => "Water Lizard",
+      Breed::Spider => "Cave Spider"
     },
     top: beast.at + Vec3::Y * 1.4,
     full: beast.breed.health(),
-    hostile: false
+    hostile: beast.breed == Breed::Spider
   });
   let fowl = bird.map(|bird| Sighted {
     name: match bird.breed {
@@ -173,7 +177,7 @@ fn target(
     .iter()
     .filter_map(|(entity, _, folk, beast, bird)| {
       let near = match (folk, beast, bird) {
-        (Some(folk), ..) => folk::struck(folk.at, from, toward),
+        (Some(folk), ..) => folk::struck(folk, from, toward),
         (_, Some(beast), _) => beast::struck(beast, from, toward),
         (.., Some(bird)) => bird::struck(bird, from, toward),
         _ => None

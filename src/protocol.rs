@@ -342,7 +342,8 @@ pub enum Fleece {
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Breed {
   Sheep(Fleece),
-  Lizard
+  Lizard,
+  Spider
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -366,7 +367,10 @@ pub struct Beast {
 pub enum Band {
   Trader,
   Pirate,
-  Viking
+  Viking,
+  Skeleton,
+  Shade,
+  Warden
 }
 
 impl Band {
@@ -458,6 +462,9 @@ pub struct Loose {
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct Gathered;
 
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Open(pub IVec3);
+
 pub struct Protocol;
 
 impl Plugin for Protocol {
@@ -511,7 +518,15 @@ impl Plugin for Protocol {
       .add_client_message::<Say>(Channel::Ordered)
       .add_server_message::<Said>(Channel::Ordered)
       .add_client_message::<Picked>(Channel::Ordered)
-      .replicate::<Gathered>();
+      .replicate::<Gathered>()
+      .replicate::<crate::skill::Skills>()
+      .replicate::<crate::condition::Conditions>()
+      .replicate::<crate::spell::Bolt>()
+      .add_client_message::<crate::skill::Learn>(Channel::Ordered)
+      .add_client_message::<crate::spell::Invoke>(Channel::Ordered)
+      .add_client_message::<crate::spell::Conjure>(Channel::Ordered)
+      .add_server_message::<crate::spell::Flourish>(Channel::Ordered)
+      .add_client_message::<Open>(Channel::Ordered);
   }
 }
 

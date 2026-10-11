@@ -40,21 +40,24 @@ impl Breed {
   fn bulk(self) -> Bulk {
     match self {
       Breed::Sheep(_) => Bulk { half: 0.35, tall: 1.0 },
-      Breed::Lizard => Bulk { half: 0.3, tall: 0.95 }
+      Breed::Lizard => Bulk { half: 0.3, tall: 0.95 },
+      Breed::Spider => Bulk { half: 0.42, tall: 0.6 }
     }
   }
 
   pub fn health(self) -> u8 {
     match self {
       Breed::Sheep(_) => 8,
-      Breed::Lizard => 6
+      Breed::Lizard => 6,
+      Breed::Spider => 8
     }
   }
 
   fn size(self) -> f32 {
     match self {
       Breed::Sheep(_) => 1.0,
-      Breed::Lizard => 1.35
+      Breed::Lizard => 1.35,
+      Breed::Spider => 1.0
     }
   }
 }
@@ -87,6 +90,13 @@ pub struct Roam {
 }
 
 impl Roam {
+  pub fn knock(&mut self, push: Vec3) {
+    self.velocity = push;
+    self.stagger = 0.4;
+    self.mood = Mood::Dash;
+    self.timer = 2.5
+  }
+
   fn dice(&mut self) -> f32 {
     self.luck = hash(self.luck, 0x6B, 0x21, 0x3F);
     unit(self.luck, 0, 0, 0)
@@ -292,11 +302,12 @@ fn mood(
     (Breed::Lizard, Mood::Seaward, false) => Mood::Seaward,
     (Breed::Lizard, _, false) if roam.ashore <= 0.0 => Mood::Seaward,
     (Breed::Lizard, current, false) if !expired => current,
-    (Breed::Lizard, _, false) => match roam.dice() {
+    (Breed::Lizard | Breed::Spider, _, false) => match roam.dice() {
       roll if roll < 0.2 => Mood::Dash,
       roll if roll < 0.45 => Mood::Idle,
       _ => Mood::Stroll
-    }
+    },
+    (Breed::Spider, _, true) => Mood::Swim
   };
   if next != roam.mood || expired {
     roam.timer = match next {
@@ -404,7 +415,7 @@ fn roam(
     let flooded = [probe, probe - IVec3::Y].into_iter().any(|cell| wet(&voxels, cell));
     let shy = match breed {
       Breed::Sheep(_) => drop || flooded,
-      Breed::Lizard => drop && !flooded && !swimming
+      Breed::Lizard | Breed::Spider => drop && !flooded && !swimming
     };
     if shy && roam.grounded && roam.mood != Mood::Seaward {
       yaw += PI;
@@ -454,16 +465,18 @@ fn roam(
 
 fn shear(
   mut strikes: MessageReader<FromClient<Strike>>,
-  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  mut players: Query<(&Controller, (Entity, &Avatar, &mut Inventory))>,
   mut beasts: Query<(&mut Beast, &mut Roam, &mut Health)>,
   mut commands: Commands
 ) {
   for &FromClient { client_id, message: Strike(target) } in strikes.read() {
     if let Ok((mut beast, mut roam, mut health)) = beasts.get_mut(target)
-      && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
+      && let Some((player, avatar, mut inventory)) =
+        player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(beast.at) <= REACH + 1.0
       && health.0 > 0
     {
+      commands.entity(target).insert(crate::haunt::Blamed(player));
       let sheep = matches!(beast.breed, Breed::Sheep(_));
       let woolly = sheep && roam.shorn <= 0.0;
       if woolly && inventory.add(Block::Wool) {
@@ -808,6 +821,58 @@ fn lizard() -> Vec<Bone> {
   ]
 }
 
+fn spider() -> Vec<Bone> {
+  let hide = [0.13, 0.11, 0.12];
+  let hair = [0.22, 0.18, 0.17];
+  let mark = [0.7, 0.12, 0.08];
+  let eye = [1.0, 0.2, 0.1];
+  let fang = [0.85, 0.82, 0.7];
+  let leg = |x: f32, z: f32, phase: f32| Bone {
+    parent: Some(2),
+    joint: Joint::Leg(phase),
+    pivot: Vec3::new(x * 0.16, 0.02, z),
+    boxes: vec![
+      (Vec3::new(x * 0.2, 0.12, 0.0), Vec3::new(0.42, 0.06, 0.06), hair, Grain::Wool),
+      (Vec3::new(x * 0.4, 0.14, 0.0), Vec3::new(0.08, 0.08, 0.08), hide, Grain::Plain),
+      (Vec3::new(x * 0.47, -0.08, 0.0), Vec3::new(0.05, 0.46, 0.05), hide, Grain::Plain),
+    ]
+  };
+  vec![
+    Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, boxes: vec![] },
+    Bone {
+      parent: Some(0),
+      joint: Joint::Hips,
+      pivot: Vec3::new(0.0, 0.32, 0.0),
+      boxes: vec![]
+    },
+    Bone {
+      parent: Some(1),
+      joint: Joint::Trunk,
+      pivot: Vec3::ZERO,
+      boxes: vec![
+        (Vec3::new(0.0, 0.04, -0.16), Vec3::new(0.34, 0.22, 0.34), hide, Grain::Wool),
+        (Vec3::new(0.0, 0.14, 0.26), Vec3::new(0.5, 0.42, 0.54), hair, Grain::Wool),
+        (Vec3::new(0.0, 0.355, 0.26), Vec3::new(0.12, 0.02, 0.22), mark, Grain::Plain),
+        (Vec3::new(0.0, 0.355, 0.36), Vec3::new(0.2, 0.02, 0.05), mark, Grain::Plain),
+        (Vec3::new(0.06, 0.1, -0.335), Vec3::new(0.05, 0.05, 0.02), eye, Grain::Plain),
+        (Vec3::new(-0.06, 0.1, -0.335), Vec3::new(0.05, 0.05, 0.02), eye, Grain::Plain),
+        (Vec3::new(0.12, 0.07, -0.33), Vec3::new(0.04, 0.04, 0.02), eye, Grain::Plain),
+        (Vec3::new(-0.12, 0.07, -0.33), Vec3::new(0.04, 0.04, 0.02), eye, Grain::Plain),
+        (Vec3::new(0.05, -0.08, -0.34), Vec3::new(0.04, 0.1, 0.04), fang, Grain::Plain),
+        (Vec3::new(-0.05, -0.08, -0.34), Vec3::new(0.04, 0.1, 0.04), fang, Grain::Plain),
+      ]
+    },
+    leg(1.0, -0.28, 0.0),
+    leg(1.0, -0.18, PI),
+    leg(1.0, -0.08, 0.0),
+    leg(1.0, 0.02, PI),
+    leg(-1.0, -0.28, PI),
+    leg(-1.0, -0.18, 0.0),
+    leg(-1.0, -0.08, PI),
+    leg(-1.0, 0.02, 0.0),
+  ]
+}
+
 #[derive(Component)]
 struct Shown {
   at: Vec3,
@@ -833,7 +898,8 @@ fn dress(
     ));
     let bones = match beast.breed {
       Breed::Sheep(fleece) => sheep(fleece),
-      Breed::Lizard => lizard()
+      Breed::Lizard => lizard(),
+      Breed::Spider => spider()
     };
     rig(
       entity,
@@ -870,6 +936,15 @@ fn stance(breed: Breed, pose: Pose, stride: f32, beat: f32, now: f32) -> Stance 
       tail: Quat::IDENTITY,
       tip: Quat::IDENTITY,
       leg: swing * 0.6 * beat,
+      arm: (0.0, 0.0, 0.0)
+    },
+    (Breed::Spider, pose) => Stance {
+      hips: 0.32 + twice.abs() * 0.03 * beat,
+      trunk: Quat::from_rotation_x(if pose == Pose::Run { -0.08 } else { 0.0 }),
+      neck: Quat::IDENTITY,
+      tail: Quat::IDENTITY,
+      tip: Quat::IDENTITY,
+      leg: (stride * 1.6).sin() * 0.55 * beat,
       arm: (0.0, 0.0, 0.0)
     },
     (Breed::Lizard, Pose::Swim) => {

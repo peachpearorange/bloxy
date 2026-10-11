@@ -11,10 +11,12 @@ mod boat;
 mod chart;
 mod chat;
 mod claim;
+mod condition;
 mod console;
 mod crafting;
 mod crumble;
 mod death;
+mod dungeon;
 mod editor;
 mod figure;
 mod fishing;
@@ -23,8 +25,10 @@ mod folk;
 mod fx;
 mod generate;
 mod glance;
+mod glyph;
 mod ground;
 mod hand;
+mod haunt;
 mod hud;
 mod identity;
 mod island;
@@ -46,8 +50,10 @@ mod settings;
 mod ship;
 mod shroomling;
 mod sign;
+mod skill;
 mod skin;
 mod sky;
+mod spell;
 mod stream;
 mod texture;
 mod trade;
@@ -277,7 +283,11 @@ fn main() {
       bird::Birds,
       claim::Claiming,
       loose::Litter,
-      death::Deaths
+      death::Deaths,
+      condition::Afflictions,
+      haunt::Haunting,
+      skill::Skilling,
+      spell::Spells
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

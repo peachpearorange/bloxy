@@ -1,10 +1,12 @@
 use {crate::{block::Block,
+             condition::{Conditions, Kind},
              local,
              menu::{Menu, Tab, closed},
              opts::opts,
              protocol::*,
              settings::Settings,
              sign::Inscription,
+             skill::Skills,
              stream::ready_around,
              voxels::{Hit, Voxels, unpack}},
      bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -98,12 +100,16 @@ fn possess(
   {
     *waiting = None;
     commands.entity(me).insert(Me);
-    let at = opts().at.map_or(avatar.at, |[x, z]| {
-      let (x, z) = (avatar.at.x + x, avatar.at.z + z);
-      let ground =
-        crate::generate::height(voxels.seed, x.floor() as i32, z.floor() as i32);
-      Vec3::new(x, ground as f32 + 1.05, z)
-    });
+    let at = opts()
+      .inside
+      .map(Vec3::from)
+      .or(opts().at.map(|[x, z]| {
+        let (x, z) = (avatar.at.x + x, avatar.at.z + z);
+        let ground =
+          crate::generate::height(voxels.seed, x.floor() as i32, z.floor() as i32);
+        Vec3::new(x, ground as f32 + 1.05, z)
+      }))
+      .unwrap_or(avatar.at);
     commands.insert_resource(Pilot {
       me,
       at,
@@ -264,6 +270,28 @@ pub fn march(voxels: &Voxels, bulk: Bulk, at: Vec3, velocity: Vec3, dt: f32) -> 
   )
 }
 
+#[derive(Clone, Copy)]
+pub struct Knack {
+  pub pace: f32,
+  pub swim: f32,
+  pub spring: f32,
+  pub sprint: bool,
+  pub float: bool
+}
+
+pub fn knack(skills: Option<&Skills>, conditions: Option<&Conditions>) -> Knack {
+  let stats = skills.cloned().unwrap_or_default().stats();
+  let has = |kind: Kind| conditions.is_some_and(|conditions| conditions.has(kind));
+  let pace = conditions.map_or(1.0, Conditions::pace);
+  Knack {
+    pace: stats.stride * pace,
+    swim: stats.swim * pace,
+    spring: stats.spring * if has(Kind::Leaping) { 1.45 } else { 1.0 },
+    sprint: !has(Kind::Frightened),
+    float: has(Kind::Leaping)
+  }
+}
+
 fn fly(
   time: Res<Time>,
   keys: Res<ButtonInput<KeyCode>>,
@@ -271,8 +299,12 @@ fn fly(
   aim: Res<Aim>,
   voxels: Option<Res<Voxels>>,
   mut pilot: ResMut<Pilot>,
+  traits: Query<(Option<&Skills>, Option<&Conditions>)>,
   mut spare: Local<f32>
 ) {
+  let knack = traits
+    .get(pilot.me)
+    .map_or(knack(None, None), |(skills, conditions)| knack(skills, conditions));
   if let Some(voxels) = voxels
     && ready_around(&voxels, pilot.at)
     && pilot.riding.is_none()
@@ -284,11 +316,15 @@ fn fly(
       held(KeyCode::KeyD) - held(KeyCode::KeyA),
       held(KeyCode::KeyS) - held(KeyCode::KeyW)
     );
-    let speed = match (pilot.swimming, pressed(KeyCode::ShiftLeft)) {
-      (true, _) => SWIM,
-      (false, true) => SPRINT,
-      (false, false) => WALK
+    let webbed = {
+      let (low, high) = Bulk::PERSON.body(pilot.at);
+      cells(low, high).any(|cell| voxels.block(cell) == Some(Block::Cobweb))
     };
+    let speed = match (pilot.swimming, pressed(KeyCode::ShiftLeft) && knack.sprint) {
+      (true, _) => SWIM * knack.swim,
+      (false, true) => SPRINT * knack.pace,
+      (false, false) => WALK * knack.pace
+    } * if webbed { 0.3 } else { 1.0 };
     let heading = Quat::from_rotation_y(pilot.yaw);
     let walk = heading * Vec3::new(wish.x, 0.0, wish.y).normalize_or_zero() * speed;
     let banked = (*spare + time.delta_secs()).min(0.25);
@@ -317,13 +353,17 @@ fn fly(
       let scrambling = pilot.walled && rising && surfacing && pilot.dried < SCRAMBLE_FOR;
       pilot.staggered -= STEP;
       let vertical = match (swimming, jumping, pilot.grounded) {
-        _ if climbing && !swimming && rising => CLIMB,
-        _ if climbing && !swimming && pressed(KeyCode::KeyS) => -CLIMB,
+        _ if climbing && !swimming && rising => CLIMB * knack.pace,
+        _ if climbing && !swimming && pressed(KeyCode::KeyS) => -CLIMB * knack.pace,
         _ if climbing && !swimming => (velocity.y - GRAVITY * STEP).max(-SLIP),
         _ if scrambling => velocity.y.max(JUMP),
         (true, true, _) => (velocity.y + 20.0 * STEP).min(3.0),
         (true, false, _) => (velocity.y - 8.0 * STEP).max(-2.5),
-        (false, true, true) => JUMP,
+        (false, true, true) => JUMP * knack.spring,
+        (false, _, _) if webbed => (velocity.y - GRAVITY * STEP).max(-1.5),
+        (false, _, _) if knack.float && velocity.y < 0.0 => {
+          (velocity.y - GRAVITY * 0.35 * STEP).max(-6.0)
+        }
         (false, _, _) => (velocity.y - GRAVITY * STEP).max(-60.0)
       };
       pilot.velocity = Vec3::new(horizontal.x, vertical, horizontal.y);
@@ -498,8 +538,10 @@ fn work(
   pilot: Res<Pilot>,
   selected: Res<Selected>,
   inventories: Query<&Inventory>,
+  skills: Query<&Skills>,
   mut voxels: Option<ResMut<Voxels>>,
   mut aim: ResMut<Aim>,
+  mut opens: MessageWriter<Open>,
   (mut digs, mut puts, mut attunes, mut scoops, mut pours, mut shuffles): (
     MessageWriter<Dig>,
     MessageWriter<Put>,
@@ -525,7 +567,7 @@ fn work(
         crate::boat::struck(vessel, eye, toward).is_some_and(|near| near < distance)
       });
       let person = folk.iter().any(|folk| {
-        crate::folk::struck(folk.at, eye, toward).is_some_and(|near| near < distance)
+        crate::folk::struck(folk, eye, toward).is_some_and(|near| near < distance)
       });
       !boat && !person
     });
@@ -538,6 +580,7 @@ fn work(
             aim.progress
               + time.delta_secs() / block.seconds_to_break()
                 * if opts().creative { 8.0 } else { 1.0 }
+                * skills.get(pilot.me).map_or(1.0, |skills| skills.stats().delve)
           }
           false => 0.0
         };
@@ -575,7 +618,11 @@ fn work(
       shuffles.write(Shuffle { from: slot as u8, to: selected.0 as u8 });
     }
     let used = aim.hit.as_ref().filter(|hit| {
-      hit.block.waystone() || hit.block.station() || hit.block.sign() || hit.block.bed()
+      hit.block.waystone()
+        || hit.block.station()
+        || hit.block.sign()
+        || hit.block.bed()
+        || hit.block == Block::Chest
     });
     if active
       && buttons.just_pressed(MouseButton::Right)
@@ -595,6 +642,9 @@ fn work(
         }
         bed if bed.bed() => {
           rests.write(Rest(hit.at));
+        }
+        Block::Chest => {
+          opens.write(Open(hit.at));
         }
         _ => menu.show(Tab::Inventory, time.elapsed_secs())
       }

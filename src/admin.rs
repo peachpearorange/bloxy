@@ -35,7 +35,7 @@ bloxy admin: one command per connection, coordinates are block x y z (y up, sea 
                                 players (white), mobs (red) and claims (yellow edges);
                                 default FILE /tmp/bloxy-view.png
   mobs [X Z R]                  mobs with their ids (all, or within R of X Z)
-  spawn KIND X Y Z [COUNT]      sheep, lizard, swan, raven, gull, parrot or shroomling
+  spawn KIND X Y Z [COUNT]      sheep, lizard, swan, raven, gull, parrot, shroomling, skeleton, shade, spider or warden
   kill ID...                    remove mobs by id
   kill KIND|all X Z R           remove every mob of a kind (or all) within R of X Z
   claims                        claimed chunks and their owners
@@ -186,7 +186,8 @@ fn chart(blocks: Vec<Vec<Block>>, label: String) -> String {
 enum Kind {
   Beast(Breed),
   Bird(bird::Breed),
-  Shroomling
+  Shroomling,
+  Haunt(crate::dungeon::Foe)
 }
 
 fn kind_named(name: &str) -> Option<Kind> {
@@ -198,6 +199,10 @@ fn kind_named(name: &str) -> Option<Kind> {
     "gull" => Some(Kind::Bird(bird::Breed::Gull)),
     "parrot" => Some(Kind::Bird(bird::Breed::Parrot)),
     "shroomling" => Some(Kind::Shroomling),
+    "skeleton" => Some(Kind::Haunt(crate::dungeon::Foe::Skeleton)),
+    "shade" => Some(Kind::Haunt(crate::dungeon::Foe::Shade)),
+    "spider" => Some(Kind::Haunt(crate::dungeon::Foe::Spider)),
+    "warden" => Some(Kind::Haunt(crate::dungeon::Foe::Warden)),
     _ => None
   }
 }
@@ -209,7 +214,8 @@ fn mobs(world: &mut World) -> Vec<(Entity, String, Vec3)> {
     .map(|(entity, beast)| {
       let kind = match beast.breed {
         Breed::Sheep(_) => "sheep",
-        Breed::Lizard => "lizard"
+        Breed::Lizard => "lizard",
+        Breed::Spider => "spider"
       };
       (entity, kind.to_string(), beast.at)
     })
@@ -472,6 +478,17 @@ fn run(world: &mut World, line: &str) -> Result<String, String> {
           Kind::Bird(breed) => {
             let bundle = bird::release(world.resource::<Voxels>(), breed, spot, luck);
             world.spawn(bundle);
+          }
+          Kind::Haunt(foe) => {
+            let mut commands = world.commands();
+            crate::haunt::rise(
+              &mut commands,
+              foe,
+              spot,
+              (IVec2::MIN, index as u16),
+              luck
+            );
+            world.flush()
           }
           Kind::Shroomling => {
             let mut commands = world.commands();

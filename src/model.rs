@@ -211,6 +211,54 @@ const HEAD_EAST_BITS: [Bit; 7] = turned(HEAD_BITS, 1);
 const HEAD_SOUTH_BITS: [Bit; 7] = turned(HEAD_BITS, 2);
 const HEAD_WEST_BITS: [Bit; 7] = turned(HEAD_BITS, 3);
 
+const IRON: [f32; 3] = [0.2, 0.2, 0.22];
+const EMBER: [f32; 3] = [0.45, 0.1, 0.03];
+const GILT: [f32; 3] = [0.85, 0.66, 0.22];
+const HOLLOW: [f32; 3] = [0.12, 0.08, 0.05];
+
+const BRAZIER_BITS: &[Bit] = &[
+  bit([3, 0, 3], [5, 6, 5], IRON),
+  bit([11, 0, 3], [13, 6, 5], IRON),
+  bit([3, 0, 11], [5, 6, 13], IRON),
+  bit([11, 0, 11], [13, 6, 13], IRON),
+  bit([2, 6, 2], [14, 8, 14], IRON),
+  bit([2, 8, 2], [14, 11, 3], IRON),
+  bit([2, 8, 13], [14, 11, 14], IRON),
+  bit([2, 8, 3], [3, 11, 13], IRON),
+  bit([13, 8, 3], [14, 11, 13], IRON),
+  bit([3, 8, 3], [13, 10, 13], EMBER),
+  skin([5, 10, 5], [11, 14, 11], Tile::Flame),
+  skin([6, 14, 7], [10, 16, 9], Tile::Flame)
+];
+
+const URN_BITS: &[Bit] = &[
+  skin([5, 0, 5], [11, 2, 11], Tile::Terracotta),
+  skin([3, 2, 3], [13, 9, 13], Tile::Terracotta),
+  skin([4, 9, 4], [12, 10, 12], Tile::Terracotta),
+  skin([5, 10, 5], [11, 12, 11], Tile::Terracotta),
+  skin([4, 12, 4], [12, 13, 12], Tile::Terracotta)
+];
+
+const CHEST_BITS: &[Bit] = &[
+  skin([1, 0, 1], [15, 13, 15], Tile::Planks),
+  bit([0, 0, 3], [16, 14, 5], IRON),
+  bit([0, 0, 11], [16, 14, 13], IRON),
+  bit([7, 7, 0], [9, 10, 1], GILT)
+];
+
+const EMPTY_CHEST_BITS: &[Bit] = &[
+  skin([1, 0, 1], [15, 6, 15], Tile::Planks),
+  bit([2, 6, 2], [14, 7, 14], HOLLOW),
+  skin([1, 6, 1], [15, 9, 2], Tile::Planks),
+  skin([1, 6, 2], [2, 9, 14], Tile::Planks),
+  skin([14, 6, 2], [15, 9, 14], Tile::Planks),
+  skin([1, 6, 14], [15, 16, 16], Tile::Planks),
+  bit([0, 0, 3], [1, 9, 5], IRON),
+  bit([15, 0, 3], [16, 9, 5], IRON),
+  bit([0, 0, 11], [1, 9, 13], IRON),
+  bit([15, 0, 11], [16, 9, 13], IRON)
+];
+
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
     Block::Torch => TORCH_BITS,
@@ -239,6 +287,10 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::BedHeadEast => &HEAD_EAST_BITS,
     Block::BedHeadSouth => &HEAD_SOUTH_BITS,
     Block::BedHeadWest => &HEAD_WEST_BITS,
+    Block::Brazier => BRAZIER_BITS,
+    Block::Urn => URN_BITS,
+    Block::Chest => CHEST_BITS,
+    Block::EmptyChest => EMPTY_CHEST_BITS,
     _ => &[]
   }
 }

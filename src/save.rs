@@ -71,6 +71,7 @@ fn store(
       Changed<Skin>,
       Changed<Visited>,
       Changed<Bookmarks>,
+      Changed<crate::skill::Skills>,
       Changed<Hopper>,
       Changed<Vessel>,
       Changed<Sign>,

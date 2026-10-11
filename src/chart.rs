@@ -360,6 +360,23 @@ fn draw(
         dot(&mut paint, island.stone.xz().as_vec2(), 2, [0.9, 0.25, 0.9])
       }
     }
+    if chart.scale() <= 2.0 {
+      let (low, high) = (chart.world(Vec2::ZERO), chart.world(chart.size.as_vec2()));
+      for dungeon in crate::dungeon::Dungeon::within(
+        voxels.seed,
+        low.floor().as_ivec2(),
+        high.ceil().as_ivec2()
+      )
+      .iter()
+      {
+        let at = dungeon.entry.xz().as_vec2();
+        dot(&mut paint, at, 3, [0.05, 0.02, 0.02]);
+        dot(&mut paint, at, 2, match dungeon.style {
+          crate::dungeon::Style::Spire => [0.95, 0.55, 0.2],
+          crate::dungeon::Style::Descent => [0.85, 0.12, 0.1]
+        })
+      }
+    }
     for (avatar, player) in others.iter() {
       dot(
         &mut paint,

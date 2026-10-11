@@ -93,7 +93,7 @@ enum Mood {
 }
 
 #[derive(Component)]
-struct Flight {
+pub struct Flight {
   home: Vec2,
   radius: f32,
   mood: Mood,
@@ -366,16 +366,18 @@ fn fly(
 
 fn pluck(
   mut strikes: MessageReader<FromClient<Strike>>,
-  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  mut players: Query<(&Controller, (Entity, &Avatar, &mut Inventory))>,
   mut birds: Query<(&Bird, &mut Flight, &mut Health)>,
   mut commands: Commands
 ) {
   for &FromClient { client_id, message: Strike(target) } in strikes.read() {
     if let Ok((bird, mut flight, mut health)) = birds.get_mut(target)
-      && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
+      && let Some((player, avatar, mut inventory)) =
+        player_of(players.iter_mut(), client_id)
       && (avatar.at + Vec3::Y * EYE).distance(bird.at) <= REACH + 1.5
       && health.0 > 0
     {
+      commands.entity(target).insert(crate::haunt::Blamed(player));
       if flight.plucked <= 0.0 {
         flight.plucked = PLUCK_AGAIN;
         let feathers = 1 + (flight.dice() * 2.0) as u32;

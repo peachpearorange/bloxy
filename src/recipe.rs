@@ -86,7 +86,13 @@ pub const RECIPES: &[Recipe] = &[
   table(&[(Block::Planks, 7)], (Block::Ladder, 3)),
   table(&[(Block::Planks, 3), (Block::Wool, 3)], (Block::Bed, 1)),
   table(&[(Block::Planks, 3), (Block::Feather, 6)], (Block::Bed, 1)),
-  table(&[(Block::Planks, 3), (Block::Wool, 1)], (Block::FishingRod, 1))
+  table(&[(Block::Planks, 3), (Block::Wool, 1)], (Block::FishingRod, 1)),
+  hand(&[(Block::Adra, 1)], (Block::ArcaneDust, 4)),
+  hand(&[(Block::BonePile, 1)], (Block::BoneDust, 3)),
+  table(&[(Block::Wool, 1), (Block::Cod, 1)], (Block::Candle, 3)),
+  table(&[(Block::Wool, 1), (Block::Salmon, 1)], (Block::Candle, 3)),
+  furnace(&[(Block::IronOre, 2), (Block::CoalOre, 1)], (Block::Brazier, 1)),
+  furnace(&[(Block::Cobblestone, 4), (Block::Clay, 1)], (Block::AncientBrick, 4))
 ];
 
 pub fn making(block: Block) -> impl Iterator<Item = (usize, &'static Recipe)> {

@@ -31,21 +31,36 @@ impl Band {
     match self {
       Band::Trader => Health::FULL,
       Band::Pirate => 9,
-      Band::Viking => 12
+      Band::Viking => 12,
+      Band::Skeleton => 10,
+      Band::Shade => 8,
+      Band::Warden => 60
     }
   }
 
-  fn speed(self) -> f32 {
+  pub fn speed(self) -> f32 {
     match self {
       Band::Viking => 3.8,
+      Band::Skeleton => 3.3,
+      Band::Shade => 2.8,
+      Band::Warden => 2.9,
       _ => 3.4
     }
   }
 
-  fn blow(self) -> u8 {
+  pub fn blow(self) -> u8 {
     match self {
       Band::Viking => 3,
+      Band::Shade => 1,
+      Band::Warden => 5,
       _ => 2
+    }
+  }
+
+  pub fn scale(self) -> f32 {
+    match self {
+      Band::Warden => 1.6,
+      _ => 1.0
     }
   }
 }
@@ -70,19 +85,48 @@ pub fn ray_box(from: Vec3, toward: Vec3, low: Vec3, high: Vec3) -> Option<f32> {
   (near <= far).then_some(near)
 }
 
-pub fn struck(at: Vec3, from: Vec3, toward: Vec3) -> Option<f32> {
-  ray_box(from, toward, at - Vec3::new(0.35, 0.0, 0.35), at + Vec3::new(0.35, 1.9, 0.35))
+pub fn struck(folk: &Folk, from: Vec3, toward: Vec3) -> Option<f32> {
+  let scale = folk.band.scale();
+  let (at, half) = (folk.at, 0.35 * scale);
+  ray_box(
+    from,
+    toward,
+    at - Vec3::new(half, 0.0, half),
+    at + Vec3::new(half, 1.9 * scale, half)
+  )
 }
 
-#[derive(Component, Default)]
+#[derive(Component)]
 pub struct Vigour {
   calm: f32,
   mending: f32,
-  swung: f32
+  pub swung: f32,
+  spare: f32,
+  pub most: u8,
+  pub ward: f32,
+  pub punch: u8,
+  pub mend: f32
+}
+
+impl Default for Vigour {
+  fn default() -> Self {
+    Vigour {
+      calm: 0.0,
+      mending: 0.0,
+      swung: 0.0,
+      spare: 0.0,
+      most: Health::FULL,
+      ward: 1.0,
+      punch: PUNCH,
+      mend: 1.0
+    }
+  }
 }
 
 pub fn hurt(health: &mut Health, vigour: &mut Vigour, amount: u8) {
-  health.0 = health.0.saturating_sub(amount);
+  let felt = f32::from(amount) * vigour.ward + vigour.spare;
+  vigour.spare = felt.fract();
+  health.0 = health.0.saturating_sub(felt.floor() as u8);
   vigour.calm = 0.0
 }
 
@@ -99,6 +143,11 @@ pub struct Raider {
 }
 
 impl Raider {
+  pub fn knock(&mut self, push: Vec3) {
+    self.velocity = push;
+    self.stagger = 0.4
+  }
+
   pub fn overboard(ship: Entity, toward: Vec3) -> Raider {
     Raider {
       ship,
@@ -221,29 +270,39 @@ fn raid(
 fn strike(
   mut strikes: MessageReader<FromClient<Strike>>,
   time: Res<Time>,
-  mut players: Query<(&Controller, (&Avatar, &mut Vigour))>,
-  mut folk: Query<(&Folk, &mut Health, Option<&mut Raider>)>,
+  mut players: Query<(&Controller, (Entity, &Avatar, &mut Vigour))>,
+  mut folk: Query<(
+    &Folk,
+    &mut Health,
+    Option<&mut Raider>,
+    Option<&mut crate::haunt::Haunt>
+  )>,
   mut commands: Commands
 ) {
   let now = time.elapsed_secs();
   for &FromClient { client_id, message: Strike(target) } in strikes.read() {
-    if let Some((avatar, mut vigour)) = player_of(players.iter_mut(), client_id)
+    if let Some((player, avatar, mut vigour)) = player_of(players.iter_mut(), client_id)
       && now - vigour.swung >= STRIKE_EVERY
-      && let Ok((folk, mut health, raider)) = folk.get_mut(target)
+      && let Ok((folk, mut health, raider, haunt)) = folk.get_mut(target)
       && folk.band.hostile()
-      && (avatar.at + Vec3::Y * EYE).distance(folk.at + Vec3::Y * 0.9) <= REACH + 1.0
+      && (avatar.at + Vec3::Y * EYE).distance(folk.at + Vec3::Y * 0.9 * folk.band.scale())
+        <= REACH + folk.band.scale()
       && health.0 > 0
     {
       vigour.swung = now;
-      health.0 = health.0.saturating_sub(PUNCH);
+      health.0 = health.0.saturating_sub(vigour.punch);
+      commands.entity(target).insert(crate::haunt::Blamed(player));
+      let push =
+        (folk.at - avatar.at).with_y(0.0).normalize_or_zero() / folk.band.scale();
       if let Some(mut raider) = raider {
-        let push = (folk.at - avatar.at).with_y(0.0).normalize_or_zero();
         raider.velocity = push * 7.0 + Vec3::Y * 5.0;
         raider.stagger = 0.35
       }
+      if let Some(mut haunt) = haunt {
+        haunt.shove(push * 7.0 + Vec3::Y * 4.0)
+      }
       if health.0 == 0 {
-        commands.entity(target).remove::<Raider>();
-        crate::death::slay(&mut commands, target)
+        crate::haunt::fell(&mut commands, target)
       }
     }
   }
@@ -254,7 +313,9 @@ fn mend(time: Res<Time>, mut players: Query<(&mut Health, &mut Vigour)>) {
   for (mut health, mut vigour) in players.iter_mut() {
     vigour.calm += dt;
     vigour.mending += dt;
-    if vigour.calm > MEND_AFTER && vigour.mending >= MEND_EVERY && health.0 < Health::FULL
+    if vigour.calm > MEND_AFTER
+      && vigour.mending >= MEND_EVERY / vigour.mend
+      && health.0 < vigour.most
     {
       vigour.mending = 0.0;
       health.0 += 1
@@ -270,16 +331,24 @@ fn perish(
     &mut Health,
     &mut Avatar,
     &mut Vigour,
-    &Bedside
+    &Bedside,
+    &mut crate::condition::Conditions
   )>,
   mut boats: Query<&mut Vessel>,
   mut teleports: MessageWriter<ToClients<Teleport>>
 ) {
-  for (entity, controller, mut health, mut avatar, mut vigour, bedside) in
+  for (entity, controller, mut health, mut avatar, mut vigour, bedside, mut conditions) in
     players.iter_mut().filter(|(_, _, health, ..)| health.0 == 0)
   {
-    health.0 = Health::FULL;
-    *vigour = Vigour::default();
+    health.0 = vigour.most;
+    conditions.0.clear();
+    *vigour = Vigour {
+      most: vigour.most,
+      ward: vigour.ward,
+      punch: vigour.punch,
+      mend: vigour.mend,
+      ..default()
+    };
     for mut vessel in boats.iter_mut().filter(|vessel| vessel.rider == Some(entity)) {
       vessel.rider = None
     }
@@ -316,25 +385,74 @@ fn repaint(skin: &mut Skin, paint: impl Fn(Part, Face, u32, u32, u8) -> u8) {
   }
 }
 
+fn bones(skin: &mut Skin, armoured: bool) {
+  repaint(skin, |part, face, row, col, _| match (part, face) {
+    (Part::Head, Face::Front)
+      if row == 3 && (col == 1 || col == 2 || col == 5 || col == 6) =>
+    {
+      0
+    }
+    (Part::Head, Face::Front)
+      if row == 4 && (1..7).contains(&col) && col != 3 && col != 4 =>
+    {
+      0
+    }
+    (Part::Head, Face::Front) if row == 5 && (col == 3 || col == 4) => 1,
+    (Part::Head, Face::Front) if row == 6 && col > 0 && col < 7 => {
+      [4, 0][col as usize % 2]
+    }
+    (Part::Head, Face::Front) if row == 7 && col > 1 && col < 6 => 3,
+    (Part::Head, _) => [4, 4, 3][((row + col) % 3) as usize],
+    (Part::Body, _) if armoured => match row {
+      0 | 1 => 12,
+      row if row % 4 == 3 => 30,
+      _ => 29
+    },
+    (Part::Body, Face::Front | Face::Back) if col == 3 || col == 4 => 3,
+    (Part::Body, _) if row > 8 => [3, 0][row as usize % 2],
+    (Part::Body, _) => [4, 0][row as usize % 2],
+    (Part::Arm, _) if row == 6 => 2,
+    (Part::Arm, _) => [4, 3][(row / 3 % 2) as usize],
+    (Part::Leg, _) if armoured && row < 6 => 29,
+    (Part::Leg, _) if row == 5 => 2,
+    (Part::Leg, _) => [4, 3][(row / 4 % 2) as usize],
+    _ => 4
+  })
+}
+
 fn outfit(band: Band, luck: u32) -> Skin {
   let mut skin = Skin::fresh(u64::from(luck));
+  match band {
+    Band::Skeleton | Band::Warden => bones(&mut skin, band == Band::Warden),
+    Band::Shade => repaint(&mut skin, |part, face, row, col, _| match (part, face) {
+      (Part::Head, Face::Front) if row == 4 && (col == 2 || col == 5) => 22,
+      (Part::Head, Face::Front) if (2..7).contains(&row) && (1..7).contains(&col) => 0,
+      _ if (row + col) % 5 == 0 => 18,
+      _ => 0
+    }),
+    _ => clothes(&mut skin, band, luck)
+  }
+  skin
+}
+
+fn clothes(skin: &mut Skin, band: Band, luck: u32) {
   let pick = |salt: u32, choices: &[u8]| {
     choices[(crate::noise::hash(luck, salt as i32, 3, 5) % choices.len() as u32) as usize]
   };
   let shirt = match band {
     Band::Pirate => pick(1, &[14, 15, 4, 31]),
     Band::Viking => pick(1, &[8, 9, 19, 24, 28]),
-    Band::Trader => pick(1, &[17, 18, 23, 20])
+    _ => pick(1, &[17, 18, 23, 20])
   };
   let trim = match band {
     Band::Pirate => pick(2, &[0, 30, 19]),
     Band::Viking => pick(2, &[1, 10, 2]),
-    Band::Trader => 11
+    _ => 11
   };
   let beard = pick(3, &[11, 12, 13, 10, 0]);
   let striped = pick(4, &[0, 1]) == 1;
   let patched = pick(5, &[0, 0, 1]) == 1;
-  repaint(&mut skin, |part, face, row, col, was| match (band, part, face) {
+  repaint(skin, |part, face, row, col, was| match (band, part, face) {
     (Band::Pirate, Part::Head, Face::Front) if patched && row == 4 && col == 2 => 0,
     (Band::Pirate, Part::Head, Face::Top) => 14,
     (Band::Pirate, Part::Head, _) if row < 2 && face != Face::Bottom => 14,
@@ -358,8 +476,7 @@ fn outfit(band: Band, luck: u32) -> Skin {
     (Band::Trader, Part::Leg, _) if row < 10 => shirt,
     (_, Part::Leg, _) if row < 10 => trim,
     _ => was
-  });
-  skin
+  })
 }
 
 type Gear = Vec<(Vec3, Vec3, [f32; 3])>;
@@ -370,6 +487,9 @@ const GOLD: [f32; 3] = [0.86, 0.68, 0.2];
 const SOOT: [f32; 3] = [0.08, 0.07, 0.07];
 const HAFT: [f32; 3] = [0.45, 0.3, 0.16];
 const BONE: [f32; 3] = [0.92, 0.88, 0.75];
+const GHOSTLY: f32 = 0.72;
+const RUST: [f32; 3] = [0.45, 0.28, 0.18];
+const SHROUD: [f32; 3] = [0.06, 0.04, 0.09];
 
 fn hat(band: Band, luck: u32) -> Gear {
   let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z) * PX;
@@ -391,7 +511,42 @@ fn hat(band: Band, luck: u32) -> Gear {
     Band::Trader => vec![
       (at(0.0, 8.6, 0.0), at(9.0, 3.0, 9.0), [0.94, 0.9, 0.8]),
       (at(0.0, 8.8, -4.6), at(1.5, 1.5, 0.4), [0.2, 0.8, 0.5]),
+    ],
+    Band::Skeleton if luck % 3 == 0 => vec![
+      (at(0.0, 7.0, 0.0), at(8.8, 2.4, 8.8), RUST),
+      (at(0.0, 5.0, -4.5), at(1.0, 2.5, 0.5), RUST),
+    ],
+    Band::Skeleton => vec![],
+    Band::Shade => vec![
+      (at(0.0, 4.5, 0.6), at(9.2, 9.4, 9.0), SHROUD),
+      (at(0.0, 9.6, 1.5), at(7.0, 1.4, 7.0), SHROUD),
+    ],
+    Band::Warden => vec![
+      (at(0.0, 6.8, 0.0), at(9.4, 3.8, 9.4), IRON),
+      (at(0.0, 3.5, -4.8), at(1.2, 4.0, 0.6), IRON),
+      (at(2.6, 3.8, -4.8), at(2.6, 0.8, 0.6), IRON),
+      (at(-2.6, 3.8, -4.8), at(2.6, 0.8, 0.6), IRON),
+      (at(5.6, 8.4, 0.0), at(2.4, 2.0, 2.0), BONE),
+      (at(-5.6, 8.4, 0.0), at(2.4, 2.0, 2.0), BONE),
+      (at(6.8, 11.0, 0.0), at(1.6, 4.0, 1.6), BONE),
+      (at(-6.8, 11.0, 0.0), at(1.6, 4.0, 1.6), BONE),
+      (at(0.0, 9.2, 0.0), at(1.6, 1.6, 9.6), GOLD),
     ]
+  }
+}
+
+fn eyes(band: Band) -> Gear {
+  let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z) * PX;
+  match band {
+    Band::Shade => vec![
+      (at(1.5, 4.5, -4.05), at(1.2, 1.0, 0.2), [0.5, 1.0, 1.0]),
+      (at(-1.5, 4.5, -4.05), at(1.2, 1.0, 0.2), [0.5, 1.0, 1.0]),
+    ],
+    Band::Skeleton | Band::Warden => vec![
+      (at(1.5, 4.5, -4.03), at(0.8, 0.8, 0.1), [1.0, 0.35, 0.1]),
+      (at(-1.5, 4.5, -4.03), at(0.8, 0.8, 0.1), [1.0, 0.35, 0.1]),
+    ],
+    _ => vec![]
   }
 }
 
@@ -406,7 +561,16 @@ fn weapon(band: Band) -> Gear {
       (at(0.0, -11.0, -5.0), at(1.0, 1.0, 12.0), HAFT),
       (at(0.0, -9.5, -10.0), at(0.8, 5.0, 3.0), IRON),
     ],
-    Band::Trader => vec![]
+    Band::Skeleton => vec![
+      (at(0.0, -11.0, -5.5), at(0.8, 1.4, 9.0), RUST),
+      (at(0.0, -11.0, -1.0), at(2.6, 1.6, 0.8), HAFT),
+    ],
+    Band::Warden => vec![
+      (at(0.0, -11.0, -10.0), at(1.0, 2.6, 18.0), STEEL),
+      (at(0.0, -11.0, -1.0), at(4.4, 1.6, 1.0), GOLD),
+      (at(0.0, -11.0, 0.8), at(1.2, 1.2, 2.4), HAFT),
+    ],
+    _ => vec![]
   }
 }
 
@@ -417,6 +581,13 @@ fn shield(band: Band, luck: u32) -> Gear {
     Band::Viking => vec![
       (Vec3::new(-2.5, -6.0, 0.0) * PX, Vec3::new(0.8, 9.0, 9.0) * PX, paint),
       (Vec3::new(-3.0, -6.0, 0.0) * PX, Vec3::new(0.6, 2.0, 2.0) * PX, IRON),
+    ],
+    Band::Warden => vec![
+      (Vec3::new(-2.5, -6.0, 0.0) * PX, Vec3::new(0.8, 13.0, 10.0) * PX, [
+        0.2, 0.2, 0.24
+      ]),
+      (Vec3::new(-3.0, -6.0, 0.0) * PX, Vec3::new(0.6, 9.0, 2.0) * PX, GOLD),
+      (Vec3::new(-3.0, -4.0, 0.0) * PX, Vec3::new(0.6, 2.0, 7.0) * PX, GOLD),
     ],
     _ => vec![]
   }
@@ -445,7 +616,29 @@ fn dress(
 ) {
   for (entity, folk) in arrivals.iter() {
     let clad = clothe(&outfit(folk.band, folk.luck), &mut images, &mut materials);
+    if folk.band == Band::Shade
+      && let Some(mut material) = materials.get_mut(&clad.material)
+    {
+      material.alpha_mode = AlphaMode::Blend;
+      material.base_color = Color::WHITE.with_alpha(GHOSTLY);
+      material.emissive = LinearRgba::rgb(0.06, 0.02, 0.12)
+    }
     let material = MeshMaterial3d(clad.material.clone());
+    let glints: Vec<(Vec3, Handle<Mesh>, Handle<StandardMaterial>)> = eyes(folk.band)
+      .into_iter()
+      .map(|(centre, size, [r, g, b])| {
+        (
+          centre,
+          shapes.cuboid(&mut meshes, size),
+          materials.add(StandardMaterial {
+            base_color: Color::srgb(r, g, b),
+            emissive: LinearRgba::rgb(r, g, b) * 8.0,
+            unlit: true,
+            ..default()
+          })
+        )
+      })
+      .collect();
     let mut gear = |parent: Entity, gear: Gear, commands: &mut Commands| {
       for (centre, size, color) in gear.into_iter() {
         commands.spawn((
@@ -487,6 +680,14 @@ fn dress(
       ))
       .id();
     gear(head, hat(folk.band, folk.luck), &mut commands);
+    for (centre, mesh, glow) in glints.into_iter() {
+      commands.spawn((
+        Mesh3d(mesh),
+        MeshMaterial3d(glow),
+        Transform::from_translation(centre),
+        ChildOf(head)
+      ));
+    }
     for (x, phase, mesh, pivot, arm) in [
       (6.0, 0.0, kit.arm.clone(), 24.0, true),
       (-6.0, PI, kit.left_arm.clone(), 24.0, true),
@@ -546,19 +747,30 @@ fn animate(
     shown.health = health.0;
     shown.flushed -= dt;
     if let Some(mut material) = materials.get_mut(&clad.material) {
+      let alpha = if folk.band == Band::Shade { GHOSTLY } else { 1.0 };
       material.base_color = match shown.flushed > 0.0 {
         true => Color::srgb(1.0, 0.35, 0.35),
         false => Color::WHITE
       }
+      .with_alpha(alpha)
     }
-    let swing = shown.stride.sin() * (shown.pace / 4.3).min(1.0) * 0.7;
+    let floating = folk.band == Band::Shade;
+    let swing = match floating {
+      true => 0.0,
+      false => shown.stride.sin() * (shown.pace / 4.3).min(1.0) * 0.7
+    };
     let chop = (shown.swung / SWING).min(1.0);
     let brandish = match (folk.aboard, folk.band.hostile()) {
       (true, true) => Some(2.3 + (now * 3.0 + folk.luck as f32).sin() * 0.3),
       _ => None
     };
-    *transform = Transform::from_translation(shown.at)
-      .with_rotation(Quat::from_rotation_y(shown.yaw));
+    let hover = match floating {
+      true => Vec3::Y * (0.25 + (now * 2.1 + folk.luck as f32).sin() * 0.12),
+      false => Vec3::ZERO
+    };
+    *transform = Transform::from_translation(shown.at + hover)
+      .with_rotation(Quat::from_rotation_y(shown.yaw))
+      .with_scale(Vec3::splat(folk.band.scale()));
     for child in family.iter_descendants(entity) {
       if let Ok((joint, rest, mut transform)) = joints.get_mut(child) {
         transform.translation = rest.0;
@@ -571,6 +783,9 @@ fn animate(
               && let Some(raised) = brandish =>
           {
             Quat::from_rotation_x(raised)
+          }
+          Joint::Arm(_) if floating => {
+            Quat::from_rotation_x(1.3 + (now * 3.0).sin() * 0.15)
           }
           Joint::Arm(phase) | Joint::Leg(phase) => {
             Quat::from_rotation_x(swing * phase.cos())
@@ -602,9 +817,7 @@ fn fight(
     if let Some((target, _)) = folk
       .iter()
       .filter(|(_, folk)| folk.band.hostile())
-      .filter_map(|(entity, folk)| {
-        struck(folk.at, from, toward).map(|near| (entity, near))
-      })
+      .filter_map(|(entity, folk)| struck(folk, from, toward).map(|near| (entity, near)))
       .filter(|&(_, near)| near <= blocked)
       .min_by(|a, b| a.1.total_cmp(&b.1))
     {

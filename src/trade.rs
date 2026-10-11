@@ -121,9 +121,7 @@ fn hail(
     if let Some((trader, _)) = folk
       .iter()
       .filter(|(_, folk)| folk.band == Band::Trader)
-      .filter_map(|(entity, folk)| {
-        struck(folk.at, from, toward).map(|near| (entity, near))
-      })
+      .filter_map(|(entity, folk)| struck(folk, from, toward).map(|near| (entity, near)))
       .filter(|&(_, near)| near <= blocked)
       .min_by(|a, b| a.1.total_cmp(&b.1))
     {

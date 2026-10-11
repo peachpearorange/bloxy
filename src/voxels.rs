@@ -187,7 +187,7 @@ impl Voxels {
       self.touched.insert(key.xz());
       self.edits.entry(key).or_default().insert(local, block);
       if let Some(chunk) = self.chunks.get_mut(&key) {
-        let lit = block == Block::Torch || chunk.get(local) == Block::Torch;
+        let lit = block.lit() || chunk.get(local).lit();
         Arc::make_mut(chunk).set(local, block);
         let near_edge = |axis: i32| axis == 0 || axis == SIZE - 1;
         match lit || local.to_array().into_iter().any(near_edge) {
@@ -212,13 +212,18 @@ impl Voxels {
       .flat_map(|offset| {
         let near = key + offset;
         self.edits.get(&near).into_iter().flatten().filter_map(move |(&local, &block)| {
-          (block == Block::Torch).then_some(origin_of(near) + local)
+          block.lit().then_some(origin_of(near) + local)
         })
       })
       .filter(|torch| {
         let centre = torch.as_vec3() + 0.5;
         centre.cmpge(low).all() && centre.cmple(high).all()
       })
+      .chain(
+        crate::dungeon::lights_near(self.seed, low, high)
+          .into_iter()
+          .filter(|&light| self.block(light).is_some_and(Block::lit))
+      )
       .collect()
   }
 

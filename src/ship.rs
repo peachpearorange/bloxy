@@ -32,7 +32,7 @@ impl Band {
     match self {
       Band::Trader => 2.6,
       Band::Pirate => 5.0,
-      Band::Viking => 6.0
+      Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => 6.0
     }
   }
 
@@ -40,7 +40,7 @@ impl Band {
     match self {
       Band::Trader => 1.1,
       Band::Pirate => 1.8,
-      Band::Viking => 1.4
+      Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => 1.4
     }
   }
 
@@ -48,7 +48,7 @@ impl Band {
     match self {
       Band::Trader => 3.2,
       Band::Pirate => 4.5,
-      Band::Viking => 5.0
+      Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => 5.0
     }
   }
 
@@ -56,7 +56,7 @@ impl Band {
     match self {
       Band::Trader => &TRADER_SEATS,
       Band::Pirate => &PIRATE_SEATS,
-      Band::Viking => &VIKING_SEATS
+      Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => &VIKING_SEATS
     }
   }
 }
@@ -443,7 +443,7 @@ fn canvas(band: Band) -> Image {
         }
       }
       Band::Viking if (x / 4) % 2 == 0 => [0.74, 0.12, 0.1],
-      Band::Viking => [0.92, 0.88, 0.8]
+      Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => [0.92, 0.88, 0.8]
     };
     [r * weave, g * weave, b * weave]
   };
@@ -466,7 +466,7 @@ fn canvas(band: Band) -> Image {
 fn hull(band: Band) -> Vec<(Vec3, Vec3)> {
   let (length, beam) = (band.length(), band.beam());
   let wall = match band {
-    Band::Viking => 0.45,
+    Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => 0.45,
     _ => 0.7
   };
   let (top, keel) = (DECK + wall, -0.55);
@@ -489,7 +489,7 @@ fn hull(band: Band) -> Vec<(Vec3, Vec3)> {
       (Vec3::new(-beam, DECK, length - 2.2), Vec3::new(beam, 1.2, length)),
       (Vec3::new(-0.35, DECK, -length + 0.4), Vec3::new(0.35, 0.55, -length + 1.2))
     ]),
-    Band::Viking => slabs.extend([
+    Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => slabs.extend([
       (Vec3::new(-0.15, top, -length - 1.6), Vec3::new(0.15, top + 0.7, -length - 1.2)),
       (
         Vec3::new(-0.15, top + 0.5, -length - 2.0),
@@ -517,7 +517,7 @@ fn tint(band: Band) -> [f32; 3] {
   match band {
     Band::Trader => [1.0, 1.0, 1.0],
     Band::Pirate => [0.42, 0.36, 0.34],
-    Band::Viking => [0.9, 0.8, 0.66]
+    Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => [0.9, 0.8, 0.66]
   }
 }
 
@@ -574,12 +574,12 @@ fn rig(
     let mast = match band {
       Band::Trader => 4.2,
       Band::Pirate => 7.5,
-      Band::Viking => 6.0
+      Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => 6.0
     };
     let (sail_wide, sail_tall) = match band {
       Band::Trader => (2.4, 2.8),
       Band::Pirate => (4.4, 4.2),
-      Band::Viking => (4.0, 3.4)
+      Band::Viking | Band::Skeleton | Band::Shade | Band::Warden => (4.0, 3.4)
     };
     let cannon = (band == Band::Pirate).then(|| {
       commands

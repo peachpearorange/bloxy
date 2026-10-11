@@ -1,4 +1,5 @@
 use {crate::{protocol::{Avatar, Bedside, Bookmarks, HUES, Inventory, Visited},
+             skill::Skills,
              skin::Skin},
      bevy::prelude::*,
      serde::{Deserialize, Serialize},
@@ -23,7 +24,9 @@ pub struct Account {
   #[serde(default)]
   pub bedside: Bedside,
   #[serde(default)]
-  pub hue: Option<u8>
+  pub hue: Option<u8>,
+  #[serde(default)]
+  pub skills: Skills
 }
 
 pub fn random() -> u64 { RandomState::new().hash_one(std::time::SystemTime::now()) }
@@ -36,8 +39,15 @@ fn digest(salt: &str, password: &str) -> String {
   stretched.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-pub type Kept<'a> =
-  (&'a Avatar, &'a Inventory, &'a Skin, &'a Visited, &'a Bookmarks, &'a Bedside);
+pub type Kept<'a> = (
+  &'a Avatar,
+  &'a Inventory,
+  &'a Skin,
+  &'a Visited,
+  &'a Bookmarks,
+  &'a Bedside,
+  &'a Skills
+);
 
 impl Account {
   pub fn open(name: String, password: &str, inventory: Inventory) -> Account {
@@ -52,11 +62,16 @@ impl Account {
       visited: default(),
       bookmarks: default(),
       bedside: default(),
-      hue: None
+      hue: None,
+      skills: default()
     }
   }
 
-  pub fn keep(&mut self, (&avatar, inventory, skin, visited, bookmarks, &bedside): Kept) {
+  pub fn keep(
+    &mut self,
+    (&avatar, inventory, skin, visited, bookmarks, &bedside, skills): Kept
+  ) {
+    self.skills = skills.clone();
     self.avatar = Some(avatar);
     self.inventory = inventory.clone();
     self.skin = skin.clone();

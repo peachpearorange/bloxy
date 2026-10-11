@@ -42,6 +42,17 @@ struct Flash;
 #[derive(Component)]
 struct Announcement;
 
+#[derive(Component)]
+struct Cooling(usize);
+
+#[derive(Component)]
+struct Learning;
+
+#[derive(Component)]
+struct Level;
+
+const HEARTS: u8 = 25;
+
 const HEART: [&str; 9] = [
   ".00...00.",
   "0220.0110",
@@ -147,15 +158,21 @@ fn build(
     .spawn((Hotbar, Node {
       width: percent(100),
       position_type: PositionType::Absolute,
-      bottom: px(8.0 + SLOT + 4.0),
+      bottom: px(8.0 + SLOT + 9.0),
       justify_content: JustifyContent::Center,
       ..default()
     }))
     .with_children(|row| {
       row
-        .spawn(Node { width: px(SLOT * HOTBAR as f32), column_gap: px(2), ..default() })
+        .spawn(Node {
+          width: px(SLOT * HOTBAR as f32),
+          column_gap: px(2),
+          row_gap: px(1),
+          flex_wrap: FlexWrap::WrapReverse,
+          ..default()
+        })
         .with_children(|hearts| {
-          for index in 0..Health::FULL / 2 {
+          for index in 0..HEARTS {
             hearts.spawn((
               Heart(index),
               ImageNode {
@@ -228,6 +245,18 @@ fn build(
                 Visibility::Hidden
               ));
               slot.spawn((
+                Cooling(index),
+                Node {
+                  position_type: PositionType::Absolute,
+                  left: px(0),
+                  right: px(0),
+                  bottom: px(0),
+                  height: percent(0),
+                  ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6))
+              ));
+              slot.spawn((
                 Count(index),
                 Text::new(""),
                 TextFont { font_size: FontSize::Px(16.0), ..default() },
@@ -242,6 +271,41 @@ fn build(
             });
         }
       });
+    });
+  commands
+    .spawn((Hotbar, Node {
+      width: percent(100),
+      position_type: PositionType::Absolute,
+      bottom: px(8.0 + SLOT + 2.0),
+      justify_content: JustifyContent::Center,
+      ..default()
+    }))
+    .with_children(|row| {
+      row
+        .spawn((
+          Node { width: px(SLOT * HOTBAR as f32), height: px(5), ..default() },
+          BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.75))
+        ))
+        .with_children(|bar| {
+          bar.spawn((
+            Learning,
+            Node { width: percent(0), height: percent(100), ..default() },
+            BackgroundColor(Color::srgb(0.5, 0.95, 0.35))
+          ));
+          bar.spawn((
+            Level,
+            Text::new(""),
+            TextFont { font_size: FontSize::Px(14.0), ..default() },
+            TextColor(Color::srgb(0.6, 1.0, 0.45)),
+            crate::hud::SHADE,
+            Node {
+              position_type: PositionType::Absolute,
+              left: px(-34),
+              top: px(-7),
+              ..default()
+            }
+          ));
+        });
     });
   commands
     .spawn((
@@ -298,12 +362,15 @@ pub fn icon_rect(block: Block) -> Rect {
 }
 
 fn refresh(
+  time: Res<Time>,
   pilot: Option<Res<Pilot>>,
   selected: Res<Selected>,
+  recharge: Res<crate::spell::Recharge>,
   inventories: Query<&Inventory>,
   mut slots: Query<(&Slot, &mut BorderColor)>,
   mut icons: Query<(&Icon, &mut ImageNode, &mut Visibility)>,
-  mut counts: Query<(&Count, &mut Text)>
+  mut counts: Query<(&Count, &mut Text, &mut TextColor)>,
+  mut cooling: Query<(&Cooling, &mut Node)>
 ) {
   let inventory =
     pilot.and_then(|pilot| inventories.get(pilot.me).ok().cloned()).unwrap_or_default();
@@ -322,12 +389,68 @@ fn refresh(
       None => *visibility = Visibility::Hidden
     }
   }
-  for (count, mut text) in counts.iter_mut() {
-    let shown = inventory.slots[count.0]
-      .filter(|stack| stack.count > 1)
-      .map_or(String::new(), |stack| stack.count.to_string());
+  for (count, mut text, mut colour) in counts.iter_mut() {
+    let (shown, tint) = match inventory.slots[count.0] {
+      Some(stack) if stack.block.spell() => {
+        let fuel = inventory.count(crate::spell::fuel(stack.block));
+        (
+          fuel.to_string(),
+          if fuel == 0 {
+            Color::srgb(1.0, 0.4, 0.35)
+          } else {
+            Color::srgb(0.75, 0.85, 1.0)
+          }
+        )
+      }
+      Some(stack) if stack.count > 1 => (stack.count.to_string(), Color::WHITE),
+      _ => (String::new(), Color::WHITE)
+    };
     if text.0 != shown {
       text.0 = shown
+    }
+    colour.set_if_neq(TextColor(tint));
+  }
+  let now = time.elapsed_secs();
+  for (cooling, mut node) in cooling.iter_mut() {
+    let left = inventory.slots[cooling.0]
+      .filter(|stack| stack.block.spell())
+      .and_then(|stack| {
+        recharge
+          .0
+          .get(&stack.block)
+          .map(|&ready| (ready - now) / crate::spell::cooldown(stack.block))
+      })
+      .unwrap_or(0.0)
+      .clamp(0.0, 1.0);
+    let height = percent(left * 100.0);
+    if node.height != height {
+      node.height = height
+    }
+  }
+}
+
+fn learning(
+  pilot: Option<Res<Pilot>>,
+  skills: Query<&crate::skill::Skills>,
+  mut bars: Query<&mut Node, With<Learning>>,
+  mut levels: Query<&mut Text, With<Level>>
+) {
+  let skills =
+    pilot.and_then(|pilot| skills.get(pilot.me).ok().cloned()).unwrap_or_default();
+  let filled =
+    percent(skills.xp as f32 / crate::skill::needed(skills.level) as f32 * 100.0);
+  for mut node in bars.iter_mut() {
+    if node.width != filled {
+      node.width = filled
+    }
+  }
+  let line = match skills.points() > 0 {
+    true => format!("{}+", skills.level),
+    false => skills.level.to_string()
+  };
+  for mut text in levels.iter_mut() {
+    if text.0 != line {
+      text.0 = line.clone()
     }
   }
 }
@@ -421,11 +544,16 @@ fn vitals(
   time: Res<Time>,
   pilot: Option<Res<Pilot>>,
   healths: Query<&Health>,
-  mut hearts: Query<(&Heart, &mut ImageNode)>,
+  skills: Query<&crate::skill::Skills>,
+  mut hearts: Query<(&Heart, &mut ImageNode, &mut Node)>,
   mut flash: Query<&mut BackgroundColor, With<Flash>>,
   mut was: Local<Option<u8>>,
   mut redness: Local<f32>
 ) {
+  let most = pilot
+    .as_ref()
+    .and_then(|pilot| skills.get(pilot.me).ok())
+    .map_or(Health::FULL, crate::skill::Skills::most);
   let health = pilot.and_then(|pilot| healths.get(pilot.me).ok()).map(|health| health.0);
   if let (Some(now), Some(before)) = (health, *was)
     && now < before
@@ -435,7 +563,11 @@ fn vitals(
   *was = health;
   *redness = (*redness - time.delta_secs()).max(0.0);
   let points = health.unwrap_or(Health::FULL);
-  for (heart, mut image) in hearts.iter_mut() {
+  for (heart, mut image, mut node) in hearts.iter_mut() {
+    let display = if heart.0 < most.div_ceil(2) { Display::Flex } else { Display::None };
+    if node.display != display {
+      node.display = display
+    }
     let frame = match points.saturating_sub(heart.0 * 2) {
       0 => 2,
       1 => 1,
@@ -482,7 +614,10 @@ impl Plugin for Hud {
     app
       .add_plugins(FrameTimeDiagnosticsPlugin::default())
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
-      .add_systems(Update, (refresh, aim, status, vitals, announce).run_if(plays))
+      .add_systems(
+        Update,
+        (refresh, aim, status, vitals, announce, learning).run_if(plays)
+      )
       .add_systems(PostUpdate, tuck.run_if(plays))
       .add_systems(PreUpdate, scale.run_if(plays));
   }

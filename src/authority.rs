@@ -9,6 +9,7 @@ use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              recipe::RECIPES,
              save::{self, World},
              shroomling, sign,
+             skill::{Earned, Skills},
              voxels::{Voxels, unpack}},
      bevy::prelude::*,
      bevy_replicon::prelude::*};
@@ -47,7 +48,16 @@ fn starter(creative: bool) -> Inventory {
     Block::Slate,
     Block::BirchSign,
     Block::SpruceSign,
-    Block::PalmSign
+    Block::PalmSign,
+    Block::ArcaneDust,
+    Block::BoneDust,
+    Block::Candle,
+    Block::LizardClaw,
+    Block::SpellFirebolt,
+    Block::SpellMissile,
+    Block::SpellThunder,
+    Block::SpellLight,
+    Block::Brazier
   ];
   let mut inventory = Inventory::default();
   if creative {
@@ -66,8 +76,10 @@ fn embody(
   account: usize
 ) -> Entity {
   let hue = accounts.0[account].hue();
-  let Account { name, avatar, inventory, skin, visited, bookmarks, bedside, .. } =
-    accounts.0[account].clone();
+  let Account {
+    name, avatar, inventory, skin, visited, bookmarks, bedside, skills, ..
+  } = accounts.0[account].clone();
+  let most = skills.most();
   let at = generate::spawn_point(seed);
   let player = commands
     .spawn((
@@ -80,8 +92,13 @@ fn embody(
       visited,
       bookmarks,
       bedside,
-      Health(Health::FULL),
-      folk::Vigour::default()
+      (
+        skills,
+        crate::condition::Conditions::default(),
+        crate::spell::Spellbook::default(),
+        Health(most),
+        folk::Vigour::default()
+      )
     ))
     .id();
   commands.write_message(ToClients {
@@ -220,11 +237,18 @@ fn sign_in(
         }
         (Some(owner), _) => Err(format!("Wrong password for {}", accounts.0[owner].name)),
         (None, _) => {
-          accounts.0.push(Account::open(
-            name.clone(),
-            password,
-            starter(opts().creative)
-          ));
+          accounts.0.push(Account {
+            skills: match opts().creative {
+              true => {
+                let learned: Vec<u16> = (1..crate::skill::TREE.len() as u16).collect();
+                let level =
+                  Skills { learned: learned.clone(), ..default() }.spent() as u32;
+                Skills { learned, level, xp: 0 }
+              }
+              false => default()
+            },
+            ..Account::open(name.clone(), password, starter(opts().creative))
+          });
           let owner = accounts.0.len() - 1;
           let player = embody(&mut commands, &accounts, voxels.seed, client, owner);
           online.push((client, owner, player));
@@ -363,14 +387,26 @@ fn guarded(
     .is_none()
 }
 
+fn ore(block: Block) -> u32 {
+  match block {
+    Block::CoalOre => 1,
+    Block::CopperOre | Block::TinOre | Block::IronOre => 2,
+    Block::GoldOre => 5,
+    Block::DiamondOre => 12,
+    Block::Adra => 4,
+    _ => 0
+  }
+}
+
 fn dig(
   mut digs: MessageReader<FromClient<Dig>>,
   time: Res<Time>,
   mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
-  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  mut players: Query<(&Controller, (Entity, &Avatar, &mut Inventory, &Skills))>,
   (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>,
+  mut earned: MessageWriter<Earned>,
   mut commands: Commands
 ) {
   for &FromClient { client_id, message: Dig { at } } in digs.read() {
@@ -385,13 +421,28 @@ fn dig(
     let account = account_of(&players, client_id);
     let allowed = account
       .is_some_and(|account| guarded(&claims, &mut notices, client_id, account, at));
-    let granted = player_of(players.iter_mut(), client_id).is_some_and(|(avatar, _)| {
-      allowed && block.breakable() && within_reach(avatar, at)
-    });
-    match granted {
-      true => {
-        for dropped in std::iter::once(block.drop()).chain(perched.map(Block::drop)) {
+    let digger = player_of(players.iter_mut(), client_id)
+      .filter(|(_, avatar, ..)| allowed && block.breakable() && within_reach(avatar, at))
+      .map(|(player, _, _, skills)| (player, skills.stats().fortune));
+    match digger {
+      Some((player, fortune)) => {
+        let lucky = ore(block) > 0
+          && crate::noise::unit(voxels.seed ^ 0xF0F, at.x, at.y, at.z) < fortune;
+        let found = (block == Block::Urn)
+          .then(|| {
+            crate::dungeon::urn(voxels.seed, at, (time.elapsed_secs() * 10.0) as u32)
+          })
+          .flatten();
+        for dropped in std::iter::once(block.drop())
+          .chain(perched.map(Block::drop))
+          .chain(lucky.then_some(block.drop()))
+          .chain(found)
+          .filter(|&dropped| dropped != Block::Air)
+        {
           crate::loose::fall(&mut commands, dropped, at)
+        }
+        if ore(block) > 0 {
+          earned.write(Earned { player, xp: ore(block) });
         }
         voxels.set(at, Block::Air);
         flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
@@ -414,11 +465,61 @@ fn dig(
           message: Altered { at, block: Block::Air }
         })
       }
-      false => changes.write(ToClients {
+      None => changes.write(ToClients {
         targets: SendTargets::Single(client_id),
         message: Altered { at, block }
       })
     };
+  }
+}
+
+fn plunder(
+  mut opens: MessageReader<FromClient<Open>>,
+  mut voxels: ResMut<Voxels>,
+  mut players: Query<(&Controller, (Entity, &Avatar, &mut Inventory))>,
+  mut changes: MessageWriter<ToClients<Altered>>,
+  mut notices: MessageWriter<ToClients<Notice>>,
+  mut earned: MessageWriter<Earned>,
+  mut commands: Commands
+) {
+  for &FromClient { client_id, message: Open(at) } in opens.read() {
+    let seed = voxels.seed;
+    if voxels.ensure(at) == Block::Chest
+      && let Some((player, avatar, mut inventory)) =
+        player_of(players.iter_mut(), client_id)
+      && within_reach(avatar, at)
+    {
+      let tier = crate::dungeon::Dungeon::within(seed, at.xz(), at.xz())
+        .iter()
+        .find_map(|dungeon| dungeon.chest(at))
+        .unwrap_or(1);
+      let loot = crate::dungeon::loot(seed, at, tier);
+      for &(block, count) in loot.iter() {
+        let left = (0..count).filter(|_| !inventory.add(block)).count() as u16;
+        if left > 0 {
+          crate::loose::scatter(
+            &mut commands,
+            block,
+            left,
+            at.as_vec3() + Vec3::new(0.5, 1.2, 0.5),
+            Vec3::Y * 3.0,
+            0.6
+          )
+        }
+      }
+      let found: Vec<String> =
+        loot.iter().map(|&(block, count)| format!("{count} {}", block.name())).collect();
+      notices.write(ToClients {
+        targets: SendTargets::Single(client_id),
+        message: Notice(format!("Found {}", found.join(", ")))
+      });
+      earned.write(Earned { player, xp: 20 + u32::from(tier) * 15 });
+      voxels.set(at, Block::EmptyChest);
+      changes.write(ToClients {
+        targets: SendTargets::All,
+        message: Altered { at, block: Block::EmptyChest }
+      });
+    }
   }
 }
 
@@ -505,17 +606,19 @@ fn put(
 fn attune(
   mut touches: MessageReader<FromClient<Attune>>,
   voxels: Res<Voxels>,
-  mut players: Query<(&Controller, (&Avatar, &mut Visited))>
+  mut players: Query<(&Controller, (Entity, &Avatar, &mut Visited))>,
+  mut earned: MessageWriter<Earned>
 ) {
   for &FromClient { client_id, message: Attune(at) } in touches.read() {
-    if let Some((avatar, mut visited)) = player_of(players.iter_mut(), client_id)
+    if let Some((player, avatar, mut visited)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
       && let Some(island) = Island::near(voxels.seed, at.as_vec3())
         .into_iter()
         .find(|island| at == island.stone || at == island.stone + IVec3::Y)
       && !visited.0.contains(&island.cell)
     {
-      visited.0.push(island.cell)
+      visited.0.push(island.cell);
+      earned.write(Earned { player, xp: 30 });
     }
   }
 }
@@ -710,7 +813,7 @@ impl Plugin for Authority {
         PreUpdate,
         (
           sign_in, paint, tint, chat, follow, attune, travel, dig, put, scoop, pour,
-          shuffle, pick, craft, mark, rest
+          shuffle, pick, craft, mark, rest, plunder
         )
           .chain()
           .after(ServerSystems::Receive)

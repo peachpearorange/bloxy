@@ -33,12 +33,14 @@ pub enum Tab {
   Waystones,
   Sign,
   Trade,
-  Map
+  Map,
+  Skills
 }
 
 impl Tab {
-  const ALL: [Tab; 8] = [
+  const ALL: [Tab; 9] = [
     Tab::Inventory,
+    Tab::Skills,
     Tab::Map,
     Tab::Settings,
     Tab::Profile,
@@ -59,7 +61,8 @@ impl Tab {
       Tab::Waystones => "Waystones",
       Tab::Sign => "Sign",
       Tab::Trade => "Trade",
-      Tab::Map => "Map"
+      Tab::Map => "Map",
+      Tab::Skills => "Skills"
     }
   }
 }
@@ -141,7 +144,9 @@ pub enum Act {
   Inspect(Block),
   Craft(u16),
   Trade(u8),
-  Hue(u8)
+  Hue(u8),
+  Learn(u16),
+  Conjure(Block)
 }
 
 #[derive(Message, Clone, Copy)]
@@ -368,7 +373,8 @@ fn build(
                 Tab::Waystones => waystone::page(page),
                 Tab::Sign => sign_page(page),
                 Tab::Trade => trade::page(page),
-                Tab::Map => chart::page(page, &chart)
+                Tab::Map => chart::page(page, &chart),
+                Tab::Skills => crate::skill::page(page)
               });
           }
         });
@@ -392,10 +398,14 @@ pub fn toggle(
     lost
   });
   let escape = keys.just_pressed(KeyCode::Escape) && now - menu.since > ESCAPE_GRACE;
-  let shortcut = [(KeyCode::KeyE, Tab::Inventory), (KeyCode::KeyM, Tab::Map)]
-    .into_iter()
-    .find(|&(key, _)| keys.just_pressed(key) && focus.0.is_none())
-    .map(|(_, tab)| tab);
+  let shortcut = [
+    (KeyCode::KeyE, Tab::Inventory),
+    (KeyCode::KeyM, Tab::Map),
+    (KeyCode::KeyK, Tab::Skills)
+  ]
+  .into_iter()
+  .find(|&(key, _)| keys.just_pressed(key) && focus.0.is_none())
+  .map(|(_, tab)| tab);
   match (
     menu.open,
     (keys.just_pressed(KeyCode::Tab) || escape) && !chatting,
@@ -661,6 +671,7 @@ impl Plugin for Menus {
       Some("waystones") => Tab::Waystones,
       Some("sign") => Tab::Sign,
       Some("map") => Tab::Map,
+      Some("skills") => Tab::Skills,
       _ => Tab::Settings
     };
     app

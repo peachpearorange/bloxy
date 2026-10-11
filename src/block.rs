@@ -116,7 +116,31 @@ pub enum Block {
   BedHeadEast,
   BedHeadSouth,
   BedHeadWest,
-  Charcoal
+  Charcoal,
+  AncientBrick,
+  MossyBrick,
+  CrackedBrick,
+  CarvedStone,
+  Adra,
+  BonePile,
+  Cobweb,
+  Brazier,
+  Urn,
+  Chest,
+  EmptyChest,
+  ArcaneDust,
+  BoneDust,
+  LizardClaw,
+  Candle,
+  SpellFirebolt,
+  SpellFrost,
+  SpellMissile,
+  SpellHeal,
+  SpellHaste,
+  SpellStoneskin,
+  SpellLeap,
+  SpellLight,
+  SpellThunder
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -209,11 +233,32 @@ pub enum Tile {
   Salmon,
   TropicalFish,
   Pufferfish,
-  Charcoal
+  Charcoal,
+  AncientBrick,
+  MossyBrick,
+  CrackedBrick,
+  CarvedStone,
+  Adra,
+  BonePile,
+  Cobweb,
+  Terracotta,
+  ArcaneDust,
+  BoneDust,
+  LizardClaw,
+  Candle,
+  SpellFirebolt,
+  SpellFrost,
+  SpellMissile,
+  SpellHeal,
+  SpellHaste,
+  SpellStoneskin,
+  SpellLeap,
+  SpellLight,
+  SpellThunder
 }
 
 impl Tile {
-  pub const ALL: [Tile; 89] = [
+  pub const ALL: [Tile; 110] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -302,7 +347,28 @@ impl Tile {
     Tile::Salmon,
     Tile::TropicalFish,
     Tile::Pufferfish,
-    Tile::Charcoal
+    Tile::Charcoal,
+    Tile::AncientBrick,
+    Tile::MossyBrick,
+    Tile::CrackedBrick,
+    Tile::CarvedStone,
+    Tile::Adra,
+    Tile::BonePile,
+    Tile::Cobweb,
+    Tile::Terracotta,
+    Tile::ArcaneDust,
+    Tile::BoneDust,
+    Tile::LizardClaw,
+    Tile::Candle,
+    Tile::SpellFirebolt,
+    Tile::SpellFrost,
+    Tile::SpellMissile,
+    Tile::SpellHeal,
+    Tile::SpellHaste,
+    Tile::SpellStoneskin,
+    Tile::SpellLeap,
+    Tile::SpellLight,
+    Tile::SpellThunder
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -367,7 +433,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 100] = [
+  pub const ALL: [Block; 124] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -467,7 +533,31 @@ impl Block {
     Block::BedHeadEast,
     Block::BedHeadSouth,
     Block::BedHeadWest,
-    Block::Charcoal
+    Block::Charcoal,
+    Block::AncientBrick,
+    Block::MossyBrick,
+    Block::CrackedBrick,
+    Block::CarvedStone,
+    Block::Adra,
+    Block::BonePile,
+    Block::Cobweb,
+    Block::Brazier,
+    Block::Urn,
+    Block::Chest,
+    Block::EmptyChest,
+    Block::ArcaneDust,
+    Block::BoneDust,
+    Block::LizardClaw,
+    Block::Candle,
+    Block::SpellFirebolt,
+    Block::SpellFrost,
+    Block::SpellMissile,
+    Block::SpellHeal,
+    Block::SpellHaste,
+    Block::SpellStoneskin,
+    Block::SpellLeap,
+    Block::SpellLight,
+    Block::SpellThunder
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -498,8 +588,33 @@ impl Block {
         | Block::Feather
         | Block::FishingRod
         | Block::Charcoal
+        | Block::ArcaneDust
+        | Block::BoneDust
+        | Block::LizardClaw
+        | Block::Candle
     ) || self.fish()
+      || self.spell()
   }
+
+  pub const SPELLS: [Block; 9] = [
+    Block::SpellFirebolt,
+    Block::SpellFrost,
+    Block::SpellMissile,
+    Block::SpellHeal,
+    Block::SpellHaste,
+    Block::SpellStoneskin,
+    Block::SpellLeap,
+    Block::SpellLight,
+    Block::SpellThunder
+  ];
+
+  pub fn spell(self) -> bool { Block::SPELLS.contains(&self) }
+
+  pub fn furnished(self) -> bool {
+    matches!(self, Block::Brazier | Block::Urn | Block::Chest | Block::EmptyChest)
+  }
+
+  pub fn lit(self) -> bool { matches!(self, Block::Torch | Block::Brazier) }
 
   pub const FISH: [Block; 4] =
     [Block::Cod, Block::Salmon, Block::TropicalFish, Block::Pufferfish];
@@ -569,6 +684,7 @@ impl Block {
     match self {
       Block::WaterBucket | Block::LavaBucket | Block::Boat | Block::FishingRod => 1,
       Block::Bed => 1,
+      spell if spell.spell() => 1,
       Block::Bucket => 16,
       _ => 64
     }
@@ -612,10 +728,10 @@ impl Block {
   pub fn look(self) -> Look {
     match self {
       Block::Air => Look::Invisible,
-      Block::Glass => Look::Cutout,
+      Block::Glass | Block::Cobweb => Look::Cutout,
       leaves if leaves.leafy() => Look::Cutout,
       fluid if fluid.fluid() => Look::Liquid,
-      model if model.modelled() || model.waystone() => Look::Model,
+      model if model.modelled() || model.waystone() || model.furnished() => Look::Model,
       tool if tool.tool() => Look::Invisible,
       Block::Log | Block::BirchLog | Block::SpruceLog | Block::PalmLog => Look::Log,
       _ => Look::Opaque
@@ -655,18 +771,35 @@ impl Block {
   pub fn fluid(self) -> bool { self.liquid().is_some() }
 
   pub fn solid(self) -> bool {
-    self != Block::Air && !self.tool() && !self.fluid() && !self.modelled()
+    self != Block::Air
+      && !self.tool()
+      && !self.fluid()
+      && !self.modelled()
+      && self != Block::Cobweb
   }
 
-  pub fn targetable(self) -> bool { self.solid() || self.modelled() }
+  pub fn targetable(self) -> bool {
+    self.solid() || self.modelled() || self == Block::Cobweb
+  }
 
   pub fn breakable(self) -> bool {
-    self.targetable() && self != Block::Bedrock && !self.waystone()
+    self.targetable()
+      && self != Block::Bedrock
+      && !self.waystone()
+      && self != Block::Chest
   }
 
   pub fn seconds_to_break(self) -> f32 {
     match self {
       Block::Glass => 0.3,
+      Block::Cobweb | Block::Urn => 0.25,
+      Block::BonePile => 0.8,
+      Block::Brazier | Block::EmptyChest => 1.0,
+      Block::AncientBrick
+      | Block::MossyBrick
+      | Block::CrackedBrick
+      | Block::CarvedStone => 3.0,
+      Block::Adra => 2.2,
       sign if sign.sign() => 0.6,
       ladder if ladder.ladder() => 0.5,
       bed if bed.bed() => 0.4,
@@ -701,6 +834,9 @@ impl Block {
     Block::ROCKS.iter().find(|&&(stone, _)| stone == self).map_or(
       match self {
         Block::Grass | Block::Mycelium => Block::Dirt,
+        Block::Urn => Block::Air,
+        Block::EmptyChest => Block::Planks,
+        Block::CrackedBrick => Block::AncientBrick,
         other => other.held()
       },
       |&(_, cobble)| cobble
@@ -808,7 +944,31 @@ impl Block {
       Block::BedHead => "Bed",
       Block::BedHeadEast => "Bed",
       Block::BedHeadSouth => "Bed",
-      Block::BedHeadWest => "Bed"
+      Block::BedHeadWest => "Bed",
+      Block::AncientBrick => "Ancient Bricks",
+      Block::MossyBrick => "Mossy Ancient Bricks",
+      Block::CrackedBrick => "Cracked Ancient Bricks",
+      Block::CarvedStone => "Carved Runestone",
+      Block::Adra => "Adra Crystal",
+      Block::BonePile => "Bone Pile",
+      Block::Cobweb => "Cobweb",
+      Block::Brazier => "Brazier",
+      Block::Urn => "Burial Urn",
+      Block::Chest => "Chest",
+      Block::EmptyChest => "Empty Chest",
+      Block::ArcaneDust => "Arcane Dust",
+      Block::BoneDust => "Bone Dust",
+      Block::LizardClaw => "Lizard Claw",
+      Block::Candle => "Candle",
+      Block::SpellFirebolt => "Fire Bolt",
+      Block::SpellFrost => "Ray of Frost",
+      Block::SpellMissile => "Magic Missile",
+      Block::SpellHeal => "Cure Wounds",
+      Block::SpellHaste => "Haste",
+      Block::SpellStoneskin => "Stoneskin",
+      Block::SpellLeap => "Jump",
+      Block::SpellLight => "Dancing Light",
+      Block::SpellThunder => "Thunderwave"
     }
   }
 
@@ -915,7 +1075,30 @@ impl Block {
       Block::BedHead => all(Tile::Bed),
       Block::BedHeadEast => all(Tile::Bed),
       Block::BedHeadSouth => all(Tile::Bed),
-      Block::BedHeadWest => all(Tile::Bed)
+      Block::BedHeadWest => all(Tile::Bed),
+      Block::AncientBrick => all(Tile::AncientBrick),
+      Block::MossyBrick => [Tile::MossyBrick, Tile::MossyBrick, Tile::AncientBrick],
+      Block::CrackedBrick => all(Tile::CrackedBrick),
+      Block::CarvedStone => [Tile::AncientBrick, Tile::CarvedStone, Tile::AncientBrick],
+      Block::Adra => all(Tile::Adra),
+      Block::BonePile => all(Tile::BonePile),
+      Block::Cobweb => all(Tile::Cobweb),
+      Block::Brazier => all(Tile::Flame),
+      Block::Urn => all(Tile::Terracotta),
+      Block::Chest | Block::EmptyChest => all(Tile::Planks),
+      Block::ArcaneDust => all(Tile::ArcaneDust),
+      Block::BoneDust => all(Tile::BoneDust),
+      Block::LizardClaw => all(Tile::LizardClaw),
+      Block::Candle => all(Tile::Candle),
+      Block::SpellFirebolt => all(Tile::SpellFirebolt),
+      Block::SpellFrost => all(Tile::SpellFrost),
+      Block::SpellMissile => all(Tile::SpellMissile),
+      Block::SpellHeal => all(Tile::SpellHeal),
+      Block::SpellHaste => all(Tile::SpellHaste),
+      Block::SpellStoneskin => all(Tile::SpellStoneskin),
+      Block::SpellLeap => all(Tile::SpellLeap),
+      Block::SpellLight => all(Tile::SpellLight),
+      Block::SpellThunder => all(Tile::SpellThunder)
     }
   }
 }

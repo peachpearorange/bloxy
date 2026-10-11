@@ -8,7 +8,7 @@ use {crate::{block::{Block, Look, Tile},
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 12;
+pub const ROWS: u32 = 14;
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -958,6 +958,167 @@ fn flame(x: u32, y: u32) -> Texel {
 
 fn rune() -> Texel { Texel::rgb(0.85, 0.97, 1.0).glowing(0.9) }
 
+const ANCIENT: [f32; 3] = [0.37, 0.4, 0.41];
+
+fn ancient(x: u32, y: u32) -> Texel {
+  let course = y / 8;
+  let shift = (course % 2) * 8;
+  let column = (x + shift) % 16;
+  let block = (x + shift) / 16 + course * 5;
+  let mortar = y % 8 == 7 || column == 15;
+  let bevel = y % 8 == 0 || column == 0;
+  let tone = 0.9 + (crate::noise::hash(0xA4C, block as i32, 0, 0) % 5) as f32 * 0.05;
+  match (mortar, bevel) {
+    (true, _) => Texel::rgb(0.13, 0.14, 0.15),
+    (false, true) => smooth(&shades(ANCIENT, STONE_SPREAD), x, y).scaled(tone * 1.18),
+    _ => smooth(&shades(ANCIENT, STONE_SPREAD), x, y).scaled(tone)
+  }
+}
+
+const MOSS: Palette =
+  [[0.1, 0.2, 0.08], [0.17, 0.3, 0.11], [0.24, 0.4, 0.14], [0.33, 0.5, 0.2]];
+
+fn mossy(x: u32, y: u32) -> Texel {
+  let patch = lattice(0x60, 4, x, y) * 0.7 + lattice(0x61, 8, x, y) * 0.3;
+  let hanging = 1.0 - y as f32 / 16.0;
+  match patch * 0.8 + hanging * 0.45 > 0.78 {
+    true => ramp(&MOSS, lattice(0x62, 16, x, y)),
+    false => ancient(x, y)
+  }
+}
+
+const BONES: Art = [
+  "....0000........",
+  "...033330....00.",
+  "..03302330..0330",
+  "..03203320.03320",
+  "..0333332003220.",
+  "...032220032210.",
+  "00..0000032210..",
+  "0330...032210...",
+  "0332220322110.00",
+  ".033333332101033",
+  "..0222222110.032",
+  "...0000000...022",
+  ".00.....00000000",
+  "0330...033333330",
+  "03220.0322222220",
+  ".000...000000000"
+];
+
+const IVORY: Palette =
+  [[0.18, 0.15, 0.12], [0.58, 0.54, 0.44], [0.78, 0.74, 0.62], [0.92, 0.9, 0.82]];
+
+const WEB: Art = [
+  "3......3.......3",
+  ".3.....3......3.",
+  "..3....3.....3..",
+  "...33333333333..",
+  "...3...3...3.3..",
+  "....3..3..3.3...",
+  "3333333333333333",
+  ".....3.3.3......",
+  "....3..3..3.....",
+  "...3...3...3....",
+  "..33333333333...",
+  "..3....3....3...",
+  ".3.....3.....3..",
+  "3......3......3.",
+  "3......3.......3",
+  "3......3.......3"
+];
+
+const DUST: Art = [
+  "................",
+  "................",
+  "................",
+  ".......3........",
+  "....3......3....",
+  "........2.......",
+  "..3...........3.",
+  "......2.3.......",
+  "...........2....",
+  ".......33.......",
+  ".....322223.....",
+  "....32222223....",
+  "...3221222123...",
+  "..321111111123..",
+  "..011111111110..",
+  "................"
+];
+
+const CLAW: Art = [
+  "................",
+  "................",
+  "..........000...",
+  "........003330..",
+  ".......0332220..",
+  "......032210....",
+  ".....0322110....",
+  ".....022110.....",
+  "....0322110.....",
+  "....022110......",
+  "....032110......",
+  "....03210.......",
+  "....00210.......",
+  "....0110........",
+  "....000.........",
+  "................"
+];
+
+const CANDLE: Art = [
+  "................",
+  ".......3........",
+  "......323.......",
+  "......323.......",
+  ".......2........",
+  ".......0........",
+  "......0330......",
+  "......0320......",
+  "......0320......",
+  "......0320......",
+  "......0320......",
+  "......0320......",
+  "....00032000....",
+  "...0322222220...",
+  "....00000000....",
+  "................"
+];
+
+fn adra(x: u32, y: u32) -> Texel {
+  let facet = ((x + y * 2) / 5 + (x * 3 + 16 - y) / 7) % 4;
+  let vein = (x * 7 + y * 3) % 11 == 0 || (x + 16 - y) % 9 == 0;
+  let base =
+    [[0.05, 0.42, 0.36], [0.12, 0.62, 0.52], [0.25, 0.82, 0.68], [0.6, 1.0, 0.88]];
+  match vein {
+    true => Texel::rgb(0.04, 0.16, 0.14).glowing(0.3),
+    false => {
+      let [r, g, b] = base[facet as usize];
+      Texel::rgb(r, g, b).glowing(0.55 + facet as f32 * 0.12)
+    }
+  }
+}
+
+fn terracotta(x: u32, y: u32) -> Texel {
+  let band = y == 3 || y == 12;
+  let meander = (6..10).contains(&y) && ((x / 2 + y) % 4 == 0 || y == 6 && x % 4 < 3);
+  match (band, meander) {
+    (true, _) => Texel::rgb(0.2, 0.1, 0.06),
+    (_, true) => Texel::rgb(0.24, 0.12, 0.07),
+    _ => ramp(
+      &[[0.45, 0.22, 0.12], [0.58, 0.3, 0.16], [0.68, 0.38, 0.2], [0.76, 0.46, 0.26]],
+      0.35 + lattice(0x7C, 4, x, y) * 0.5
+    )
+  }
+}
+
+fn spell(glyph: crate::glyph::Glyph, base: [f32; 3], x: u32, y: u32) -> Texel {
+  glyph.shade(x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |shade| {
+    let [r, g, b] = crate::glyph::shades(base)[shade];
+    Texel::rgb(r, g, b).glowing(if shade == 3 { 0.5 } else { 0.0 })
+  })
+}
+
 fn model_icon(block: Block, x: u32, y: u32) -> Texel {
   model::icon(block, x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |bit| {
     let Texel { color: [r, g, b, _], glow } = paint(bit.tile, x, y);
@@ -1150,6 +1311,51 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     | Tile::BrownMushroom => {
       model_icon(Block::ALL_MODELS[tile as usize - Tile::Poppy as usize], x, y)
     }
+    Tile::AncientBrick => ancient(x, y),
+    Tile::MossyBrick => mossy(x, y),
+    Tile::CrackedBrick => match shade_of(&CRACKS, x, y) {
+      Some(0) => Texel::rgb(0.08, 0.08, 0.09),
+      _ => ancient(x, y)
+    },
+    Tile::CarvedStone => match (shade_of(&RUNES, x, y), (2..14).contains(&x)) {
+      (Some(_), _) => Texel::rgb(0.35, 0.95, 0.8).glowing(0.55),
+      (None, true) if y > 0 && y < 15 => {
+        smooth(&shades(ANCIENT, STONE_SPREAD), x, y).scaled(0.8)
+      }
+      _ => ancient(x, y)
+    },
+    Tile::Adra => adra(x, y),
+    Tile::BonePile => drawn(&BONES, &IVORY, x, y)
+      .unwrap_or_else(|| ramp(&BLACK, 0.2 + lattice(0x7B, 8, x, y) * 0.3)),
+    Tile::Cobweb => drawn(&WEB, &WHITE, x, y)
+      .map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |web| web.alpha(0.85)),
+    Tile::Terracotta => terracotta(x, y),
+    Tile::ArcaneDust => {
+      match cutout(&DUST, &shades([0.62, 0.38, 0.95], STONE_SPREAD), x, y) {
+        texel if shade_of(&DUST, x, y) == Some(3) => texel.glowing(0.8),
+        texel => texel
+      }
+    }
+    Tile::BoneDust => cutout(&DUST, &IVORY, x, y),
+    Tile::LizardClaw => cutout(
+      &CLAW,
+      &[[0.06, 0.08, 0.05], [0.2, 0.3, 0.14], [0.5, 0.6, 0.3], [0.86, 0.85, 0.7]],
+      x,
+      y
+    ),
+    Tile::Candle => match (y < 4, cutout(&CANDLE, &STALK, x, y)) {
+      (true, texel) if texel.color[3] > 0.0 => flame(x, y + 5),
+      (_, texel) => texel
+    },
+    Tile::SpellFirebolt => spell(crate::glyph::Glyph::Flame, [0.95, 0.42, 0.12], x, y),
+    Tile::SpellFrost => spell(crate::glyph::Glyph::Snowflake, [0.45, 0.75, 1.0], x, y),
+    Tile::SpellMissile => spell(crate::glyph::Glyph::Missile, [0.72, 0.45, 1.0], x, y),
+    Tile::SpellHeal => spell(crate::glyph::Glyph::Mend, [0.4, 0.92, 0.45], x, y),
+    Tile::SpellHaste => spell(crate::glyph::Glyph::Hourglass, [0.98, 0.82, 0.25], x, y),
+    Tile::SpellStoneskin => spell(crate::glyph::Glyph::Stone, [0.62, 0.6, 0.55], x, y),
+    Tile::SpellLeap => spell(crate::glyph::Glyph::Feather, [0.75, 0.9, 0.98], x, y),
+    Tile::SpellLight => spell(crate::glyph::Glyph::Sun, [1.0, 0.9, 0.55], x, y),
+    Tile::SpellThunder => spell(crate::glyph::Glyph::Thunder, [0.5, 0.7, 1.0], x, y),
     Tile::WaystoneTop => {
       let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
       let ring = (dx * dx + dy * dy).sqrt();
@@ -1379,8 +1585,11 @@ fn icon_painter(block: Block) -> Box<dyn Fn(u32, u32) -> [f32; 4]> {
       true => model_icon(block, x * PIXELS / ICON, y * PIXELS / ICON).color,
       false => paint(block.tiles()[1], x * PIXELS / ICON, y * PIXELS / ICON).color
     }),
+    _ if block == Block::Cobweb => Box::new(move |x, y| {
+      paint(Tile::Cobweb, x * PIXELS / ICON, y * PIXELS / ICON).color
+    }),
     Look::Opaque | Look::Cutout | Look::Log if block.item() => Box::new(iso(block)),
-    _ if block.modelled() => Box::new(iso(block)),
+    _ if block.modelled() || block.furnished() => Box::new(iso(block)),
     _ => Box::new(move |x, y| {
       paint(block.tiles()[1], x * PIXELS / ICON, y * PIXELS / ICON).color
     })

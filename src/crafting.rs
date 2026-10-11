@@ -6,6 +6,7 @@ use {crate::{block::Block,
              protocol::{Bookmarks, CURSOR, Craft, HOTBAR, Inventory, Mark, Pick,
                         Picked, REACH, SLOTS, Shuffle, plays},
              recipe::{self, Recipe},
+             skill::Skills,
              stream::Palette,
              voxels::Voxels},
      bevy::{input::mouse::{AccumulatedMouseScroll, MouseScrollUnit},
@@ -36,6 +37,9 @@ struct Recipes;
 
 #[derive(Component)]
 struct Marks;
+
+#[derive(Component)]
+struct Grimoire;
 
 #[derive(Component)]
 struct Tooltip;
@@ -202,6 +206,14 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
           13.0,
           FAINT
         ));
+        left.spawn(words("Spells", 15.0, FAINT));
+        left.spawn((Grimoire, Node { flex_shrink: 0.0, ..grid() }));
+        left.spawn(words(
+          "Spells you learn in the skill tree (K) show here. Click one, then a hotbar slot, \
+           to equip it; right-click with it selected to cast. Each cast burns its fuel.",
+          13.0,
+          FAINT
+        ));
       });
       columns
         .spawn(column(Some(HOTBAR as f32 * (CELL + GAP) + 180.0), 0.0))
@@ -355,6 +367,37 @@ fn entry(
   list.spawn(tile(Act::Inspect(block), border)).with_child(icon(block, 40.0, palette));
 }
 
+fn grimoire(
+  menu: Res<Menu>,
+  pilot: Option<Res<Pilot>>,
+  skills: Query<&Skills>,
+  palette: Res<Palette>,
+  lists: Query<Entity, With<Grimoire>>,
+  mut commands: Commands,
+  mut shown: Local<Option<Vec<Block>>>
+) {
+  if menu.showing(Tab::Inventory) {
+    let known = pilot
+      .and_then(|pilot| skills.get(pilot.me).ok().map(Skills::spells))
+      .unwrap_or_default();
+    if shown.as_ref() != Some(&known) {
+      for list in lists.iter() {
+        commands.entity(list).despawn_children().with_children(|list| {
+          for &spell in known.iter() {
+            list
+              .spawn(tile(Act::Conjure(spell), Color::srgb(0.5, 0.4, 0.85)))
+              .with_child(icon(spell, 40.0, &palette));
+          }
+          if known.is_empty() {
+            list.spawn(words("None yet", 14.0, FAINT));
+          }
+        });
+      }
+      *shown = Some(known)
+    }
+  }
+}
+
 fn catalogue(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
@@ -377,7 +420,9 @@ fn catalogue(
     let query = search.0.trim().to_lowercase();
     let mut entries: Vec<(Block, bool, bool)> = Block::ALL
       .into_iter()
-      .filter(|block| block.item() && block.name().to_lowercase().contains(&query))
+      .filter(|block| {
+        block.item() && !block.spell() && block.name().to_lowercase().contains(&query)
+      })
       .map(describe)
       .collect();
     entries.sort_by_key(|&(_, craftable, _)| !craftable);
@@ -628,7 +673,7 @@ fn hint(
     .iter()
     .filter(|(interaction, _)| **interaction != Interaction::None)
     .find_map(|(_, act)| match *act {
-      Act::Inspect(block) => Some((block, None)),
+      Act::Inspect(block) | Act::Conjure(block) => Some((block, None)),
       Act::Slot(index) => {
         inventory.slots[usize::from(index)].map(|stack| (stack.block, Some(stack.count)))
       }
@@ -650,6 +695,13 @@ fn hint(
         node.top = px(at.y + 12.0);
         visibility.set_if_neq(Visibility::Inherited);
         let line = match count {
+          _ if block.spell() => format!(
+            "{} - {}. Uses {} ({} carried)",
+            block.name(),
+            crate::skill::spell_text(block),
+            crate::spell::fuel(block).name(),
+            inventory.count(crate::spell::fuel(block))
+          ),
           Some(count) if count > 1 => format!("{} x{count}", block.name()),
           _ => block.name().to_string()
         };
@@ -719,7 +771,8 @@ fn obey(
   mut chosen: ResMut<Chosen>,
   mut shuffles: MessageWriter<Shuffle>,
   mut picks: MessageWriter<Picked>,
-  mut crafts: MessageWriter<Craft>
+  mut crafts: MessageWriter<Craft>,
+  mut conjures: MessageWriter<crate::spell::Conjure>
 ) {
   let inventory = carried(&pilot, &inventories);
   let holding = inventory.slots[CURSOR].is_some();
@@ -745,6 +798,9 @@ fn obey(
       Act::Craft(index) => {
         crafts.write(Craft(index));
       }
+      Act::Conjure(spell) if !holding => {
+        conjures.write(crate::spell::Conjure(spell));
+      }
       _ => ()
     }
   }
@@ -760,7 +816,7 @@ impl Plugin for Crafting {
       .add_systems(Startup, tooltip.after(crate::stream::paint).run_if(plays))
       .add_systems(
         Update,
-        (obey, survey, fill, carry, catalogue, recipes, rewind, scroll, hint)
+        (obey, survey, fill, carry, catalogue, grimoire, recipes, rewind, scroll, hint)
           .chain()
           .run_if(plays)
       );
