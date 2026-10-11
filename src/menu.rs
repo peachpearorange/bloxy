@@ -87,7 +87,7 @@ impl Menu {
   pub fn idle(&self) -> bool { !self.open && !self.chatting }
 }
 
-pub fn closed(menu: Res<Menu>) -> bool { menu.idle() }
+pub fn closed(menu: Option<Res<Menu>>) -> bool { menu.is_some_and(|menu| menu.idle()) }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Entry {
