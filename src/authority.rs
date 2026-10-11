@@ -108,6 +108,47 @@ fn embody(
   player
 }
 
+const STOCKED_PER_CHEST: usize = 27;
+
+#[derive(Resource, Default)]
+pub struct Stock(Vec<(IVec3, Vec<(Block, u16)>)>);
+
+fn stock(voxels: &mut Voxels) -> Stock {
+  let items: Vec<(Block, u16)> = Block::ALL
+    .into_iter()
+    .filter(|block| block.item())
+    .map(|block| (block, block.stack()))
+    .collect();
+  let stone =
+    Island::at(voxels.seed, IVec2::ZERO).map_or(IVec3::new(0, 100, 0), |home| home.stone);
+  Stock(
+    items
+      .chunks(STOCKED_PER_CHEST)
+      .zip(-2..)
+      .map(|(loot, along)| {
+        let column = stone.xz() + IVec2::new(-4, along);
+        let ground = (0..stone.y + 12)
+          .rev()
+          .map(|y| column.extend(y).xzy())
+          .find(|&at| {
+            let block = voxels.ensure(at);
+            block.solid() && !block.leafy()
+              || matches!(block, Block::Chest | Block::EmptyChest)
+          })
+          .unwrap_or(stone);
+        let at = match voxels.ensure(ground) {
+          Block::Chest | Block::EmptyChest => ground,
+          _ => ground + IVec3::Y
+        };
+        if !matches!(voxels.ensure(at), Block::Chest | Block::EmptyChest) {
+          voxels.set(at, Block::Chest)
+        }
+        (at, loot.to_vec())
+      })
+      .collect()
+  )
+}
+
 fn found_world(mut commands: Commands) {
   let World {
     seed,
@@ -171,6 +212,7 @@ fn found_world(mut commands: Commands) {
     voxels.set(at, block)
   }
   voxels.ensure(generate::spawn_point(seed).floor().as_ivec3());
+  commands.insert_resource(stock(&mut voxels));
   commands.insert_resource(voxels);
   commands.insert_resource(accounts)
 }
@@ -480,6 +522,7 @@ fn plunder(
   mut changes: MessageWriter<ToClients<Altered>>,
   mut notices: MessageWriter<ToClients<Notice>>,
   mut earned: MessageWriter<Earned>,
+  stock: Res<Stock>,
   mut commands: Commands
 ) {
   for &FromClient { client_id, message: Open(at) } in opens.read() {
@@ -493,7 +536,11 @@ fn plunder(
         .iter()
         .find_map(|dungeon| dungeon.chest(at))
         .unwrap_or(1);
-      let loot = crate::dungeon::loot(seed, at, tier);
+      let loot = stock
+        .0
+        .iter()
+        .find(|(chest, _)| *chest == at)
+        .map_or_else(|| crate::dungeon::loot(seed, at, tier), |(_, loot)| loot.clone());
       for &(block, count) in loot.iter() {
         let left = (0..count).filter(|_| !inventory.add(block)).count() as u16;
         if left > 0 {
@@ -511,7 +558,10 @@ fn plunder(
         loot.iter().map(|&(block, count)| format!("{count} {}", block.name())).collect();
       notices.write(ToClients {
         targets: SendTargets::Single(client_id),
-        message: Notice(format!("Found {}", found.join(", ")))
+        message: Notice(match found.len() {
+          0..=6 => format!("Found {}", found.join(", ")),
+          kinds => format!("Found {kinds} kinds of items")
+        })
       });
       earned.write(Earned { player, xp: 20 + u32::from(tier) * 15 });
       voxels.set(at, Block::EmptyChest);
