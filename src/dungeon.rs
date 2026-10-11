@@ -2,6 +2,7 @@ use {crate::{block::Block,
              generate,
              island::{Island, Kind, SEA},
              noise::{hash, perlin3, unit},
+             protocol::Stack,
              voxels::{SIZE, chunk_of, local_of}},
      bevy::{platform::collections::HashMap, prelude::*},
      serde::{Deserialize, Serialize},
@@ -953,7 +954,7 @@ pub fn lights_near(seed: u32, low: Vec3, high: Vec3) -> Vec<IVec3> {
     .collect()
 }
 
-pub fn loot(seed: u32, at: IVec3, tier: u8) -> Vec<(Block, u16)> {
+pub fn loot(seed: u32, at: IVec3, tier: u8) -> Vec<Stack> {
   let roll =
     |salt: u32| unit(seed ^ 0x100F ^ salt.wrapping_mul(0x9E37), at.x, at.y, at.z);
   let table: [(Block, u16, u16); 10] = [
@@ -980,7 +981,15 @@ pub fn loot(seed: u32, at: IVec3, tier: u8) -> Vec<(Block, u16)> {
     found.push((Block::DiamondOre, 1 + (roll(99) * 2.0) as u16));
     found.push((Block::ArcaneDust, 4))
   }
+  let salt = hash(seed ^ 0x6EA3, at.x, at.y, at.z);
   found
+    .into_iter()
+    .map(|(block, count)| Stack::of(block, count))
+    .chain(
+      (0..u32::from(tier.max(1)))
+        .map(|pick| crate::gear::found(seed, salt.wrapping_add(pick * 0x9E37), tier))
+    )
+    .collect()
 }
 
 pub fn urn(seed: u32, at: IVec3, salt: u32) -> Option<Block> {

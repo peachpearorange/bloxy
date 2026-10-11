@@ -30,7 +30,7 @@ struct Hand {
 struct Rod;
 
 #[derive(Component, Default, PartialEq)]
-pub struct Grip(pub Option<Block>);
+pub struct Grip(pub Option<Block>, pub Option<crate::gear::Material>);
 
 #[derive(Component, Default, PartialEq)]
 pub struct Charge(pub bool);
@@ -89,7 +89,7 @@ fn hold(
         }
         *visibility = Visibility::Inherited;
         commands.entity(entity).insert((
-          Mesh3d(looks.mesh(block, &mut meshes)),
+          Mesh3d(looks.mesh(block, grip.1, &mut meshes)),
           MeshMaterial3d(palette.solid.clone()),
           NotShadowCaster
         ));
@@ -110,7 +110,7 @@ fn hold(
 pub struct RodTip;
 
 #[derive(Component)]
-struct Fist;
+pub struct Fist;
 
 fn carve(
   eyes: Query<Entity, Added<Eye>>,
@@ -227,7 +227,10 @@ fn swing(
   for (mut grip, mut charge, _) in
     grips.iter_mut().filter(|(.., parent)| hands.contains(parent.parent()))
   {
-    grip.set_if_neq(Grip(pilot.held.filter(|&block| block != Block::FishingRod)));
+    grip.set_if_neq(Grip(
+      pilot.held.filter(|&block| block != Block::FishingRod),
+      pilot.made
+    ));
     charge.set_if_neq(Charge(pilot.charging));
   }
   let level = charging.level(time.elapsed_secs());

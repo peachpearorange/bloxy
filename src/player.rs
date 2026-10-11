@@ -1,5 +1,6 @@
 use {crate::{block::Block,
              condition::{Conditions, Kind},
+             gear::Material,
              local,
              menu::{Menu, Tab, closed},
              opts::opts,
@@ -47,6 +48,8 @@ pub struct Pilot {
   pub lift: f32,
   pub riding: Option<Riding>,
   pub held: Option<Block>,
+  pub made: Option<Material>,
+  pub hand: u8,
   pub charging: bool
 }
 
@@ -70,7 +73,8 @@ impl Pilot {
       yaw: self.yaw,
       pitch: self.pitch,
       held: self.held,
-      charging: self.charging
+      charging: self.charging,
+      hand: self.hand
     }
   }
 }
@@ -132,6 +136,8 @@ fn possess(
       lift: 0.0,
       riding: None,
       held: None,
+      made: None,
+      hand: 0,
       charging: false
     })
   }
@@ -299,8 +305,13 @@ pub struct Knack {
   pub float: bool
 }
 
-pub fn knack(skills: Option<&Skills>, conditions: Option<&Conditions>) -> Knack {
-  let stats = skills.cloned().unwrap_or_default().stats();
+pub fn knack(
+  skills: Option<&Skills>,
+  conditions: Option<&Conditions>,
+  inventory: Option<&Inventory>,
+  hand: u8
+) -> Knack {
+  let stats = skills.cloned().unwrap_or_default().geared(inventory, hand);
   let has = |kind: Kind| conditions.is_some_and(|conditions| conditions.has(kind));
   let pace = conditions.map_or(1.0, Conditions::pace);
   Knack {
@@ -319,12 +330,14 @@ fn fly(
   aim: Res<Aim>,
   voxels: Option<Res<Voxels>>,
   mut pilot: ResMut<Pilot>,
-  traits: Query<(Option<&Skills>, Option<&Conditions>)>,
+  traits: Query<(Option<&Skills>, Option<&Conditions>, Option<&Inventory>)>,
   mut spare: Local<f32>
 ) {
   let knack = traits
     .get(pilot.me)
-    .map_or(knack(None, None), |(skills, conditions)| knack(skills, conditions));
+    .map_or(knack(None, None, None, pilot.hand), |(skills, conditions, inventory)| {
+      knack(skills, conditions, inventory, pilot.hand)
+    });
   if let Some(voxels) = voxels
     && ready_around(&voxels, pilot.at)
     && pilot.riding.is_none()
@@ -523,13 +536,15 @@ fn grasp(
   inventories: Query<&Inventory>,
   mut pilot: ResMut<Pilot>
 ) {
-  let held = inventories
-    .get(pilot.me)
-    .ok()
-    .and_then(|inventory| inventory.slots[selected.0])
-    .map(|stack| stack.block);
-  if pilot.held != held {
-    pilot.held = held
+  let stack =
+    inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0]);
+  let held = stack.map(|stack| stack.block);
+  let made = stack.and_then(|stack| stack.gear).and_then(|gear| gear.material);
+  let hand = selected.0 as u8;
+  if pilot.held != held || pilot.made != made || pilot.hand != hand {
+    pilot.held = held;
+    pilot.made = made;
+    pilot.hand = hand
   }
 }
 
@@ -563,7 +578,8 @@ fn select(
     KeyCode::Digit6,
     KeyCode::Digit7,
     KeyCode::Digit8,
-    KeyCode::Digit9
+    KeyCode::Digit9,
+    KeyCode::Digit0
   ];
   let scrolled = match scroll.delta.y {
     0.0 => 0,
@@ -619,6 +635,18 @@ fn work(
     });
     let active = captured(&cursor, &menu);
     let target = aim.hit.as_ref().map(|hit| (hit.at, hit.block));
+    let inventory = inventories.get(pilot.me).ok();
+    let delve = skills
+      .get(pilot.me)
+      .map_or(1.0, |skills| skills.geared(inventory, selected.0 as u8).delve);
+    let tool = |block: Block| {
+      inventory
+        .and_then(|inventory| inventory.slots[selected.0])
+        .filter(|stack| Some(stack.block) == crate::gear::dug_with(block))
+        .and_then(|stack| stack.gear)
+        .and_then(|gear| gear.material)
+        .map_or(1.0, Material::speed)
+    };
     match (target, active && buttons.pressed(MouseButton::Left)) {
       (Some((at, block)), true) if block.breakable() => {
         aim.progress = match aim.digging == Some(at) {
@@ -626,7 +654,8 @@ fn work(
             aim.progress
               + time.delta_secs() / block.seconds_to_break()
                 * if opts().creative { 8.0 } else { 1.0 }
-                * skills.get(pilot.me).map_or(1.0, |skills| skills.stats().delve)
+                * delve
+                * tool(block)
           }
           false => 0.0
         };

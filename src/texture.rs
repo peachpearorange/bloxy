@@ -1,4 +1,5 @@
 use {crate::{block::{Block, Look, Tile},
+             gear::Material,
              model},
      bevy::{asset::RenderAssetUsages,
             image::{ImageAddressMode, ImageFilterMode, ImageSampler,
@@ -8,7 +9,10 @@ use {crate::{block::{Block, Look, Tile},
 
 pub const PIXELS: u32 = 16;
 pub const COLUMNS: u32 = 8;
-pub const ROWS: u32 = 15;
+pub const FORGED: u32 = Tile::ALL.len() as u32;
+const MATERIALS: u32 = Material::ALL.len() as u32;
+const PAINTED: u32 = FORGED + Block::TOOLS.len() as u32 * MATERIALS;
+pub const ROWS: u32 = PAINTED.div_ceil(COLUMNS);
 const MIPS: u32 = 5;
 
 #[derive(Clone, Copy)]
@@ -688,6 +692,19 @@ fn cutout(art: &Art, palette: &Palette, x: u32, y: u32) -> Texel {
   drawn(art, palette, x, y).unwrap_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0))
 }
 
+fn inked(art: &Art, [first, second, third]: [&Palette; 3], x: u32, y: u32) -> Texel {
+  art[y as usize]
+    .as_bytes()
+    .get(x as usize)
+    .and_then(|&mark| match mark {
+      b'0'..=b'3' => Some(first[usize::from(mark - b'0')]),
+      b'a'..=b'd' => Some(second[usize::from(mark - b'a')]),
+      b'A'..=b'D' => Some(third[usize::from(mark - b'A')]),
+      _ => None
+    })
+    .map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |[r, g, b]| Texel::rgb(r, g, b))
+}
+
 fn ore(x: u32, y: u32, [dark, base, light]: [[f32; 3]; 3], glow: f32) -> Texel {
   drawn(&SPOTS, &[dark, base, light, light], x, y)
     .map(|texel| texel.glowing(glow))
@@ -758,19 +775,19 @@ const BOAT: Art = [
 const BUCKET: Art = [
   "................",
   "................",
-  "....00000000....",
-  "...0........0...",
-  "..0..........0..",
-  "..000000000000..",
-  "..011111111110..",
-  "..000000000000..",
-  "..032222222210..",
-  "...0322222210...",
-  "...0322222210...",
-  "...0322222210...",
-  "....03222210....",
-  "....03222210....",
-  "....00000000....",
+  "....11111111....",
+  "...1........1...",
+  "..1..........1..",
+  "..233333333332..",
+  "..311111111113..",
+  "..322222222221..",
+  "...3222222221...",
+  "...3222222221...",
+  "...3222222211...",
+  "....32222211....",
+  "....32222110....",
+  "....22111110....",
+  "................",
   "................"
 ];
 
@@ -794,20 +811,20 @@ const TOOLS: Palette =
 const SIGN: Art = [
   "................",
   "................",
-  "0000000000000000",
-  "0333333333333330",
-  "0322222222222220",
-  "0201010110101120",
-  "0222222222222220",
-  "0210110101011020",
-  "0222222222222220",
-  "0211111111111110",
-  "0000000110000000",
-  ".......120......",
-  ".......120......",
-  ".......120......",
-  ".......120......",
-  ".......000......"
+  "3333333333333332",
+  "3222222222222221",
+  "3210211021102121",
+  "3222222222222221",
+  "3201121021012021",
+  "3222222222222221",
+  "2111111111111110",
+  ".......32.......",
+  ".......32.......",
+  ".......21.......",
+  ".......21.......",
+  ".......21.......",
+  ".......10.......",
+  "................"
 ];
 
 const FEATHER: Art = [
@@ -832,18 +849,18 @@ const FEATHER: Art = [
 const CHARCOAL: Art = [
   "................",
   "................",
-  "......1112......",
-  "....11002321....",
-  "...1000012221...",
-  "..100100001321..",
-  "..1000000012211.",
-  ".10010000001221.",
-  ".10000100000121.",
-  ".100000000100121",
-  "..1000010000011.",
-  "..10010000001...",
-  "...110000011....",
-  ".....111111.....",
+  "......2332......",
+  "....23332221....",
+  "...2332222111...",
+  "..233222212110..",
+  "..3322221221110.",
+  ".23222212211110.",
+  ".32221221111100.",
+  ".22212211111010.",
+  "..1121111110100.",
+  "..11111101100...",
+  "...111010100....",
+  ".....00000......",
   "................",
   "................"
 ];
@@ -913,6 +930,245 @@ const PUFFER: Art = [
   "................",
   "................"
 ];
+
+const PICKAXE: Art = [
+  "................",
+  ".....3333332....",
+  "...23322222221..",
+  "..231.....12221.",
+  "..21......c1221.",
+  ".21......cb.121.",
+  ".1......cb...221",
+  "........cb...121",
+  ".......cb.....21",
+  "......cb......11",
+  ".....cb.......0.",
+  "....cb..........",
+  "...cb...........",
+  "..cb............",
+  ".ba.............",
+  "................"
+];
+
+const AXE: Art = [
+  "................",
+  "....33..........",
+  "...3322.........",
+  "..332221........",
+  "..3322221.......",
+  "..33222221cb....",
+  "..332222cb21....",
+  "..33222cb21.....",
+  "...322cb1.......",
+  "....2cb.........",
+  ".....cb.........",
+  "....cb..........",
+  "...cb...........",
+  "..cb............",
+  ".ba.............",
+  "................"
+];
+
+const SHOVEL: Art = [
+  "................",
+  "...........33...",
+  "..........3332..",
+  ".........332221.",
+  "........3322221.",
+  "........3222211.",
+  ".........22211..",
+  "........cb111...",
+  ".......cb.......",
+  "......cb........",
+  ".....cb.........",
+  "....cb..........",
+  "...cb...........",
+  "..cb............",
+  ".ba.............",
+  "................"
+];
+
+const SWORD: Art = [
+  "................",
+  ".............33.",
+  "............3332",
+  "...........33321",
+  "..........33321.",
+  ".........33321..",
+  "........33321...",
+  "..A....33321....",
+  "..BC..33321.....",
+  "...BC33321......",
+  "....BC321.......",
+  "....cBC1........",
+  "...cb.BC........",
+  "..cb...A........",
+  ".BA.............",
+  "................"
+];
+
+const HAT: Art = [
+  "................",
+  "................",
+  "................",
+  "......3332......",
+  ".....333221.....",
+  ".....3322211....",
+  "....33322211....",
+  "....33222211....",
+  "....aaaaaaaa....",
+  "....dccccccb....",
+  "..3332222222210.",
+  ".332222222222210",
+  "..0011111111100.",
+  "................",
+  "................",
+  "................"
+];
+
+const AMULET: Art = [
+  "................",
+  "....ca....ca....",
+  "...c..b..c..a...",
+  "...b...cb...a...",
+  "....b......a....",
+  ".....b....a.....",
+  "......b..a......",
+  ".......dc.......",
+  "......dcbb......",
+  ".....d3321a.....",
+  ".....c3211a.....",
+  ".....c2210a.....",
+  "......b10a......",
+  ".......aa.......",
+  "................",
+  "................"
+];
+
+const MAIL: Art = [
+  "................",
+  "................",
+  "...2323..1313...",
+  "..23231..31313..",
+  ".23231313131313.",
+  ".32312121212121.",
+  ".231.121212.212.",
+  "....12121212....",
+  "....21212121....",
+  "....12121212....",
+  "....21212120....",
+  "....12121201....",
+  "....10101010....",
+  "................",
+  "................",
+  "................"
+];
+
+const BELT: Art = [
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+  "cccccbAAAAccccc.",
+  "dddddcDCCBdddddc",
+  "ccccccC..Bcccccb",
+  "bbbbbbCBBAbbbbba",
+  "aaaaabAAAAaaaaa.",
+  "................",
+  "................",
+  "................",
+  "................",
+  "................"
+];
+
+const BOOTS: Art = [
+  "................",
+  "................",
+  "....dddcb.......",
+  "....ccccb.......",
+  "....cccbb.......",
+  "....cccbb.......",
+  "....cccbb.......",
+  "....cccbb.......",
+  "....ccccbb......",
+  "....cccccbbb....",
+  "....ccccccbbba..",
+  "...dccccccbbbba.",
+  "...ccccccccbbba.",
+  "...aaaaaaaaaaaa.",
+  "................",
+  "................"
+];
+
+const RING: Art = [
+  "................",
+  "................",
+  "................",
+  "......D33.......",
+  ".....D3221......",
+  ".....CD210......",
+  "....DC..CA......",
+  "...DC....CA.....",
+  "...C......B.....",
+  "...C......B.....",
+  "...CB....BA.....",
+  "....BB..BA......",
+  ".....BAAA.......",
+  "................",
+  "................",
+  "................"
+];
+
+const HAFT: Palette =
+  [[0.3, 0.2, 0.11], [0.43, 0.3, 0.17], [0.56, 0.41, 0.24], [0.68, 0.52, 0.32]];
+const GILT: Palette =
+  [[0.55, 0.36, 0.06], [0.82, 0.62, 0.14], [0.96, 0.82, 0.3], [1.0, 0.95, 0.62]];
+const LEATHER: Palette =
+  [[0.22, 0.12, 0.06], [0.36, 0.21, 0.11], [0.5, 0.31, 0.17], [0.64, 0.42, 0.25]];
+const CRIMSON: Palette =
+  [[0.35, 0.06, 0.06], [0.6, 0.12, 0.1], [0.82, 0.22, 0.18], [0.98, 0.55, 0.45]];
+const SAPPHIRE: Palette =
+  [[0.06, 0.12, 0.35], [0.12, 0.28, 0.65], [0.25, 0.5, 0.9], [0.65, 0.85, 1.0]];
+const TALON: Palette =
+  [[0.25, 0.22, 0.16], [0.55, 0.5, 0.38], [0.78, 0.74, 0.6], [0.93, 0.91, 0.8]];
+const SCALES: Palette =
+  [[0.12, 0.2, 0.08], [0.22, 0.34, 0.14], [0.36, 0.5, 0.22], [0.5, 0.64, 0.3]];
+
+pub fn forged(tool: Block, material: Material, x: u32, y: u32) -> Texel {
+  let art = match tool {
+    Block::Pickaxe => &PICKAXE,
+    Block::Axe => &AXE,
+    Block::Shovel => &SHOVEL,
+    _ => &SWORD
+  };
+  let texel = inked(art, [&material.palette(), &HAFT, &GILT], x, y);
+  match material.glows() && shade_of(art, x, y).is_some() {
+    true => texel.glowing(0.35),
+    false => texel
+  }
+}
+
+pub fn forged_slot(tool: Block, material: Material) -> u32 {
+  let kind = Block::TOOLS.iter().position(|&known| known == tool).unwrap_or(0) as u32;
+  FORGED + kind * MATERIALS + material.index() as u32
+}
+
+pub fn painted(slot: u32, x: u32, y: u32) -> Texel {
+  match Tile::ALL.get(slot as usize) {
+    Some(&tile) => paint(tile, x, y),
+    None => {
+      let index = slot.saturating_sub(FORGED);
+      forged(
+        Block::TOOLS[(index / MATERIALS) as usize % Block::TOOLS.len()],
+        Material::ALL[(index % MATERIALS) as usize],
+        x,
+        y
+      )
+    }
+  }
+}
 
 fn fish(tile: Tile) -> Palette {
   match tile {
@@ -1050,19 +1306,19 @@ const DUST: Art = [
 const CLAW: Art = [
   "................",
   "................",
-  "..........000...",
-  "........003330..",
-  ".......0332220..",
-  "......032210....",
-  ".....0322110....",
-  ".....022110.....",
-  "....0322110.....",
-  "....022110......",
-  "....032110......",
-  "....03210.......",
-  "....00210.......",
-  "....0110........",
-  "....000.........",
+  "..........233...",
+  "........23332...",
+  ".......2332211..",
+  "......2321110...",
+  ".....232110.....",
+  ".....33210......",
+  "....23210.......",
+  "....3321........",
+  "....3210........",
+  "...dc21.........",
+  "...cbba.........",
+  "...bbaa.........",
+  "....aa..........",
   "................"
 ];
 
@@ -1071,17 +1327,17 @@ const CANDLE: Art = [
   ".......3........",
   "......323.......",
   "......323.......",
-  ".......2........",
   ".......0........",
-  "......0330......",
-  "......0320......",
-  "......0320......",
-  "......0320......",
-  "......0320......",
-  "......0320......",
-  "....00032000....",
-  "...0322222220...",
-  "....00000000....",
+  "......3221......",
+  "......3321......",
+  "......3221......",
+  "......3221......",
+  "......3211......",
+  "......3221......",
+  ".....332211.....",
+  "...dcccccbba....",
+  "....abbbbaa.....",
+  "................",
   "................"
 ];
 
@@ -1337,13 +1593,8 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
       }
     }
     Tile::BoneDust => cutout(&DUST, &IVORY, x, y),
-    Tile::LizardClaw => cutout(
-      &CLAW,
-      &[[0.06, 0.08, 0.05], [0.2, 0.3, 0.14], [0.5, 0.6, 0.3], [0.86, 0.85, 0.7]],
-      x,
-      y
-    ),
-    Tile::Candle => match (y < 4, cutout(&CANDLE, &STALK, x, y)) {
+    Tile::LizardClaw => inked(&CLAW, [&TALON, &SCALES, &SCALES], x, y),
+    Tile::Candle => match (y < 4, inked(&CANDLE, [&STALK, &GILT, &GILT], x, y)) {
       (true, texel) if texel.color[3] > 0.0 => flame(x, y + 5),
       (_, texel) => texel
     },
@@ -1361,6 +1612,22 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::SpellAnimate => spell(crate::glyph::Glyph::Skull, [0.75, 0.95, 0.55], x, y),
     Tile::SpellGuardian => spell(crate::glyph::Glyph::Ghost, [0.55, 0.75, 1.0], x, y),
     Tile::SpellInvisibility => spell(crate::glyph::Glyph::Cloak, [0.7, 0.6, 0.85], x, y),
+    Tile::Pickaxe => forged(Block::Pickaxe, Material::Iron, x, y),
+    Tile::Axe => forged(Block::Axe, Material::Iron, x, y),
+    Tile::Shovel => forged(Block::Shovel, Material::Iron, x, y),
+    Tile::Sword => forged(Block::Sword, Material::Iron, x, y),
+    Tile::Hat => inked(&HAT, [&LEATHER, &CRIMSON, &GILT], x, y),
+    Tile::Amulet => match inked(&AMULET, [&SAPPHIRE, &GILT, &GILT], x, y) {
+      gem if shade_of(&AMULET, x, y) == Some(3) => gem.glowing(0.4),
+      texel => texel
+    },
+    Tile::Mail => inked(&MAIL, [&IRON, &HAFT, &HAFT], x, y),
+    Tile::Belt => inked(&BELT, [&IRON, &LEATHER, &GILT], x, y),
+    Tile::Boots => inked(&BOOTS, [&IRON, &LEATHER, &GILT], x, y),
+    Tile::Ring => match inked(&RING, [&CRIMSON, &GILT, &GILT], x, y) {
+      gem if shade_of(&RING, x, y) == Some(3) => gem.glowing(0.4),
+      texel => texel
+    },
     Tile::WaystoneTop => {
       let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
       let ring = (dx * dx + dy * dy).sqrt();
@@ -1391,15 +1658,16 @@ fn halve(level: &[[f32; 4]], width: u32, height: u32) -> Vec<[f32; 4]> {
     .collect()
 }
 
-fn atlas_levels(texel: impl Fn(Tile, u32, u32) -> [f32; 4]) -> Vec<u8> {
+fn atlas_levels(texel: impl Fn(u32, u32, u32) -> [f32; 4]) -> Vec<u8> {
   let (width, height) = (COLUMNS * PIXELS, ROWS * PIXELS);
   let base: Vec<[f32; 4]> = (0..width * height)
     .map(|index| {
       let (x, y) = (index % width, index / width);
       let slot = (y / PIXELS) * COLUMNS + x / PIXELS;
-      Tile::ALL
-        .get(slot as usize)
-        .map_or([0.0; 4], |&tile| texel(tile, x % PIXELS, y % PIXELS))
+      match slot < PAINTED {
+        true => texel(slot, x % PIXELS, y % PIXELS),
+        false => [0.0; 4]
+      }
     })
     .collect();
   let levels =
@@ -1432,11 +1700,11 @@ fn image(data: Vec<u8>) -> Image {
   image
 }
 
-pub fn albedo() -> Image { image(atlas_levels(|tile, x, y| paint(tile, x, y).color)) }
+pub fn albedo() -> Image { image(atlas_levels(|slot, x, y| painted(slot, x, y).color)) }
 
 pub fn glow() -> Image {
-  image(atlas_levels(|tile, x, y| {
-    let [r, g, b] = paint(tile, x, y).glow;
+  image(atlas_levels(|slot, x, y| {
+    let [r, g, b] = painted(slot, x, y).glow;
     [r, g, b, 1.0]
   }))
 }
@@ -1601,11 +1869,30 @@ fn icon_painter(block: Block) -> Box<dyn Fn(u32, u32) -> [f32; 4]> {
   }
 }
 
+pub const ICON_FORGED: u32 =
+  (Block::ALL.len() as u32).div_ceil(ICON_COLUMNS) * ICON_COLUMNS;
+
+pub fn icon_cell(block: Block, material: Option<Material>) -> u32 {
+  match material.filter(|_| block.forged()) {
+    Some(material) => ICON_FORGED + forged_slot(block, material) - FORGED,
+    None => block as u32
+  }
+}
+
 pub fn icons() -> Image {
-  let rows = Block::ALL.len() as u32 / ICON_COLUMNS + 1;
+  let rows = (ICON_FORGED + PAINTED - FORGED).div_ceil(ICON_COLUMNS);
   let (wide, tall) = (ICON_COLUMNS * ICON, rows * ICON);
-  let painters: Vec<Box<dyn Fn(u32, u32) -> [f32; 4]>> =
-    Block::ALL.iter().map(|&block| icon_painter(block)).collect();
+  let painters: Vec<Box<dyn Fn(u32, u32) -> [f32; 4]>> = (0..rows * ICON_COLUMNS)
+    .map(|cell| -> Box<dyn Fn(u32, u32) -> [f32; 4]> {
+      match (Block::ALL.get(cell as usize), cell >= ICON_FORGED) {
+        (Some(&block), _) => icon_painter(block),
+        (None, true) if cell < ICON_FORGED + PAINTED - FORGED => Box::new(move |x, y| {
+          painted(cell - ICON_FORGED + FORGED, x * PIXELS / ICON, y * PIXELS / ICON).color
+        }),
+        _ => Box::new(|_, _| [0.0; 4])
+      }
+    })
+    .collect();
   let mut image = Image::new(
     Extent3d { width: wide, height: tall, depth_or_array_layers: 1 },
     TextureDimension::D2,
@@ -1626,8 +1913,9 @@ pub fn icons() -> Image {
   image
 }
 
-pub fn uv_corner(tile: Tile, corner: Vec2) -> Vec2 {
-  let index = tile.index();
+pub fn uv_corner(tile: Tile, corner: Vec2) -> Vec2 { uv_slot(tile.index(), corner) }
+
+pub fn uv_slot(index: u32, corner: Vec2) -> Vec2 {
   let cell = Vec2::new((index % COLUMNS) as f32, (index / COLUMNS) as f32);
   (cell + corner * 0.996 + 0.002) / Vec2::new(COLUMNS as f32, ROWS as f32)
 }
@@ -1653,13 +1941,13 @@ mod tests {
     let pixels: Vec<u8> = (0..width * zoom * height * zoom)
       .flat_map(|index| {
         let (x, y) = (index % (width * zoom) / zoom, index / (width * zoom) / zoom);
-        Tile::ALL.get(((y / PIXELS) * COLUMNS + x / PIXELS) as usize).map_or(
-          [0; 3],
-          |&tile| {
-            let [r, g, b, _] = paint(tile, x % PIXELS, y % PIXELS).color;
-            [r, g, b].map(to_srgb)
-          }
-        )
+        let slot = (y / PIXELS) * COLUMNS + x / PIXELS;
+        let [r, g, b, a] = match slot < PAINTED {
+          true => painted(slot, x % PIXELS, y % PIXELS).color,
+          false => [0.0; 4]
+        };
+        let backdrop = if (x / 4 + y / 4) % 2 == 0 { 0.35 } else { 0.47 };
+        [r, g, b].map(|channel| to_srgb(channel * a + backdrop * (1.0 - a)))
       })
       .collect();
     let mut file = format!("P6 {} {} 255\n", width * zoom, height * zoom).into_bytes();

@@ -213,7 +213,8 @@ fn invoke(
       && book.ready.get(&spell).is_none_or(|&ready| now >= ready)
     {
       let rank = skills.rank(spell);
-      let thrifty = rand_unit(caster, now) < skills.stats().thrift;
+      let thrifty =
+        rand_unit(caster, now) < skills.geared(Some(&inventory), avatar.hand).thrift;
       let paid = thrifty || inventory.take(spell);
       match paid {
         false => {
@@ -619,12 +620,13 @@ pub fn charge(spell: Block) -> f32 {
 #[derive(Resource, Default)]
 pub struct Charging {
   spell: Option<Block>,
-  since: f32
+  since: f32,
+  takes: f32
 }
 
 impl Charging {
   pub fn level(&self, now: f32) -> Option<f32> {
-    self.spell.map(|spell| ((now - self.since) / charge(spell)).min(1.0))
+    self.spell.map(|_| ((now - self.since) / self.takes.max(0.05)).min(1.0))
   }
 }
 
@@ -654,7 +656,7 @@ fn cast(
     Some(spell) if free && held == Some(spell) && buttons.pressed(MouseButton::Right) => {
     }
     Some(spell) => {
-      if free && held == Some(spell) && now - charging.since >= charge(spell) {
+      if free && held == Some(spell) && now - charging.since >= charging.takes {
         let stance = skills.get(pilot.me).ok().and_then(|skills| skills.stance);
         recharge.0.insert(spell, now + crate::spell::recharge(spell, stance));
         invocations.write(Invoke { spell, toward: pilot.facing() * Vec3::NEG_Z });
@@ -668,7 +670,11 @@ fn cast(
         && let Some(spell) = held
         && recharge.0.get(&spell).is_none_or(|&ready| now >= ready)
       {
-        *charging = Charging { spell: Some(spell), since: now }
+        let quick = skills.get(pilot.me).map_or(1.0, |skills| {
+          skills.geared(inventories.get(pilot.me).ok(), pilot.hand).cast
+        });
+        *charging =
+          Charging { spell: Some(spell), since: now, takes: charge(spell) * quick }
       }
     }
   }
@@ -782,7 +788,7 @@ fn ignite(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
-  for (grip, &Grip(held), children) in grips.iter() {
+  for (grip, &Grip(held, _), children) in grips.iter() {
     let lit: Vec<(Entity, Block)> = children
       .into_iter()
       .flatten()
@@ -830,7 +836,8 @@ fn brighten(
   time: Res<Time>,
   sparks: Res<Sparks>,
   effects: Res<Effects>,
-  grips: Query<(&Charge, &Children), With<Grip>>,
+  grips: Query<(&Charge, &Children, Has<crate::hand::Fist>), With<Grip>>,
+  own: Res<Charging>,
   mut kindled: Query<(&mut Kindled, &GlobalTransform)>,
   mut orbs: Query<(&mut Transform, &MeshMaterial3d<StandardMaterial>, &mut PointLight)>,
   mut materials: ResMut<Assets<StandardMaterial>>,
@@ -838,12 +845,16 @@ fn brighten(
   mut commands: Commands
 ) {
   let (dt, now) = (time.delta_secs(), time.elapsed_secs());
-  for (&Charge(charging), children) in grips.iter() {
+  for (&Charge(charging), children, fist) in grips.iter() {
     for child in children.iter() {
       if let Ok((mut lit, place)) = kindled.get_mut(child) {
         let before = lit.charge;
+        let takes = match fist && own.spell.is_some() {
+          true => own.takes,
+          false => charge(lit.spell)
+        };
         lit.charge = match charging {
-          true => before + dt / charge(lit.spell),
+          true => before + dt / takes.max(0.05),
           false => 0.0
         };
         lit.flash += dt;

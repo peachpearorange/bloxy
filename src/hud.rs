@@ -3,7 +3,7 @@ use {crate::{block::Block,
              model,
              opts::opts,
              player::{Aim, Pilot, Selected},
-             protocol::{HOTBAR, Health, Inventory, Notice, Role, plays},
+             protocol::{HOTBAR, Health, Inventory, Notice, Role, Stack, plays},
              stream::{Palette, Progress},
              texture::{ICON, ICON_COLUMNS},
              voxels::Voxels},
@@ -354,8 +354,20 @@ fn build(
   );
 }
 
-pub fn icon_rect(block: Block) -> Rect {
-  let index = block as u32;
+pub fn icon_rect(block: Block) -> Rect { cell_rect(block as u32) }
+
+pub fn stack_rect(stack: &Stack) -> Rect {
+  cell_rect(crate::texture::icon_cell(
+    stack.block,
+    stack.gear.and_then(|gear| gear.material)
+  ))
+}
+
+pub fn forged_rect(block: Block, material: Option<crate::gear::Material>) -> Rect {
+  cell_rect(crate::texture::icon_cell(block, material))
+}
+
+fn cell_rect(index: u32) -> Rect {
   let corner =
     Vec2::new((index % ICON_COLUMNS) as f32, (index / ICON_COLUMNS) as f32) * ICON as f32;
   Rect::from_corners(corner, corner + Vec2::splat(ICON as f32))
@@ -388,7 +400,7 @@ fn refresh(
   for (icon, mut image, mut visibility) in icons.iter_mut() {
     match inventory.slots[icon.0] {
       Some(stack) => {
-        image.rect = Some(icon_rect(stack.block));
+        image.rect = Some(stack_rect(&stack));
         *visibility = Visibility::Inherited
       }
       None => *visibility = Visibility::Hidden

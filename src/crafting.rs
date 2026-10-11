@@ -1,10 +1,11 @@
 use {crate::{block::Block,
-             hud::icon_rect,
+             gear::{self, Material, Virtue, Wear},
+             hud::{forged_rect, icon_rect, stack_rect},
              menu::{Act, BUTTON, EDGE, Entry, FAINT, Focus, INK, LIT, Menu, Pressed,
                     Search, Shaded, Tab, button, field, words},
              player::Pilot,
              protocol::{Bookmarks, CURSOR, Craft, HOTBAR, Inventory, Mark, Pick,
-                        Picked, REACH, SLOTS, Shuffle, plays},
+                        Picked, REACH, SLOTS, Shuffle, Stack, WEARING, plays},
              recipe::{self, Recipe},
              skill::Skills,
              stream::Palette,
@@ -312,7 +313,7 @@ fn fill(
     for (icon, mut image, mut visibility) in icons.iter_mut() {
       match inventory.slots[icon.0] {
         Some(stack) => {
-          let rect = Some(icon_rect(stack.block));
+          let rect = Some(stack_rect(&stack));
           if image.rect != rect {
             image.rect = rect
           }
@@ -474,7 +475,13 @@ fn card(
       }
       row.spawn(words("->", 16.0, FAINT));
       let (output, count) = recipe.output;
-      ingredient(row, output);
+      row.spawn((Button, Act::Inspect(output), Node::default())).with_child((
+        ImageNode {
+          rect: Some(forged_rect(output, recipe.material)),
+          ..ImageNode::new(palette.icons.clone())
+        },
+        Node { width: px(28), height: px(28), ..default() }
+      ));
       row.spawn((words(format!("x{count}"), 14.0, INK), Node {
         margin: UiRect::right(px(6)),
         ..default()
@@ -487,9 +494,68 @@ fn card(
         button(row, "Craft", Act::Craft(index as u16))
       }
     });
+  if let Some(material) = recipe.material {
+    let gear::Grit { hardness, toughness } = material.grit();
+    parent.spawn(words(
+      format!("{}: hardness {hardness}, toughness {toughness}", material.name()),
+      13.0,
+      FAINT
+    ));
+  }
   if !missing.is_empty() {
     parent.spawn(words(format!("Missing {}", missing.join(", ")), 13.0, SHORT));
   }
+}
+
+fn equipment(panel: &mut ChildSpawnerCommands, inventory: &Inventory, palette: &Palette) {
+  panel.spawn(words("Equipment", 20.0, INK));
+  panel
+    .spawn(Node { column_gap: px(10), flex_wrap: FlexWrap::Wrap, ..default() })
+    .with_children(|row| {
+      for (index, wear) in Wear::ALL.into_iter().enumerate() {
+        row
+          .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: px(2),
+            ..default()
+          })
+          .with_children(|cell| {
+            slot(cell, WEARING + index, palette);
+            cell.spawn(words(wear.name(), 12.0, FAINT));
+          });
+      }
+    });
+  let totals = inventory
+    .worn()
+    .iter()
+    .flatten()
+    .filter_map(|stack| stack.gear)
+    .flat_map(|gear| gear.perks.into_iter().flatten())
+    .fold(Vec::<(Virtue, u32)>::new(), |mut totals, perk| {
+      match totals.iter_mut().find(|(virtue, _)| *virtue == perk.virtue) {
+        Some((_, sum)) => *sum += u32::from(perk.by),
+        None => totals.push((perk.virtue, u32::from(perk.by)))
+      }
+      totals
+    });
+  match totals.is_empty() {
+    true => panel.spawn(words(
+      "Wear hats, amulets, mail, belts, boots and rings found in dungeons here.",
+      14.0,
+      FAINT
+    )),
+    false => panel.spawn(words(
+      totals
+        .iter()
+        .map(|&(virtue, by)| virtue.line(by.min(255) as u8))
+        .collect::<Vec<_>>()
+        .join("\n"),
+      14.0,
+      CAN
+    ))
+  };
+  panel.spawn(words("Pick an item on the right to see its recipes.", 13.0, FAINT));
 }
 
 fn recipes(
@@ -512,20 +578,29 @@ fn recipes(
       for container in containers.iter() {
         commands.entity(container).despawn_children().with_children(
           |panel| match *chosen {
-            None => {
-              panel.spawn(words("Crafting", 20.0, INK));
-              panel.spawn(words(
-                "Pick an item on the right to see its recipes.",
-                15.0,
-                FAINT
-              ));
-            }
+            None => equipment(panel, inventory, &palette),
             Some(block) => {
-              panel.spawn(words(block.name(), 20.0, INK));
+              panel
+                .spawn(Node {
+                  column_gap: px(12),
+                  align_items: AlignItems::Center,
+                  ..default()
+                })
+                .with_children(|title| {
+                  title.spawn(words(block.name(), 20.0, INK));
+                  button(title, "Equipment", Act::Equipment);
+                });
               panel.spawn(words("Made from", 15.0, FAINT));
               let making: Vec<_> = recipe::making(block).collect();
               if making.is_empty() {
-                panel.spawn(words("Not craftable: gather it in the world.", 14.0, INK));
+                panel.spawn(words(
+                  match block.worn() {
+                    true => "Not craftable: found in dungeon chests.",
+                    false => "Not craftable: gather it in the world."
+                  },
+                  14.0,
+                  INK
+                ));
               }
               for (index, recipe) in making.into_iter() {
                 card(panel, index, recipe, inventory, nearby, spells, &palette)
@@ -654,14 +729,12 @@ fn hint(
     .iter()
     .filter(|(interaction, _)| **interaction != Interaction::None)
     .find_map(|(_, act)| match *act {
-      Act::Inspect(block) => Some((block, None)),
-      Act::Slot(index) => {
-        inventory.slots[usize::from(index)].map(|stack| (stack.block, Some(stack.count)))
-      }
+      Act::Inspect(block) => Some(Stack::of(block, 0)),
+      Act::Slot(index) => inventory.slots[usize::from(index)],
       _ => None
     })
     .filter(|_| menu.showing(Tab::Inventory));
-  if let Some((block, _)) = pointed
+  if let Some(Stack { block, .. }) = pointed
     && keys.just_pressed(KeyCode::KeyA)
     && focus.0.is_none()
   {
@@ -671,19 +744,61 @@ fn hint(
     windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
   for (mut node, mut visibility, children) in tips.iter_mut() {
     match pointed.zip(cursor) {
-      Some(((block, count), at)) => {
+      Some((stack, at)) => {
         node.left = px(at.x + 16.0);
         node.top = px(at.y + 12.0);
         visibility.set_if_neq(Visibility::Inherited);
-        let line = match count {
-          _ if block.spell() => format!(
-            "{} - {}. Hold right click to charge, release to cast; each cast uses one",
-            block.name(),
-            crate::skill::spell_text(block)
-          ),
-          Some(count) if count > 1 => format!("{} x{count}", block.name()),
-          _ => block.name().to_string()
-        };
+        let block = stack.block;
+        let line = block
+          .spell()
+          .then(|| {
+            format!(
+              "{} - {}. Hold right click to charge, release to cast; each cast uses one",
+              block.name(),
+              crate::skill::spell_text(block)
+            )
+          })
+          .or_else(|| {
+            stack.gear.map(|_| {
+              [gear::title(&stack)]
+                .into_iter()
+                .chain(gear::lines(&stack))
+                .collect::<Vec<_>>()
+                .join("\n")
+            })
+          })
+          .or_else(|| {
+            block.forged().then(|| {
+              let (hardness, toughness) = gear::needs(block);
+              format!(
+                "{} - made from any material with hardness {hardness} and toughness \
+                 {toughness} or more",
+                block.name()
+              )
+            })
+          })
+          .or_else(|| {
+            Material::of(block).map(|material| {
+              let gear::Grit { hardness, toughness } = material.grit();
+              let tools: Vec<&str> = Block::TOOLS
+                .into_iter()
+                .filter(|&tool| material.suits(tool))
+                .map(Block::name)
+                .collect();
+              format!(
+                "{} - hardness {hardness}, toughness {toughness}: {}",
+                block.name(),
+                match tools.is_empty() {
+                  true => "too weak for tools".to_string(),
+                  false => format!("strong enough for: {}", tools.join(", "))
+                }
+              )
+            })
+          })
+          .unwrap_or_else(|| match stack.count {
+            count if count > 1 => format!("{} x{count}", block.name()),
+            _ => block.name().to_string()
+          });
         for child in children.iter() {
           if let Ok(mut text) = texts.get_mut(child)
             && text.0 != line
@@ -721,9 +836,9 @@ fn carry(
         visibility.set_if_neq(Visibility::Inherited);
         for child in children.iter() {
           if let Ok(mut image) = images.get_mut(child)
-            && image.rect != Some(icon_rect(stack.block))
+            && image.rect != Some(stack_rect(&stack))
           {
-            image.rect = Some(icon_rect(stack.block))
+            image.rect = Some(stack_rect(&stack))
           }
           if let Ok(mut text) = texts.get_mut(child) {
             let shown =
@@ -773,6 +888,7 @@ fn obey(
         shuffles.write(Shuffle { from, to });
       }
       Act::Inspect(block) => chosen.0 = Some(block),
+      Act::Equipment => chosen.0 = None,
       Act::Craft(index) => {
         crafts.write(Craft(index));
       }

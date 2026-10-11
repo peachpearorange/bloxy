@@ -1,10 +1,13 @@
-use crate::{block::Block, protocol::Inventory};
+use crate::{block::Block,
+            gear::{Gear, Material, heads},
+            protocol::{Inventory, Stack}};
 
 #[derive(Clone, Copy)]
 pub struct Recipe {
   pub inputs: &'static [(Block, u16)],
   pub output: (Block, u16),
-  pub station: Option<Block>
+  pub station: Option<Block>,
+  pub material: Option<Material>
 }
 
 impl Recipe {
@@ -45,27 +48,28 @@ impl Recipe {
   ) -> Option<Inventory> {
     let mut after = inventory.clone();
     let (output, count) = self.output;
+    let gear = self.material.map(Gear::forged);
     (self.housed(stations)
       && self.learned(spells)
       && self.inputs.iter().all(|&(block, need)| (0..need).all(|_| after.take(block)))
-      && (0..count).all(|_| after.add(output)))
-    .then_some(after)
+      && after.gain(Stack { block: output, count, gear }) == 0)
+      .then_some(after)
   }
 }
 
 const fn hand(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
-  Recipe { inputs, output, station: None }
+  Recipe { inputs, output, station: None, material: None }
 }
 
 const fn table(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
-  Recipe { inputs, output, station: Some(Block::CraftingTable) }
+  Recipe { inputs, output, station: Some(Block::CraftingTable), material: None }
 }
 
 const fn furnace(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
-  Recipe { inputs, output, station: Some(Block::Furnace) }
+  Recipe { inputs, output, station: Some(Block::Furnace), material: None }
 }
 
-pub const RECIPES: &[Recipe] = &[
+const BASICS: &[Recipe] = &[
   hand(&[(Block::Log, 1)], (Block::Planks, 4)),
   hand(&[(Block::BirchLog, 1)], (Block::Planks, 4)),
   hand(&[(Block::SpruceLog, 1)], (Block::Planks, 4)),
@@ -124,6 +128,38 @@ pub const RECIPES: &[Recipe] = &[
   hand(&[(Block::Candle, 2)], (Block::SpellGuardian, 1)),
   hand(&[(Block::LizardClaw, 2)], (Block::SpellInvisibility, 1))
 ];
+
+fn forge(tool: Block, material: Material) -> Option<Recipe> {
+  let (head, haft) = heads(tool);
+  material.ingredient().filter(|_| material.suits(tool)).map(|ingredient| {
+    let inputs: Vec<(Block, u16)> = match ingredient {
+      Block::Planks => vec![(Block::Planks, head + haft)],
+      _ if material.smelted() => {
+        vec![(ingredient, head), (Block::Planks, haft), (Block::CoalOre, 1)]
+      }
+      _ => vec![(ingredient, head), (Block::Planks, haft)]
+    };
+    Recipe {
+      inputs: inputs.leak(),
+      output: (tool, 1),
+      station: Some(match material.smelted() {
+        true => Block::Furnace,
+        false => Block::CraftingTable
+      }),
+      material: Some(material)
+    }
+  })
+}
+
+pub static RECIPES: std::sync::LazyLock<Vec<Recipe>> = std::sync::LazyLock::new(|| {
+  BASICS
+    .iter()
+    .copied()
+    .chain(Block::TOOLS.into_iter().flat_map(|tool| {
+      Material::ALL.into_iter().filter_map(move |material| forge(tool, material))
+    }))
+    .collect()
+});
 
 pub fn making(block: Block) -> impl Iterator<Item = (usize, &'static Recipe)> {
   RECIPES.iter().enumerate().filter(move |(_, recipe)| recipe.output.0 == block)

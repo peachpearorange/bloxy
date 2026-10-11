@@ -146,7 +146,17 @@ pub enum Block {
   SpellIceStorm,
   SpellAnimate,
   SpellGuardian,
-  SpellInvisibility
+  SpellInvisibility,
+  Pickaxe,
+  Axe,
+  Shovel,
+  Sword,
+  Hat,
+  Amulet,
+  Mail,
+  Belt,
+  Boots,
+  Ring
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -265,11 +275,21 @@ pub enum Tile {
   SpellIceStorm,
   SpellAnimate,
   SpellGuardian,
-  SpellInvisibility
+  SpellInvisibility,
+  Pickaxe,
+  Axe,
+  Shovel,
+  Sword,
+  Hat,
+  Amulet,
+  Mail,
+  Belt,
+  Boots,
+  Ring
 }
 
 impl Tile {
-  pub const ALL: [Tile; 115] = [
+  pub const ALL: [Tile; 125] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -384,7 +404,17 @@ impl Tile {
     Tile::SpellIceStorm,
     Tile::SpellAnimate,
     Tile::SpellGuardian,
-    Tile::SpellInvisibility
+    Tile::SpellInvisibility,
+    Tile::Pickaxe,
+    Tile::Axe,
+    Tile::Shovel,
+    Tile::Sword,
+    Tile::Hat,
+    Tile::Amulet,
+    Tile::Mail,
+    Tile::Belt,
+    Tile::Boots,
+    Tile::Ring
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -449,7 +479,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 129] = [
+  pub const ALL: [Block; 139] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -578,7 +608,17 @@ impl Block {
     Block::SpellIceStorm,
     Block::SpellAnimate,
     Block::SpellGuardian,
-    Block::SpellInvisibility
+    Block::SpellInvisibility,
+    Block::Pickaxe,
+    Block::Axe,
+    Block::Shovel,
+    Block::Sword,
+    Block::Hat,
+    Block::Amulet,
+    Block::Mail,
+    Block::Belt,
+    Block::Boots,
+    Block::Ring
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -615,7 +655,15 @@ impl Block {
         | Block::Candle
     ) || self.fish()
       || self.spell()
+      || self.forged()
+      || self.worn()
   }
+
+  pub const TOOLS: [Block; 4] = [Block::Pickaxe, Block::Axe, Block::Shovel, Block::Sword];
+
+  pub fn forged(self) -> bool { Block::TOOLS.contains(&self) }
+
+  pub fn worn(self) -> bool { crate::gear::Wear::of(self).is_some() }
 
   pub const SPELLS: [Block; 14] = [
     Block::SpellFirebolt,
@@ -710,6 +758,7 @@ impl Block {
     match self {
       Block::WaterBucket | Block::LavaBucket | Block::Boat | Block::FishingRod => 1,
       Block::Bed => 1,
+      gear if gear.forged() || gear.worn() => 1,
       Block::Bucket => 16,
       spell if spell.spell() => 16,
       _ => 64
@@ -999,7 +1048,17 @@ impl Block {
       Block::SpellIceStorm => "Ice Storm",
       Block::SpellAnimate => "Animate Dead",
       Block::SpellGuardian => "Spirit Guardian",
-      Block::SpellInvisibility => "Invisibility"
+      Block::SpellInvisibility => "Invisibility",
+      Block::Pickaxe => "Pickaxe",
+      Block::Axe => "Axe",
+      Block::Shovel => "Shovel",
+      Block::Sword => "Sword",
+      Block::Hat => "Hat",
+      Block::Amulet => "Amulet",
+      Block::Mail => "Mail",
+      Block::Belt => "Belt",
+      Block::Boots => "Boots",
+      Block::Ring => "Ring"
     }
   }
 
@@ -1134,7 +1193,17 @@ impl Block {
       Block::SpellIceStorm => all(Tile::SpellIceStorm),
       Block::SpellAnimate => all(Tile::SpellAnimate),
       Block::SpellGuardian => all(Tile::SpellGuardian),
-      Block::SpellInvisibility => all(Tile::SpellInvisibility)
+      Block::SpellInvisibility => all(Tile::SpellInvisibility),
+      Block::Pickaxe => all(Tile::Pickaxe),
+      Block::Axe => all(Tile::Axe),
+      Block::Shovel => all(Tile::Shovel),
+      Block::Sword => all(Tile::Sword),
+      Block::Hat => all(Tile::Hat),
+      Block::Amulet => all(Tile::Amulet),
+      Block::Mail => all(Tile::Mail),
+      Block::Belt => all(Tile::Belt),
+      Block::Boots => all(Tile::Boots),
+      Block::Ring => all(Tile::Ring)
     }
   }
 }

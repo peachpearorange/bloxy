@@ -142,6 +142,7 @@ pub enum Act {
   Travel(IVec2),
   Slot(u8),
   Inspect(Block),
+  Equipment,
   Craft(u16),
   Trade(u8),
   Hue(u8),

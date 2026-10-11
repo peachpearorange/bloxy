@@ -57,12 +57,21 @@ fn starter(creative: bool) -> Inventory {
     Block::SpellMissile,
     Block::SpellThunder,
     Block::SpellLight,
-    Block::Brazier
+    Block::Brazier,
+    Block::Pickaxe,
+    Block::Axe,
+    Block::Shovel,
+    Block::Sword
   ];
   let mut inventory = Inventory::default();
   if creative {
     for (&block, slot) in kit.iter().zip(&mut inventory.slots) {
-      *slot = Some(Stack { block, count: block.stack() })
+      *slot = Some(Stack {
+        gear: block
+          .forged()
+          .then(|| crate::gear::Gear::forged(crate::gear::Material::Iron)),
+        ..Stack::of(block, block.stack())
+      })
     }
   }
   inventory
@@ -111,13 +120,18 @@ fn embody(
 const STOCKED_PER_CHEST: usize = 27;
 
 #[derive(Resource, Default)]
-pub struct Stock(Vec<(IVec3, Vec<(Block, u16)>)>);
+pub struct Stock(Vec<(IVec3, Vec<Stack>)>);
 
 fn stock(voxels: &mut Voxels) -> Stock {
-  let items: Vec<(Block, u16)> = Block::ALL
+  let items: Vec<Stack> = Block::ALL
     .into_iter()
     .filter(|block| block.item())
-    .map(|block| (block, block.stack()))
+    .map(|block| Stack {
+      gear: block
+        .forged()
+        .then(|| crate::gear::Gear::forged(crate::gear::Material::Iron)),
+      ..Stack::of(block, block.stack())
+    })
     .collect();
   let stone =
     Island::at(voxels.seed, IVec2::ZERO).map_or(IVec3::new(0, 100, 0), |home| home.stone);
@@ -465,7 +479,9 @@ fn dig(
       .is_some_and(|account| guarded(&claims, &mut notices, client_id, account, at));
     let digger = player_of(players.iter_mut(), client_id)
       .filter(|(_, avatar, ..)| allowed && block.breakable() && within_reach(avatar, at))
-      .map(|(player, _, _, skills)| (player, skills.stats().fortune));
+      .map(|(player, avatar, inventory, skills)| {
+        (player, skills.geared(Some(&inventory), avatar.hand).fortune)
+      });
     match digger {
       Some((player, fortune)) => {
         let lucky = ore(block) > 0
@@ -541,21 +557,25 @@ fn plunder(
         .iter()
         .find(|(chest, _)| *chest == at)
         .map_or_else(|| crate::dungeon::loot(seed, at, tier), |(_, loot)| loot.clone());
-      for &(block, count) in loot.iter() {
-        let left = (0..count).filter(|_| !inventory.add(block)).count() as u16;
+      for &stack in loot.iter() {
+        let left = inventory.gain(stack);
         if left > 0 {
-          crate::loose::scatter(
+          crate::loose::fling(
             &mut commands,
-            block,
-            left,
+            Stack { count: left, ..stack },
             at.as_vec3() + Vec3::new(0.5, 1.2, 0.5),
             Vec3::Y * 3.0,
             0.6
           )
         }
       }
-      let found: Vec<String> =
-        loot.iter().map(|&(block, count)| format!("{count} {}", block.name())).collect();
+      let found: Vec<String> = loot
+        .iter()
+        .map(|stack| match stack.gear {
+          Some(_) => crate::gear::title(stack),
+          None => format!("{} {}", stack.count, stack.block.name())
+        })
+        .collect();
       notices.write(ToClients {
         targets: SendTargets::Single(client_id),
         message: Notice(match found.len() {

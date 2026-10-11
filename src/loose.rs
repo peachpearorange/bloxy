@@ -1,10 +1,11 @@
 use {crate::{authority::{Controller, player_of},
              block::{Block, Look},
+             gear::Material,
              menu::closed,
              player::{Bulk, Marched, Pilot, Selected, march},
              protocol::*,
              stream::Palette,
-             texture::{PIXELS, paint, uv_corner},
+             texture::{PIXELS, forged_slot, painted, uv_corner, uv_slot},
              voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
             mesh::{Indices, PrimitiveTopology},
@@ -32,6 +33,15 @@ pub struct Tumble {
   age: f32
 }
 
+pub fn fling(commands: &mut Commands, stack: Stack, at: Vec3, velocity: Vec3, wait: f32) {
+  let Stack { block, count, gear } = stack;
+  commands.spawn((Replicated, Loose { block, count, at, gear }, Tumble {
+    velocity,
+    wait,
+    age: 0.0
+  }));
+}
+
 pub fn scatter(
   commands: &mut Commands,
   block: Block,
@@ -40,11 +50,7 @@ pub fn scatter(
   velocity: Vec3,
   wait: f32
 ) {
-  commands.spawn((Replicated, Loose { block, count, at }, Tumble {
-    velocity,
-    wait,
-    age: 0.0
-  }));
+  fling(commands, Stack::of(block, count), at, velocity, wait)
 }
 
 pub fn fall(commands: &mut Commands, block: Block, at: IVec3) {
@@ -74,10 +80,9 @@ fn toss(
       let ahead =
         Quat::from_euler(EulerRot::YXZ, avatar.yaw, avatar.pitch, 0.0) * Vec3::NEG_Z;
       let from = avatar.at + Vec3::Y * (EYE - 0.35) + ahead.with_y(0.0) * 0.3;
-      scatter(
+      fling(
         &mut commands,
-        stack.block,
-        count,
+        Stack { count, ..stack },
         from,
         ahead * THROW + Vec3::Y * 1.5,
         TOSSED_WAIT
@@ -144,7 +149,8 @@ fn gather(
       .iter_mut()
       .find(|(avatar, _)| (avatar.at + Vec3::Y * 0.9).distance(loose.at) < GATHER)
     {
-      let kept = (0..loose.count).filter(|_| !inventory.add(loose.block)).count() as u16;
+      let &Loose { block, count, gear, .. } = &*loose;
+      let kept = inventory.gain(Stack { block, count, gear });
       match kept {
         0 => {
           loose.at = avatar.at + Vec3::Y * 1.1;
@@ -186,15 +192,25 @@ fn throw(
 pub const FLAT: f32 = 0.4;
 
 #[derive(Resource, Default)]
-pub struct Looks(HashMap<Block, Handle<Mesh>>);
+pub struct Looks(HashMap<(Block, Option<Material>), Handle<Mesh>>);
 
 impl Looks {
-  pub fn mesh(&mut self, block: Block, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
+  pub fn mesh(
+    &mut self,
+    block: Block,
+    made: Option<Material>,
+    meshes: &mut Assets<Mesh>
+  ) -> Handle<Mesh> {
+    let made = made.filter(|_| block.forged());
     self
       .0
-      .entry(block)
+      .entry((block, made))
       .or_insert_with(|| {
-        meshes.add(if cubic(block) { cube(block) } else { sliver(block) })
+        meshes.add(match (cubic(block), made) {
+          (true, _) => cube(block),
+          (false, Some(material)) => sliver(forged_slot(block, material)),
+          (false, None) => sliver(block.tiles()[1].index())
+        })
       })
       .clone()
   }
@@ -256,19 +272,18 @@ fn cube(block: Block) -> Mesh {
   )
 }
 
-fn sliver(block: Block) -> Mesh {
-  let tile = block.tiles()[1];
+fn sliver(slot: u32) -> Mesh {
   let edge = PIXELS as i32;
   let solid = |x: i32, y: i32| {
     (0..edge).contains(&x)
       && (0..edge).contains(&y)
-      && paint(tile, x as u32, y as u32).color[3] > 0.5
+      && painted(slot, x as u32, y as u32).color[3] > 0.5
   };
   let texel = FLAT / PIXELS as f32;
   let point = |x: f32, y: f32, z: f32| {
     Vec3::new(x * texel - FLAT / 2.0, FLAT / 2.0 - y * texel, z * texel)
   };
-  let uv = |x: f32, y: f32| uv_corner(tile, Vec2::new(x, y) / PIXELS as f32);
+  let uv = |x: f32, y: f32| uv_slot(slot, Vec2::new(x, y) / PIXELS as f32);
   let whole = [(0.0, 0.0), (16.0, 0.0), (16.0, 16.0), (0.0, 16.0)];
   let faces = [(0.5, Vec3::Z), (-0.5, Vec3::NEG_Z)].into_iter().map(|(z, normal)| {
     let mut corners = whole;
@@ -339,7 +354,7 @@ fn show(
     };
     commands.entity(entity).insert((
       Shown { at: loose.at, turned },
-      Mesh3d(looks.mesh(block, &mut meshes)),
+      Mesh3d(looks.mesh(block, loose.gear.and_then(|gear| gear.material), &mut meshes)),
       MeshMaterial3d(palette.solid.clone()),
       Transform::from_translation(loose.at).with_rotation(turned),
       Visibility::default()

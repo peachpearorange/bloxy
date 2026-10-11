@@ -525,6 +525,15 @@ fn reward(
     for (block, count) in loot.into_iter() {
       scatter(&mut commands, block, count, at + Vec3::Y * 0.6, Vec3::Y * 3.0, 0.4)
     }
+    if let Some(folk) = folk.filter(|folk| folk.band == Band::Warden) {
+      crate::loose::fling(
+        &mut commands,
+        crate::gear::found(folk.luck, folk.luck.rotate_left(7), 2),
+        at + Vec3::Y * 0.6,
+        Vec3::Y * 3.5,
+        0.4
+      )
+    }
     if let Some(&Blamed(player)) = blamed
       && xp > 0
     {

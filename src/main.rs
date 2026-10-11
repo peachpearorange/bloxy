@@ -23,6 +23,7 @@ mod fishing;
 mod flow;
 mod folk;
 mod fx;
+mod gear;
 mod generate;
 mod glance;
 mod glyph;
@@ -199,8 +200,9 @@ fn press(
           KeyCode::Digit6,
           KeyCode::Digit7,
           KeyCode::Digit8,
-          KeyCode::Digit9
-        ][digit.parse::<usize>().unwrap_or(1).clamp(1, 9) - 1]
+          KeyCode::Digit9,
+          KeyCode::Digit0
+        ][(digit.parse::<usize>().unwrap_or(1) + 9) % 10]
       )
     };
     if start && stop {

@@ -1,8 +1,9 @@
-use {crate::{folk::{Vigour, hurt},
+use {crate::{block::{Block, Fluid},
+             folk::{Vigour, harm},
              glyph::Glyph,
              hud::SHADE,
              player::Pilot,
-             protocol::{Health, Notice, authority, plays},
+             protocol::{Avatar, Health, Notice, authority, plays},
              skill::{Glyphs, glyph_image}},
      bevy::prelude::*,
      serde::{Deserialize, Serialize}};
@@ -167,8 +168,13 @@ fn tick(
       }
       Some(mut ticking) => {
         let before = conditions.0.len();
+        let [fire, frost, venom] =
+          vigour.as_deref().map_or([1.0; 3], |vigour| vigour.resist);
         for condition in conditions.bypass_change_detection().0.iter_mut() {
-          condition.left -= dt
+          condition.left -= match condition.kind {
+            Kind::Chilled => dt / frost.max(0.25),
+            _ => dt
+          }
         }
         conditions.bypass_change_detection().0.retain(|condition| condition.left > 0.0);
         ticking.shared += dt;
@@ -176,7 +182,6 @@ fn tick(
           ticking.shared = 0.0;
           conditions.set_changed()
         }
-        let mut pain = 0u8;
         let mut balm = 0u8;
         let every = |active: bool, clock: &mut f32, period: f32| {
           *clock = match active {
@@ -189,12 +194,12 @@ fn tick(
           }
           due
         };
-        if every(conditions.has(Kind::Poisoned), &mut ticking.poison, POISON_EVERY) {
-          pain += 1
-        }
-        if every(conditions.has(Kind::Burning), &mut ticking.burn, BURN_EVERY) {
-          pain += 1
-        }
+        let poisoned =
+          every(conditions.has(Kind::Poisoned), &mut ticking.poison, POISON_EVERY);
+        let burnt = every(conditions.has(Kind::Burning), &mut ticking.burn, BURN_EVERY);
+        let pain = u8::from(poisoned) + u8::from(burnt);
+        let felt =
+          f32::from(u8::from(poisoned)) * venom + f32::from(u8::from(burnt)) * fire;
         if every(conditions.has(Kind::Regenerating), &mut ticking.mend, MEND_EVERY) {
           balm += 1
         }
@@ -205,7 +210,7 @@ fn tick(
           match vigour {
             Some(mut vigour) => {
               if pain > 0 {
-                hurt(&mut health, &mut vigour, pain)
+                harm(&mut health, &mut vigour, felt)
               }
               health.0 = (health.0 + balm).min(vigour.most)
             }
@@ -218,6 +223,28 @@ fn tick(
           }
         }
       }
+    }
+  }
+}
+
+const SCORCHED_FOR: f32 = 4.0;
+
+fn scorch(
+  voxels: Res<crate::voxels::Voxels>,
+  mut players: Query<(&Avatar, &mut Conditions), With<crate::authority::Controller>>
+) {
+  for (avatar, mut conditions) in players.iter_mut() {
+    let lava = [0.1, 1.0].into_iter().any(|above| {
+      voxels
+        .block((avatar.at + Vec3::Y * above).floor().as_ivec3())
+        .and_then(Block::liquid)
+        .is_some_and(|(fluid, _)| fluid == Fluid::Lava)
+    });
+    let burning = conditions.0.iter().any(|condition| {
+      condition.kind == Kind::Burning && condition.left > SCORCHED_FOR - 1.0
+    });
+    if lava && !burning {
+      conditions.afflict(Kind::Burning, SCORCHED_FOR)
     }
   }
 }
@@ -393,6 +420,10 @@ impl Plugin for Afflictions {
   fn build(&self, app: &mut App) {
     app
       .add_systems(Update, tick.run_if(authority))
+      .add_systems(
+        Update,
+        scorch.run_if(authority).run_if(resource_exists::<crate::voxels::Voxels>)
+      )
       .add_systems(Startup, strip.run_if(plays))
       .add_systems(Update, show.run_if(plays));
   }

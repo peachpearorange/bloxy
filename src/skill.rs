@@ -2,11 +2,12 @@ use {crate::{authority::{Controller, player_of},
              block::Block,
              condition::{Conditions, Kind},
              folk::{PUNCH, Vigour},
+             gear::{Perk, Virtue},
              glyph::{self, Glyph},
              hud::SHADE,
              menu::{Act, EDGE, FAINT, INK, LIT, Menu, Pressed, Tab, words},
              player::Pilot,
-             protocol::{Health, Notice, authority, plays},
+             protocol::{Avatar, HOTBAR, Health, Inventory, Notice, authority, plays},
              stance::Stance},
      bevy::{input::mouse::AccumulatedMouseScroll, prelude::*,
             ui::RelativeCursorPosition, window::PrimaryWindow},
@@ -576,10 +577,37 @@ pub struct Stats {
   pub might: u8,
   pub delve: f32,
   pub fortune: f32,
-  pub thrift: f32
+  pub thrift: f32,
+  pub strength: f32,
+  pub fire: f32,
+  pub frost: f32,
+  pub venom: f32,
+  pub cast: f32
 }
 
 impl Stats {
+  pub fn geared(self, perks: impl Iterator<Item = Perk>) -> Stats {
+    perks.fold(self, |stats, Perk { virtue, by }| {
+      let part = f32::from(by) / 100.0;
+      match virtue {
+        Virtue::Swift => Stats { stride: stats.stride + part, ..stats },
+        Virtue::Springy => Stats { spring: stats.spring + part, ..stats },
+        Virtue::Swimmer => Stats { swim: stats.swim + part, ..stats },
+        Virtue::Fireproof => Stats { fire: stats.fire * (1.0 - part), ..stats },
+        Virtue::Frostward => Stats { frost: stats.frost * (1.0 - part), ..stats },
+        Virtue::Antidote => Stats { venom: stats.venom * (1.0 - part), ..stats },
+        Virtue::Warding => Stats { guard: (stats.guard + part).min(0.75), ..stats },
+        Virtue::Might => Stats { strength: stats.strength + part, ..stats },
+        Virtue::Delving => Stats { delve: stats.delve + part, ..stats },
+        Virtue::Fortune => Stats { fortune: stats.fortune + part, ..stats },
+        Virtue::Quickcast => Stats { cast: stats.cast * (1.0 - part), ..stats },
+        Virtue::Thrift => Stats { thrift: (stats.thrift + part).min(0.8), ..stats },
+        Virtue::Vigor => Stats { vigor: stats.vigor.saturating_add(by), ..stats },
+        Virtue::Mending => Stats { mend: stats.mend + part, ..stats }
+      }
+    })
+  }
+
   fn with(self, stance: Option<Stance>) -> Stats {
     match stance {
       Some(stance) => Stats {
@@ -661,7 +689,12 @@ impl Skills {
           might: 0,
           delve: 1.0,
           fortune: 0.0,
-          thrift: 0.0
+          thrift: 0.0,
+          strength: 1.0,
+          fire: 1.0,
+          frost: 1.0,
+          venom: 1.0,
+          cast: 1.0
         },
         |stats, boon| match boon {
           Boon::Stride(by) => Stats { stride: stats.stride + by, ..stats },
@@ -681,6 +714,14 @@ impl Skills {
   }
 
   pub fn most(&self) -> u8 { Health::FULL + self.stats().vigor }
+
+  pub fn geared(&self, inventory: Option<&Inventory>, hand: u8) -> Stats {
+    let stats = self.stats();
+    match inventory {
+      Some(inventory) => stats.geared(crate::gear::worn(inventory, usize::from(hand))),
+      None => stats
+    }
+  }
 }
 
 #[derive(Message, Clone, Copy)]
@@ -736,28 +777,55 @@ fn earn(
   }
 }
 
-fn temper(mut players: Query<(&Skills, &Conditions, &mut Vigour), With<Controller>>) {
-  for (skills, conditions, mut vigour) in players.iter_mut() {
-    let stats = skills.stats();
+fn temper(
+  mut players: Query<
+    (&Skills, &Conditions, &Inventory, &Avatar, &mut Vigour, &mut Health),
+    With<Controller>
+  >
+) {
+  for (skills, conditions, inventory, avatar, mut vigour, mut health) in
+    players.iter_mut()
+  {
+    let stats = skills.geared(Some(inventory), avatar.hand);
     let stance = skills.stance;
     let stone = if conditions.has(Kind::Stoneskin) { 0.5 } else { 1.0 };
-    let might =
-      stance.map_or(PUNCH + stats.might, |stance| stance.punch(PUNCH + stats.might));
+    let weapon = inventory
+      .slots
+      .get(usize::from(avatar.hand))
+      .filter(|_| usize::from(avatar.hand) < HOTBAR)
+      .copied()
+      .flatten()
+      .and_then(|stack| {
+        stack.gear.and_then(|gear| gear.material).map(|material| match stack.block {
+          Block::Sword => material.edge(),
+          Block::Axe => material.edge() / 2,
+          _ => 0
+        })
+      })
+      .unwrap_or(0);
+    let bare = ((PUNCH + stats.might + weapon) as f32 * stats.strength).round() as u8;
+    let might = stance.map_or(bare, |stance| stance.punch(bare));
     let punch = if conditions.has(Kind::Weakened) { might.div_ceil(2) } else { might };
     let most = Health::FULL + stats.vigor;
     let ward = (1.0 - stats.guard) * stone * stance.map_or(1.0, Stance::ward);
     let quick = stance.map_or(crate::stance::STRIKE_EVERY, Stance::quick);
+    let resist = [stats.fire, stats.frost, stats.venom];
     if vigour.most != most
       || vigour.ward != ward
       || vigour.punch != punch
       || vigour.mend != stats.mend
       || vigour.quick != quick
+      || vigour.resist != resist
     {
       vigour.most = most;
       vigour.ward = ward;
       vigour.punch = punch;
       vigour.mend = stats.mend;
-      vigour.quick = quick
+      vigour.quick = quick;
+      vigour.resist = resist
+    }
+    if health.0 > most {
+      health.0 = most
     }
   }
 }

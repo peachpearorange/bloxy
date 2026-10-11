@@ -1,13 +1,17 @@
 use {crate::{block::{Block, Fluid},
+             gear::{Gear, Wear},
              skin::Skin},
      bevy::{ecs::entity::MapEntities, prelude::*},
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
 
-pub const HOTBAR: usize = 9;
-pub const BACKPACK: usize = 27;
+pub const HOTBAR: usize = 10;
+pub const BACKPACK: usize = 30;
 pub const SLOTS: usize = HOTBAR + BACKPACK;
 pub const CURSOR: usize = SLOTS;
+pub const WORN: usize = 6;
+pub const WEARING: usize = CURSOR + 1;
+pub const HELD: usize = WEARING + WORN;
 pub const REACH: f32 = 5.0;
 pub const EYE: f32 = 1.8;
 
@@ -81,7 +85,9 @@ pub struct Avatar {
   #[serde(default)]
   pub held: Option<Block>,
   #[serde(default)]
-  pub charging: bool
+  pub charging: bool,
+  #[serde(default)]
+  pub hand: u8
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
@@ -94,7 +100,17 @@ pub struct Hopper {
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct Stack {
   pub block: Block,
-  pub count: u16
+  pub count: u16,
+  #[serde(default)]
+  pub gear: Option<Gear>
+}
+
+impl Stack {
+  pub fn of(block: Block, count: u16) -> Stack { Stack { block, count, gear: None } }
+
+  pub fn fits(&self, slot: usize) -> bool {
+    slot < WEARING || Wear::of(self.block) == Wear::ALL.get(slot - WEARING).copied()
+  }
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -106,13 +122,12 @@ pub struct Inventory {
 fn fitted<'de, D: serde::Deserializer<'de>>(
   slots: D
 ) -> Result<Vec<Option<Stack>>, D::Error> {
-  Vec::<Option<Stack>>::deserialize(slots).map(|slots| {
-    slots.into_iter().chain(std::iter::repeat(None)).take(SLOTS + 1).collect()
-  })
+  Vec::<Option<Stack>>::deserialize(slots)
+    .map(|slots| slots.into_iter().chain(std::iter::repeat(None)).take(HELD).collect())
 }
 
 impl Default for Inventory {
-  fn default() -> Self { Inventory { slots: vec![None; SLOTS + 1] } }
+  fn default() -> Self { Inventory { slots: vec![None; HELD] } }
 }
 
 impl Inventory {
@@ -125,10 +140,21 @@ impl Inventory {
       .sum()
   }
 
+  pub fn worn(&self) -> &[Option<Stack>] { &self.slots[WEARING..HELD] }
+
   pub fn shuffle(&mut self, from: usize, to: usize) {
-    if from != to && from <= CURSOR && to <= CURSOR {
+    if from != to
+      && from < HELD
+      && to < HELD
+      && self.slots[from].is_none_or(|stack| stack.fits(to))
+      && self.slots[to].is_none_or(|stack| stack.fits(from))
+    {
       match (self.slots[from], self.slots[to]) {
-        (Some(moved), Some(kept)) if moved.block == kept.block => {
+        (Some(moved), Some(kept))
+          if moved.block == kept.block
+            && moved.gear == kept.gear
+            && kept.count < kept.block.stack() =>
+        {
           let shifted = moved.count.min(kept.block.stack().saturating_sub(kept.count));
           self.slots[to] = Some(Stack { count: kept.count + shifted, ..kept });
           self.slots[from] = (moved.count > shifted)
@@ -150,10 +176,23 @@ impl Inventory {
     {
       Some(index) => {
         let slot = &mut self.slots[index];
-        *slot = Some(Stack { block, count: slot.map_or(1, |stack| stack.count + 1) });
+        *slot = Some(Stack::of(block, slot.map_or(1, |stack| stack.count + 1)));
         true
       }
       None => false
+    }
+  }
+
+  pub fn gain(&mut self, stack: Stack) -> u16 {
+    match stack.gear {
+      Some(_) => match self.slots[..SLOTS].iter().position(Option::is_none) {
+        Some(index) => {
+          self.slots[index] = Some(stack);
+          0
+        }
+        None => stack.count
+      },
+      None => (0..stack.count).filter(|_| !self.add(stack.block)).count() as u16
     }
   }
 
@@ -190,8 +229,11 @@ impl Inventory {
   pub fn drop_one(&mut self, slot: usize) {
     if slot < SLOTS
       && let Some(held) = self.slots[CURSOR]
-      && self.slots[slot]
-        .is_none_or(|stack| stack.block == held.block && stack.count < held.block.stack())
+      && self.slots[slot].is_none_or(|stack| {
+        stack.block == held.block
+          && stack.gear == held.gear
+          && stack.count < held.block.stack()
+      })
     {
       self.slots[slot] = Some(Stack {
         count: self.slots[slot].map_or(0, |stack| stack.count) + 1,
@@ -204,7 +246,7 @@ impl Inventory {
 
   pub fn stow(&mut self) {
     if let Some(held) = self.slots[CURSOR].take() {
-      let left = (0..held.count).filter(|_| !self.add(held.block)).count() as u16;
+      let left = self.gain(held);
       self.slots[CURSOR] = (left > 0).then_some(Stack { count: left, ..held })
     }
   }
@@ -462,7 +504,9 @@ pub struct Toss {
 pub struct Loose {
   pub block: Block,
   pub count: u16,
-  pub at: Vec3
+  pub at: Vec3,
+  #[serde(default)]
+  pub gear: Option<Gear>
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
@@ -544,17 +588,34 @@ mod tests {
   #[test]
   fn the_cursor_splits_and_drops_stacks() {
     let mut inventory = Inventory::default();
-    inventory.slots[3] = Some(Stack { block: Block::Planks, count: 9 });
+    inventory.slots[3] = Some(Stack::of(Block::Planks, 9));
     inventory.halve(3);
-    assert_eq!(inventory.slots[CURSOR], Some(Stack { block: Block::Planks, count: 5 }));
-    assert_eq!(inventory.slots[3], Some(Stack { block: Block::Planks, count: 4 }));
+    assert_eq!(inventory.slots[CURSOR], Some(Stack::of(Block::Planks, 5)));
+    assert_eq!(inventory.slots[3], Some(Stack::of(Block::Planks, 4)));
     inventory.drop_one(7);
     inventory.drop_one(3);
-    assert_eq!(inventory.slots[7], Some(Stack { block: Block::Planks, count: 1 }));
-    assert_eq!(inventory.slots[3], Some(Stack { block: Block::Planks, count: 5 }));
+    assert_eq!(inventory.slots[7], Some(Stack::of(Block::Planks, 1)));
+    assert_eq!(inventory.slots[3], Some(Stack::of(Block::Planks, 5)));
     assert_eq!(inventory.count(Block::Planks), 6);
     inventory.stow();
     assert_eq!(inventory.slots[CURSOR], None);
     assert_eq!(inventory.count(Block::Planks), 9)
+  }
+
+  #[test]
+  fn only_fitting_gear_is_worn() {
+    let mut inventory = Inventory::default();
+    inventory.slots[0] = Some(Stack::of(Block::Planks, 3));
+    inventory.slots[1] = Some(Stack::of(Block::Boots, 1));
+    let feet = WEARING + Wear::ALL.iter().position(|&wear| wear == Wear::Feet).unwrap();
+    inventory.shuffle(0, feet);
+    assert_eq!(inventory.slots[feet], None);
+    inventory.shuffle(1, feet);
+    assert_eq!(inventory.slots[feet], Some(Stack::of(Block::Boots, 1)));
+    inventory.shuffle(feet, 0);
+    assert_eq!(inventory.slots[feet], Some(Stack::of(Block::Boots, 1)));
+    inventory.shuffle(feet, 2);
+    assert_eq!(inventory.slots[feet], None);
+    assert_eq!(inventory.slots[2], Some(Stack::of(Block::Boots, 1)))
   }
 }

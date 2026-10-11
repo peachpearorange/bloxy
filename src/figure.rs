@@ -1,7 +1,7 @@
 use {crate::{hand::{Charge, Grip, grip},
              plate::{Plate, plate},
              player::{Me, Pilot, View},
-             protocol::{Avatar, Player, hue, plays},
+             protocol::{Avatar, Inventory, Player, hue, plays},
              skin::{PX, Part, Skin}},
      bevy::{camera::visibility::RenderLayers, prelude::*},
      std::f32::consts::PI};
@@ -205,9 +205,17 @@ fn animate(
   time: Res<Time>,
   pilot: Option<Res<Pilot>>,
   mut figures: Query<
-    (Option<&Avatar>, Has<Mirror>, &mut Figure, &mut Transform, &Children),
+    (
+      Option<&Avatar>,
+      Option<&Inventory>,
+      Has<Mirror>,
+      &mut Figure,
+      &mut Transform,
+      &Children
+    ),
     Without<Me>
   >,
+  inventories: Query<&Inventory>,
   mut heads: Query<&mut Transform, (With<Head>, Without<Figure>, Without<Limb>)>,
   mut limbs: Query<
     (&Limb, &mut Transform, Option<&Children>),
@@ -216,7 +224,9 @@ fn animate(
   mut grips: Query<(&mut Grip, &mut Charge)>
 ) {
   let dt = time.delta_secs();
-  for (avatar, mirrored, mut figure, mut transform, children) in figures.iter_mut() {
+  for (avatar, inventory, mirrored, mut figure, mut transform, children) in
+    figures.iter_mut()
+  {
     let avatar = match mirrored {
       true => pilot.as_ref().map_or_else(Avatar::default, |pilot| Avatar {
         at: pilot.at + Vec3::Y * pilot.lift,
@@ -224,6 +234,17 @@ fn animate(
       }),
       false => avatar.copied().unwrap_or_default()
     };
+    let inventory = match mirrored {
+      true => pilot.as_ref().and_then(|pilot| inventories.get(pilot.me).ok()),
+      false => inventory
+    };
+    let made = inventory
+      .and_then(|inventory| {
+        inventory.slots.get(usize::from(avatar.hand)).copied().flatten()
+      })
+      .filter(|stack| Some(stack.block) == avatar.held)
+      .and_then(|stack| stack.gear)
+      .and_then(|gear| gear.material);
     let before = figure.shown;
     let follow = if mirrored { 1.0 } else { (dt * 12.0).min(1.0) };
     figure.shown = before.lerp(avatar.at, follow);
@@ -248,7 +269,7 @@ fn animate(
         };
         for &grip in held.into_iter().flatten() {
           if let Ok((mut grip, mut charge)) = grips.get_mut(grip) {
-            grip.set_if_neq(Grip(avatar.held));
+            grip.set_if_neq(Grip(avatar.held, made));
             charge.set_if_neq(Charge(avatar.charging));
           }
         }

@@ -112,7 +112,8 @@ pub struct Vigour {
   pub ward: f32,
   pub punch: u8,
   pub mend: f32,
-  pub quick: f32
+  pub quick: f32,
+  pub resist: [f32; 3]
 }
 
 impl Default for Vigour {
@@ -126,13 +127,18 @@ impl Default for Vigour {
       ward: 1.0,
       punch: PUNCH,
       mend: 1.0,
-      quick: crate::stance::STRIKE_EVERY
+      quick: crate::stance::STRIKE_EVERY,
+      resist: [1.0; 3]
     }
   }
 }
 
 pub fn hurt(health: &mut Health, vigour: &mut Vigour, amount: u8) {
-  let felt = f32::from(amount) * vigour.ward + vigour.spare;
+  harm(health, vigour, f32::from(amount))
+}
+
+pub fn harm(health: &mut Health, vigour: &mut Vigour, amount: f32) {
+  let felt = amount * vigour.ward + vigour.spare;
   vigour.spare = felt.fract();
   health.0 = health.0.saturating_sub(felt.floor() as u8);
   vigour.calm = 0.0
@@ -365,6 +371,7 @@ fn perish(
       punch: vigour.punch,
       mend: vigour.mend,
       quick: vigour.quick,
+      resist: vigour.resist,
       ..default()
     };
     for mut vessel in boats.iter_mut().filter(|vessel| vessel.rider == Some(entity)) {
@@ -379,7 +386,8 @@ fn perish(
       yaw: FACING_STONE,
       pitch: 0.0,
       held: avatar.held,
-      charging: false
+      charging: false,
+      hand: avatar.hand
     };
     *avatar = revived;
     teleports.write(ToClients {
