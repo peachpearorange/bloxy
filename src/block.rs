@@ -156,7 +156,11 @@ pub enum Block {
   Mail,
   Belt,
   Boots,
-  Ring
+  Ring,
+  WallTorch,
+  WallTorchEast,
+  WallTorchSouth,
+  WallTorchWest
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -479,7 +483,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 139] = [
+  pub const ALL: [Block; 143] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -618,7 +622,11 @@ impl Block {
     Block::Mail,
     Block::Belt,
     Block::Boots,
-    Block::Ring
+    Block::Ring,
+    Block::WallTorch,
+    Block::WallTorchEast,
+    Block::WallTorchSouth,
+    Block::WallTorchWest
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -688,7 +696,18 @@ impl Block {
     matches!(self, Block::Brazier | Block::Urn | Block::Chest | Block::EmptyChest)
   }
 
-  pub fn lit(self) -> bool { matches!(self, Block::Torch | Block::Brazier) }
+  pub const WALL_TORCHES: [(IVec3, Block); 4] = [
+    (IVec3::NEG_Z, Block::WallTorch),
+    (IVec3::X, Block::WallTorchEast),
+    (IVec3::Z, Block::WallTorchSouth),
+    (IVec3::NEG_X, Block::WallTorchWest)
+  ];
+
+  pub fn torch(self) -> bool {
+    self == Block::Torch || Block::WALL_TORCHES.iter().any(|&(_, torch)| torch == self)
+  }
+
+  pub fn lit(self) -> bool { self.torch() || self == Block::Brazier }
 
   pub const FISH: [Block; 4] =
     [Block::Cod, Block::Salmon, Block::TropicalFish, Block::Pufferfish];
@@ -704,18 +723,20 @@ impl Block {
 
   pub fn ladder(self) -> bool { Block::LADDERS.iter().any(|&(_, ladder)| ladder == self) }
 
+  fn hung(self) -> &'static [(IVec3, Block)] {
+    match (self.ladder(), self.torch()) {
+      (true, _) => &Block::LADDERS,
+      (_, true) => &Block::WALL_TORCHES,
+      _ => &[]
+    }
+  }
+
   pub fn wall(self) -> Option<IVec3> {
-    Block::LADDERS.iter().find(|&&(_, ladder)| ladder == self).map(|&(wall, _)| wall)
+    self.hung().iter().find(|&&(_, hung)| hung == self).map(|&(wall, _)| wall)
   }
 
   pub fn against(self, wall: IVec3) -> Block {
-    match self.ladder() {
-      true => Block::LADDERS
-        .iter()
-        .find(|&&(side, _)| side == wall)
-        .map_or(self, |&(_, ladder)| ladder),
-      false => self
-    }
+    self.hung().iter().find(|&&(side, _)| side == wall).map_or(self, |&(_, hung)| hung)
   }
 
   pub const BEDS: [(IVec3, Block, Block); 4] = [
@@ -745,9 +766,10 @@ impl Block {
   }
 
   pub fn held(self) -> Block {
-    match (self.ladder(), self.bed()) {
-      (true, _) => Block::Ladder,
-      (_, true) => Block::Bed,
+    match (self.ladder(), self.bed(), self.torch()) {
+      (true, ..) => Block::Ladder,
+      (_, true, _) => Block::Bed,
+      (.., true) => Block::Torch,
       _ => self
     }
   }
@@ -834,7 +856,7 @@ impl Block {
   ];
 
   pub fn modelled(self) -> bool {
-    self.plant() || self == Block::Torch || self.sign() || self.ladder() || self.bed()
+    self.plant() || self.torch() || self.sign() || self.ladder() || self.bed()
   }
 
   pub fn plant(self) -> bool {
@@ -1058,7 +1080,11 @@ impl Block {
       Block::Mail => "Mail",
       Block::Belt => "Belt",
       Block::Boots => "Boots",
-      Block::Ring => "Ring"
+      Block::Ring => "Ring",
+      Block::WallTorch
+      | Block::WallTorchEast
+      | Block::WallTorchSouth
+      | Block::WallTorchWest => "Torch"
     }
   }
 
@@ -1203,7 +1229,11 @@ impl Block {
       Block::Mail => all(Tile::Mail),
       Block::Belt => all(Tile::Belt),
       Block::Boots => all(Tile::Boots),
-      Block::Ring => all(Tile::Ring)
+      Block::Ring => all(Tile::Ring),
+      Block::WallTorch
+      | Block::WallTorchEast
+      | Block::WallTorchSouth
+      | Block::WallTorchWest => all(Tile::Torch)
     }
   }
 }

@@ -1,6 +1,6 @@
 use {crate::{block::{Block, Tile},
              noise::hash},
-     bevy::prelude::*};
+     bevy::{math::Affine3A, prelude::*}};
 
 #[derive(Clone, Copy)]
 pub struct Bit {
@@ -261,7 +261,7 @@ const EMPTY_CHEST_BITS: &[Bit] = &[
 
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
-    Block::Torch => TORCH_BITS,
+    torch if torch.torch() => TORCH_BITS,
     Block::Waystone => WAYSTONE_BITS,
     Block::WaystoneTop => WAYSTONE_TOP_BITS,
     Block::Poppy => POPPY_BITS,
@@ -303,6 +303,29 @@ pub fn shift(block: Block, seed: u32, at: IVec3) -> Vec3 {
   }
 }
 
+const WALL_TORCH_LEAN: f32 = 0.4;
+const WALL_TORCH_FOOT: Vec3 = Vec3::new(8.0, 3.0, 8.0);
+const WALL_TORCH_SETBACK: f32 = 6.5;
+const MIDDLE: Vec3 = Vec3::new(8.0, 0.0, 8.0);
+
+pub fn pose(block: Block) -> Affine3A {
+  block.torch().then(|| block.wall()).flatten().map_or(Affine3A::IDENTITY, |wall| {
+    let lean = Quat::from_axis_angle(wall.cross(IVec3::Y).as_vec3(), WALL_TORCH_LEAN);
+    let foot = WALL_TORCH_FOOT + wall.as_vec3() * WALL_TORCH_SETBACK;
+    Affine3A::from_rotation_translation(lean, foot - lean * MIDDLE)
+  })
+}
+
+const TORCH_FLAME: Vec3 = Vec3::new(8.0, 10.5, 8.0);
+const BRAZIER_FLAME: Vec3 = Vec3::new(0.5, 0.8, 0.5);
+
+pub fn flame(block: Block) -> Vec3 {
+  match block.torch() {
+    true => pose(block).transform_point3(TORCH_FLAME) / 16.0,
+    false => BRAZIER_FLAME
+  }
+}
+
 const SIGN_BOUNDS: (Vec3, Vec3) = (Vec3::new(4.5, 0.0, 4.5), Vec3::new(11.5, 17.0, 11.5));
 
 pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
@@ -311,6 +334,20 @@ pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
     .iter()
     .map(|bit| (Vec3::from(bit.low.map(f32::from)), Vec3::from(bit.high.map(f32::from))))
     .reduce(|(low, high), (bit_low, bit_high)| (low.min(bit_low), high.max(bit_high)))
+    .map(|(low, high)| {
+      let pose = pose(block);
+      (0..8)
+        .map(|corner| {
+          pose.transform_point3(Vec3::select(
+            BVec3::new(corner & 1 != 0, corner & 2 != 0, corner & 4 != 0),
+            high,
+            low
+          ))
+        })
+        .fold((Vec3::MAX, Vec3::MIN), |(low, high), point| {
+          (low.min(point), high.max(point))
+        })
+    })
     .or(block.sign().then_some(SIGN_BOUNDS))
     .map(|(low, high)| {
       let corner = at.as_vec3();

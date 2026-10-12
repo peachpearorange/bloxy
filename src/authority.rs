@@ -476,8 +476,14 @@ fn dig(
   for &FromClient { client_id, message: Dig { at } } in digs.read() {
     let block = voxels.ensure(at);
     let above = at + IVec3::Y;
-    let perched = Some(voxels.ensure(above))
-      .filter(|block| block.modelled() && !block.ladder() && !block.bed());
+    let perched: Vec<(IVec3, Block)> = Some((above, voxels.ensure(above)))
+      .filter(|(_, block)| block.modelled() && block.wall().is_none() && !block.bed())
+      .into_iter()
+      .chain(Block::WALL_TORCHES.iter().filter_map(|&(wall, torch)| {
+        let cell = at - wall;
+        (voxels.ensure(cell) == torch).then_some((cell, torch))
+      }))
+      .collect();
     let partner = block
       .partner()
       .map(|toward| at + toward)
@@ -500,7 +506,7 @@ fn dig(
           })
           .flatten();
         for dropped in std::iter::once(block.drop())
-          .chain(perched.map(Block::drop))
+          .chain(perched.iter().map(|&(_, block)| block.drop()))
           .chain(lucky.then_some(block.drop()))
           .chain(found)
           .filter(|&dropped| dropped != Block::Air)
@@ -519,11 +525,11 @@ fn dig(
             message: Altered { at: cell, block: Block::Air }
           });
         }
-        if perched.is_some() {
-          voxels.set(above, Block::Air);
+        for &(cell, _) in perched.iter() {
+          voxels.set(cell, Block::Air);
           changes.write(ToClients {
             targets: SendTargets::All,
-            message: Altered { at: above, block: Block::Air }
+            message: Altered { at: cell, block: Block::Air }
           });
         }
         changes.write(ToClients {

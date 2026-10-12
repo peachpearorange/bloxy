@@ -780,9 +780,16 @@ fn work(
         true => IVec3::X * ahead.x.signum() as i32,
         false => IVec3::Z * ahead.y.signum() as i32
       };
-      let wall = if hit.normal.y == 0 { -hit.normal } else { facing };
+      let wall = match (hit.normal.y, stack.block.torch()) {
+        (0, _) => Some(-hit.normal),
+        (_, true) => None,
+        _ => Some(facing)
+      };
       let laid = (stack.block == Block::Bed).then(|| Block::laid(facing)).flatten();
-      let block = laid.map_or(stack.block.against(wall), |(foot, _)| foot);
+      let block = laid.map_or(
+        wall.map_or(stack.block, |wall| stack.block.against(wall)),
+        |(foot, _)| foot
+      );
       let (low, high) = Bulk::PERSON.body(pilot.at);
       let inside = cells(low, high).any(|cell| cell == at) && block.solid();
       let hung = block.wall().is_none_or(|wall| voxels.solid(at + wall));

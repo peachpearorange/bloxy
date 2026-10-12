@@ -158,7 +158,7 @@ fn letter(block: Block) -> char {
     Block::Stone => '#',
     Block::Cobblestone => '&',
     Block::Dirt => ':',
-    Block::Torch => '!',
+    torch if torch.torch() => '!',
     leaves if leaves.leafy() => '*',
     log if log.look() == crate::block::Look::Log => 'T',
     plant if plant.plant() => '\'',

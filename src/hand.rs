@@ -44,7 +44,13 @@ pub fn grip() -> impl Bundle {
   )
 }
 
+#[derive(Component)]
+struct HeldFlame;
+
+const HELD_FLAME: Vec3 = Vec3::new(0.0, FLAT * 2.5 / 16.0, 0.0);
+
 fn hold(
+  flames: Query<(Entity, &ChildOf), With<HeldFlame>>,
   mut grips: Query<
     (Entity, &Grip, Has<Fist>, &mut Transform, &mut Visibility),
     Changed<Grip>
@@ -55,6 +61,9 @@ fn hold(
   mut commands: Commands
 ) {
   for (entity, grip, fist, mut transform, mut visibility) in grips.iter_mut() {
+    for (flame, _) in flames.iter().filter(|(_, parent)| parent.parent() == entity) {
+      commands.entity(flame).despawn()
+    }
     match grip.0 {
       Some(block) => {
         let hand = Vec3::new(0.0, -12.0 * PX, -1.0 * PX);
@@ -93,15 +102,15 @@ fn hold(
           MeshMaterial3d(palette.solid.clone()),
           NotShadowCaster
         ));
-        match block == Block::Torch {
-          true => commands.entity(entity).insert(crate::sky::torchlight()),
-          false => commands.entity(entity).remove::<PointLight>()
-        };
+        if block == Block::Torch {
+          commands.entity(entity).with_child((
+            HeldFlame,
+            crate::sky::torchlight(),
+            Transform::from_translation(HELD_FLAME)
+          ));
+        }
       }
-      None => {
-        *visibility = Visibility::Hidden;
-        commands.entity(entity).remove::<PointLight>();
-      }
+      None => *visibility = Visibility::Hidden
     }
   }
 }

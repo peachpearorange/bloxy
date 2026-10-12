@@ -220,7 +220,19 @@ fn stream(
         false => palette.liquid.clone()
       };
       let solid = built.solid.map(|mesh| {
-        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(ground), placed)).id()
+        commands
+          .spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(ground.clone()), placed))
+          .id()
+      });
+      let unshadowed = built.unshadowed.map(|mesh| {
+        commands
+          .spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(ground),
+            NotShadowCaster,
+            placed
+          ))
+          .id()
       });
       let liquid = built.liquid.map(|mesh| {
         commands
@@ -235,14 +247,16 @@ fn stream(
       if fresh {
         streaming.emerging.extend(
           solid
-            .map(|entity| (entity, birth, false))
             .into_iter()
+            .chain(unshadowed)
+            .map(|entity| (entity, birth, false))
             .chain(liquid.map(|entity| (entity, birth, true)))
         )
       }
       let shown: Vec<(Entity, bool)> = solid
-        .map(|entity| (entity, false))
         .into_iter()
+        .chain(unshadowed)
+        .map(|entity| (entity, false))
         .chain(liquid.map(|entity| (entity, true)))
         .collect();
       for (old, _) in streaming.shown.insert(key, shown).into_iter().flatten() {

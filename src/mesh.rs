@@ -192,7 +192,8 @@ impl Builder {
 
 pub struct Meshes {
   pub solid: Option<Mesh>,
-  pub liquid: Option<Mesh>
+  pub liquid: Option<Mesh>,
+  pub unshadowed: Option<Mesh>
 }
 
 fn crest(block: Block, above: Block) -> f32 {
@@ -232,7 +233,7 @@ fn builders(
   key: IVec3,
   seed: u32,
   torches: &[IVec3]
-) -> (Builder, Builder) {
+) -> (Builder, Builder, Builder) {
   let origin = origin_of(key);
   let surface: Vec<i32> = (0..SPAN * SPAN)
     .map(|index| {
@@ -266,6 +267,7 @@ fn builders(
   };
   let mut solid = Builder::default();
   let mut liquid = Builder::default();
+  let mut unshadowed = Builder::default();
   for index in 0..SIZE * SIZE * SIZE {
     let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
     let block = padded.get(local);
@@ -339,6 +341,11 @@ fn builders(
         builder.indices.extend(order.map(|corner| first + corner))
       }
       let shift = model::shift(block, seed, origin + local);
+      let pose = model::pose(block);
+      let modelled = match block.torch() {
+        true => &mut unshadowed,
+        false => &mut solid
+      };
       let light = sky(local);
       let torch = torchlight(origin.as_vec3() + local.as_vec3() + 0.5);
       for &Bit { low, high, color: [r, g, b], tile } in model::bits(block).iter() {
@@ -354,8 +361,10 @@ fn builders(
           let texels = CORNERS.map(|(a, b)| {
             low + (high - low) * (face.base + face.across * a + face.up * b).as_vec3()
           });
-          solid.polygon(
-            &texels.map(|texel| local.as_vec3() + (texel + shift) / 16.0),
+          modelled.polygon(
+            &texels.map(|texel| {
+              local.as_vec3() + (pose.transform_point3(texel) + shift) / 16.0
+            }),
             &texels.map(|texel| {
               let (u, v) = (
                 texel.dot(face.across.abs().as_vec3()),
@@ -363,7 +372,7 @@ fn builders(
               );
               uv_corner(tile, Vec2::new(u / 16.0, 1.0 - v / 16.0))
             }),
-            face.normal.as_vec3(),
+            pose.transform_vector3(face.normal.as_vec3()),
             hue
           )
         }
@@ -407,12 +416,12 @@ fn builders(
       }
     }
   }
-  (solid, liquid)
+  (solid, liquid, unshadowed)
 }
 
 pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
-  let (solid, liquid) = builders(padded, key, seed, torches);
-  Meshes { solid: solid.mesh(), liquid: liquid.mesh() }
+  let (solid, liquid, unshadowed) = builders(padded, key, seed, torches);
+  Meshes { solid: solid.mesh(), liquid: liquid.mesh(), unshadowed: unshadowed.mesh() }
 }
 
 #[derive(Clone, Copy)]
@@ -435,20 +444,27 @@ pub fn lone(block: Block, at: IVec3, seed: u32, torches: &[IVec3]) -> Vec<[Corne
       })
       .collect()
   );
-  let (solid, _) = builders(&padded, key, seed, torches);
-  let corner = |index: u32| {
-    let index = index as usize;
-    Corner {
-      position: Vec3::from(solid.positions[index]) - local.as_vec3(),
-      normal: Vec3::from(solid.normals[index]),
-      uv: Vec2::from(solid.uvs[index]),
-      color: solid.colors[index]
-    }
-  };
-  solid
-    .indices
-    .chunks(3)
-    .map(|triangle| [corner(triangle[0]), corner(triangle[1]), corner(triangle[2])])
+  let (solid, _, unshadowed) = builders(&padded, key, seed, torches);
+  [solid, unshadowed]
+    .iter()
+    .flat_map(|built| {
+      let corner = |index: u32| {
+        let index = index as usize;
+        Corner {
+          position: Vec3::from(built.positions[index]) - local.as_vec3(),
+          normal: Vec3::from(built.normals[index]),
+          uv: Vec2::from(built.uvs[index]),
+          color: built.colors[index]
+        }
+      };
+      built
+        .indices
+        .chunks(3)
+        .map(move |triangle| {
+          [corner(triangle[0]), corner(triangle[1]), corner(triangle[2])]
+        })
+        .collect::<Vec<_>>()
+    })
     .collect()
 }
 

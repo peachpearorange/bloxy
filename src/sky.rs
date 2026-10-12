@@ -182,14 +182,12 @@ fn kindle(
           }
         }
         None => {
+          let flame = voxels.block(torch).map_or(Vec3::splat(0.5), crate::model::flame);
           let entity = commands
-            .spawn((
-              torchlight(),
-              Transform::from_translation(torch.as_vec3() + Vec3::new(0.5, 0.8, 0.5))
-            ))
+            .spawn((torchlight(), Transform::from_translation(torch.as_vec3() + flame)))
             .with_child((
               effects.emit(&effects.ember),
-              Transform::from_xyz(0.0, -0.06, 0.0)
+              Transform::from_xyz(0.0, 0.08, 0.0)
             ))
             .id();
           flames.0.insert(torch, entity);
