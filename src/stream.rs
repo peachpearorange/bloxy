@@ -1,4 +1,4 @@
-use {crate::{ground::{Concealed, EMERGING, Emerge, Ground, born, settled},
+use {crate::{ground::{Concealed, EMERGING, Emerge, Ground, LONG_AGO, born, settled},
              mesh::{self, Meshes, Padded},
              player::Pilot,
              protocol::plays,
@@ -28,8 +28,9 @@ pub struct Palette {
 struct Streaming {
   generating: HashMap<IVec3, Task<Chunk>>,
   meshing: HashMap<IVec3, Task<Meshes>>,
-  shown: HashMap<IVec3, Vec<Entity>>,
-  emerging: Vec<(Entity, f32, bool)>
+  shown: HashMap<IVec3, Vec<(Entity, bool)>>,
+  emerging: Vec<(Entity, f32, bool)>,
+  fading: Vec<(Entity, f32)>
 }
 
 #[derive(Resource, Default)]
@@ -91,6 +92,13 @@ fn settle(
   mut commands: Commands
 ) {
   let now = time.elapsed_secs_wrapped();
+  streaming.fading.retain(|&(entity, death)| {
+    let fading = now >= death && now - death < EMERGING + 0.1;
+    if !fading {
+      commands.entity(entity).try_despawn()
+    }
+    fading
+  });
   streaming.emerging.retain(|&(entity, birth, liquid)| {
     let emerging = now >= birth && now - birth < EMERGING + 0.2;
     if !emerging {
@@ -232,8 +240,12 @@ fn stream(
             .chain(liquid.map(|entity| (entity, birth, true)))
         )
       }
-      let shown: Vec<Entity> = solid.into_iter().chain(liquid).collect();
-      for old in streaming.shown.insert(key, shown).into_iter().flatten() {
+      let shown: Vec<(Entity, bool)> = solid
+        .map(|entity| (entity, false))
+        .into_iter()
+        .chain(liquid.map(|entity| (entity, true)))
+        .collect();
+      for (old, _) in streaming.shown.insert(key, shown).into_iter().flatten() {
         commands.entity(old).despawn()
       }
     }
@@ -243,10 +255,23 @@ fn stream(
       .copied()
       .filter(|key| horizontal(*key, centre) > reach * reach)
       .collect();
+    let death = time.elapsed_secs_wrapped();
+    let leaving = Vec4::new(LONG_AGO, death, 1.0, 0.0);
+    let base = grounds
+      .get(&palette.ground)
+      .map_or_else(StandardMaterial::default, |shared| shared.base.clone());
     for key in gone.into_iter() {
       voxels.dirty.insert(key);
-      for old in streaming.shown.remove(&key).into_iter().flatten() {
-        commands.entity(old).despawn()
+      for (old, liquid) in streaming.shown.remove(&key).into_iter().flatten() {
+        let mut chunk = commands.entity(old);
+        match liquid {
+          true => chunk.try_insert(MeshMaterial3d(waters.add(water::water(leaving)))),
+          false => chunk.try_insert(MeshMaterial3d(grounds.add(Ground {
+            base: base.clone(),
+            extension: Emerge { born: leaving, hidden: concealed.hidden() }
+          })))
+        };
+        streaming.fading.push((old, death))
       }
     }
     let unmeshed = voxels

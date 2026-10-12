@@ -1,4 +1,5 @@
 use {crate::{block::Block,
+             chest::{Coffer, Handling, ROOM, Rummage},
              gear::{self, Material, Virtue, Wear},
              hud::{forged_rect, icon_rect, stack_rect},
              menu::{Act, BUTTON, EDGE, Entry, FAINT, Focus, INK, LIT, Menu, Pressed,
@@ -24,11 +25,33 @@ const SHADOW: TextShadow = crate::hud::SHADE;
 #[derive(Resource, Default)]
 struct Chosen(Option<Block>);
 
-#[derive(Component)]
-struct SlotIcon(usize);
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Place {
+  Own(usize),
+  Chest(usize)
+}
+
+impl Place {
+  fn act(self) -> Act {
+    match self {
+      Place::Own(index) => Act::Slot(index as u8),
+      Place::Chest(index) => Act::Stash(index as u8)
+    }
+  }
+
+  fn held(self, inventory: &Inventory, coffer: &Coffer) -> Option<Stack> {
+    match self {
+      Place::Own(index) => inventory.slots[index],
+      Place::Chest(index) => coffer.0.slots.get(index).copied().flatten()
+    }
+  }
+}
 
 #[derive(Component)]
-struct SlotCount(usize);
+struct SlotIcon(Place);
+
+#[derive(Component)]
+struct SlotCount(Place);
 
 #[derive(Component)]
 struct Catalogue;
@@ -136,10 +159,10 @@ fn tile(act: Act, border: Color) -> impl Bundle {
   )
 }
 
-fn slot(parent: &mut ChildSpawnerCommands, index: usize, palette: &Palette) {
-  parent.spawn(tile(Act::Slot(index as u8), EDGE)).with_children(|slot| {
-    slot.spawn((SlotIcon(index), icon(Block::Stone, 40.0, palette), Visibility::Hidden));
-    slot.spawn((SlotCount(index), words("", 13.0, INK), SHADOW, Node {
+fn slot(parent: &mut ChildSpawnerCommands, place: Place, palette: &Palette) {
+  parent.spawn(tile(place.act(), EDGE)).with_children(|slot| {
+    slot.spawn((SlotIcon(place), icon(Block::Stone, 40.0, palette), Visibility::Hidden));
+    slot.spawn((SlotCount(place), words("", 13.0, INK), SHADOW, Node {
       position_type: PositionType::Absolute,
       right: px(3),
       bottom: px(1),
@@ -150,7 +173,7 @@ fn slot(parent: &mut ChildSpawnerCommands, index: usize, palette: &Palette) {
 
 fn row(
   parent: &mut ChildSpawnerCommands,
-  slots: std::ops::Range<usize>,
+  slots: impl IntoIterator<Item = Place>,
   palette: &Palette
 ) {
   parent
@@ -162,8 +185,8 @@ fn row(
       ..default()
     })
     .with_children(|row| {
-      for index in slots {
-        slot(row, index, palette)
+      for place in slots {
+        slot(row, place, palette)
       }
     });
 }
@@ -218,9 +241,9 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
             })
           );
           middle.spawn(words("Backpack", 15.0, FAINT));
-          row(middle, HOTBAR..SLOTS, palette);
+          row(middle, (HOTBAR..SLOTS).map(Place::Own), palette);
           middle.spawn(words("Hotbar", 15.0, FAINT));
-          row(middle, 0..HOTBAR, palette);
+          row(middle, (0..HOTBAR).map(Place::Own), palette);
         });
       columns.spawn(column(None, 1.6)).with_children(|right| {
         right
@@ -243,6 +266,41 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
         ));
       });
     });
+}
+
+pub fn chest_page(page: &mut ChildSpawnerCommands, palette: &Palette) {
+  page
+    .spawn(Node {
+      flex_direction: FlexDirection::Column,
+      align_items: AlignItems::Center,
+      row_gap: px(4),
+      width: percent(100),
+      ..default()
+    })
+    .with_children(|middle| {
+      middle.spawn(words("Chest", 20.0, INK));
+      row(middle, (0..ROOM).map(Place::Chest), palette);
+      middle.spawn((words("Backpack", 15.0, FAINT), Node {
+        margin: UiRect::top(px(12)),
+        ..default()
+      }));
+      row(middle, (HOTBAR..SLOTS).map(Place::Own), palette);
+      middle.spawn(words("Hotbar", 15.0, FAINT));
+      row(middle, (0..HOTBAR).map(Place::Own), palette);
+      middle.spawn((
+        words(
+          "Click to pick up and put down stacks. Shift-click moves a stack between the \
+           chest and your inventory.",
+          13.0,
+          FAINT
+        ),
+        Node { margin: UiRect::top(px(8)), ..default() }
+      ));
+    });
+}
+
+fn handling(menu: &Menu) -> bool {
+  menu.showing(Tab::Inventory) || menu.showing(Tab::Chest)
 }
 
 fn tooltip(mut commands: Commands, palette: Res<Palette>) {
@@ -298,20 +356,21 @@ fn fill(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
+  coffer: Res<Coffer>,
   mut icons: Query<(&SlotIcon, &mut ImageNode, &mut Visibility)>,
   mut counts: Query<(&SlotCount, &mut Text)>,
   mut picks: MessageWriter<Picked>,
   mut was: Local<bool>
 ) {
   let inventory = carried(&pilot, &inventories);
-  let showing = menu.showing(Tab::Inventory);
+  let showing = handling(&menu);
   if *was && !showing && inventory.slots[CURSOR].is_some() {
     picks.write(Picked(Pick::Stow));
   }
   *was = showing;
   if showing {
     for (icon, mut image, mut visibility) in icons.iter_mut() {
-      match inventory.slots[icon.0] {
+      match icon.0.held(&inventory, &coffer) {
         Some(stack) => {
           let rect = Some(stack_rect(&stack));
           if image.rect != rect {
@@ -325,7 +384,9 @@ fn fill(
       }
     }
     for (count, mut text) in counts.iter_mut() {
-      let shown = inventory.slots[count.0]
+      let shown = count
+        .0
+        .held(&inventory, &coffer)
         .filter(|stack| stack.count > 1)
         .map_or(String::new(), |stack| stack.count.to_string());
       if text.0 != shown {
@@ -521,7 +582,7 @@ fn equipment(panel: &mut ChildSpawnerCommands, inventory: &Inventory, palette: &
             ..default()
           })
           .with_children(|cell| {
-            slot(cell, WEARING + index, palette);
+            slot(cell, Place::Own(WEARING + index), palette);
             cell.spawn(words(wear.name(), 12.0, FAINT));
           });
       }
@@ -715,6 +776,7 @@ fn hint(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
+  coffer: Res<Coffer>,
   hovered: Query<(&Interaction, &Act)>,
   keys: Res<ButtonInput<KeyCode>>,
   focus: Res<Focus>,
@@ -731,9 +793,10 @@ fn hint(
     .find_map(|(_, act)| match *act {
       Act::Inspect(block) => Some(Stack::of(block, 0)),
       Act::Slot(index) => inventory.slots[usize::from(index)],
+      Act::Stash(index) => Place::Chest(usize::from(index)).held(&inventory, &coffer),
       _ => None
     })
-    .filter(|_| menu.showing(Tab::Inventory));
+    .filter(|_| handling(&menu));
   if let Some(Stack { block, .. }) = pointed
     && keys.just_pressed(KeyCode::KeyA)
     && focus.0.is_none()
@@ -824,8 +887,8 @@ fn carry(
   mut images: Query<&mut ImageNode>,
   mut texts: Query<&mut Text>
 ) {
-  let stack = self::carried(&pilot, &inventories).slots[CURSOR]
-    .filter(|_| menu.showing(Tab::Inventory));
+  let stack =
+    self::carried(&pilot, &inventories).slots[CURSOR].filter(|_| handling(&menu));
   let cursor =
     windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
   for (mut node, mut visibility, children) in carried.iter_mut() {
@@ -856,13 +919,28 @@ fn carry(
   }
 }
 
+fn equip(inventory: &Inventory, index: usize) -> Option<Shuffle> {
+  match index >= WEARING {
+    true => (HOTBAR..SLOTS)
+      .chain(0..HOTBAR)
+      .find(|&free| inventory.slots[free].is_none())
+      .map(|free| Shuffle { from: index as u8, to: free as u8 }),
+    false => inventory.slots[index]
+      .and_then(|stack| Wear::of(stack.block))
+      .and_then(|wear| Wear::ALL.iter().position(|&worn| worn == wear))
+      .map(|worn| Shuffle { from: index as u8, to: (WEARING + worn) as u8 })
+  }
+}
+
 fn obey(
   mut pressed: MessageReader<Pressed>,
   pilot: Option<Res<Pilot>>,
   inventories: Query<&Inventory>,
+  (menu, coffer, keys): (Res<Menu>, Res<Coffer>, Res<ButtonInput<KeyCode>>),
   buttons: Res<ButtonInput<MouseButton>>,
   hovered: Query<(&Interaction, &Act)>,
   mut chosen: ResMut<Chosen>,
+  mut rummages: MessageWriter<Rummage>,
   mut shuffles: MessageWriter<Shuffle>,
   mut picks: MessageWriter<Picked>,
   mut crafts: MessageWriter<Craft>,
@@ -881,12 +959,31 @@ fn obey(
   {
     picks.write(Picked(if holding { Pick::One(index) } else { Pick::Half(index) }));
   }
+  let shifted = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) && !holding;
+  let chest = coffer.0.at;
   for &Pressed(act) in pressed.read() {
     match act {
+      Act::Slot(index) if shifted && menu.showing(Tab::Chest) => {
+        rummages.write(Rummage { at: chest, handling: Handling::Deposit(index) });
+      }
+      Act::Slot(index)
+        if shifted && let Some(shuffle) = equip(&inventory, usize::from(index)) =>
+      {
+        shuffles.write(shuffle);
+      }
       Act::Slot(index) => {
         let (from, to) =
           if holding { (CURSOR as u8, index) } else { (index, CURSOR as u8) };
         shuffles.write(Shuffle { from, to });
+      }
+      Act::Stash(index) => {
+        rummages.write(Rummage {
+          at: chest,
+          handling: match shifted {
+            true => Handling::Withdraw(index),
+            false => Handling::Swap(index)
+          }
+        });
       }
       Act::Inspect(block) => chosen.0 = Some(block),
       Act::Equipment => chosen.0 = None,

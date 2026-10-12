@@ -6,7 +6,7 @@ use {crate::{opts::opts, protocol::Role},
             shader::ShaderRef}};
 
 pub const EMERGING: f32 = 1.1;
-const LONG_AGO: f32 = -1.0e4;
+pub const LONG_AGO: f32 = -1.0e4;
 
 #[derive(Asset, AsBindGroup, TypePath, Clone, Copy)]
 pub struct Emerge {

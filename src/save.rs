@@ -31,7 +31,9 @@ pub struct World {
   #[serde(default)]
   pub kept: Vec<(IVec2, String)>,
   #[serde(default)]
-  pub generation: Option<u32>
+  pub generation: Option<u32>,
+  #[serde(default)]
+  pub coffers: Vec<(IVec3, Vec<Option<crate::protocol::Stack>>)>
 }
 
 pub fn load() -> Option<World> {
@@ -63,6 +65,7 @@ fn store(
   boats: Query<&Vessel>,
   signs: Query<&Sign>,
   claims: Query<(&Claim, &Holding)>,
+  coffers: Res<crate::chest::Coffers>,
   altered: Query<
     (),
     Or<(
@@ -90,6 +93,7 @@ fn store(
   *pending |= voxels.is_changed()
     || dormant.is_changed()
     || accounts.is_changed()
+    || coffers.is_changed()
     || !altered.is_empty()
     || released.read().count() > 0;
   *since += time.delta_secs();
@@ -122,7 +126,8 @@ fn store(
         .into_iter()
         .map(|(column, packed)| (column, encode(&packed)))
         .collect(),
-      generation: Some(GENERATION)
+      generation: Some(GENERATION),
+      coffers: coffers.0.iter().map(|(&at, slots)| (at, slots.clone())).collect()
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

@@ -34,11 +34,12 @@ pub enum Tab {
   Sign,
   Trade,
   Map,
-  Skills
+  Skills,
+  Chest
 }
 
 impl Tab {
-  const ALL: [Tab; 9] = [
+  const ALL: [Tab; 10] = [
     Tab::Inventory,
     Tab::Skills,
     Tab::Map,
@@ -47,10 +48,11 @@ impl Tab {
     Tab::Skin,
     Tab::Waystones,
     Tab::Sign,
-    Tab::Trade
+    Tab::Trade,
+    Tab::Chest
   ];
 
-  fn listed(self) -> bool { !matches!(self, Tab::Sign | Tab::Trade) }
+  fn listed(self) -> bool { !matches!(self, Tab::Sign | Tab::Trade | Tab::Chest) }
 
   fn label(self) -> &'static str {
     match self {
@@ -62,7 +64,8 @@ impl Tab {
       Tab::Sign => "Sign",
       Tab::Trade => "Trade",
       Tab::Map => "Map",
-      Tab::Skills => "Skills"
+      Tab::Skills => "Skills",
+      Tab::Chest => "Chest"
     }
   }
 }
@@ -141,6 +144,7 @@ pub enum Act {
   Unhide,
   Travel(IVec2),
   Slot(u8),
+  Stash(u8),
   Inspect(Block),
   Equipment,
   Craft(u16),
@@ -375,7 +379,8 @@ fn build(
                 Tab::Sign => sign_page(page),
                 Tab::Trade => trade::page(page),
                 Tab::Map => chart::page(page, &chart),
-                Tab::Skills => crate::skill::page(page)
+                Tab::Skills => crate::skill::page(page),
+                Tab::Chest => crafting::chest_page(page, &palette)
               });
           }
         });

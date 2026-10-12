@@ -10,7 +10,7 @@ use {crate::{authority::{Controller, player_of, within_reach},
             window::{CursorOptions, PrimaryWindow}},
      bevy_replicon::prelude::*};
 
-const HULL: Vec3 = Vec3::new(0.65, 0.45, 1.05);
+pub const HULL: Vec3 = Vec3::new(0.65, 0.45, 1.05);
 const BULK: Bulk = Bulk { half: 0.6, tall: 0.5 };
 const DRAFT: f32 = 0.04;
 const THRUST: f32 = 7.0;

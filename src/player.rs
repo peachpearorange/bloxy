@@ -1,4 +1,4 @@
-use {crate::{audio::{Cue, Sound, footing},
+use {crate::{audio::{Cue, Sound, breaking, footing},
              block::Block,
              condition::{Conditions, Kind},
              gear::Material,
@@ -92,6 +92,9 @@ pub struct Aim {
 
 #[derive(Message)]
 pub struct Poke;
+
+#[derive(Message)]
+pub struct Swing;
 
 #[derive(Component)]
 pub struct Eye;
@@ -332,6 +335,7 @@ fn fly(
   voxels: Option<Res<Voxels>>,
   mut pilot: ResMut<Pilot>,
   traits: Query<(Option<&Skills>, Option<&Conditions>, Option<&Inventory>)>,
+  bodies: Res<crate::bump::Bodies>,
   mut spare: Local<f32>
 ) {
   let knack = traits
@@ -437,7 +441,21 @@ fn fly(
         true => (dropped, true, lifted + dropped.y - at.y),
         false => (at, landed, lifted)
       };
-      if floored {
+      let (at, landed, decked) = bodies.0.iter().fold(
+        (at, landed, false),
+        |(at, landed, decked), body| match body
+          .deck_under(at, Bulk::PERSON)
+          .filter(|_| velocity.y <= 0.0)
+        {
+          Some(top) => (at.with_y(top), true, true),
+          None => (
+            crate::bump::pushed(&voxels, Bulk::PERSON, at, body.shove(at, Bulk::PERSON)),
+            landed,
+            decked
+          )
+        }
+      );
+      if floored || decked {
         velocity.y = 0.0
       }
       pilot.lift = (pilot.lift - lifted).clamp(-1.5, 1.5) * (1.0 - STEP * LIFT_EASE);
@@ -614,11 +632,12 @@ fn work(
     MessageWriter<Shuffle>
   ),
   (boats, folk): (Query<&Vessel>, Query<&Folk>),
-  (mut inscription, signs, mut rests, mut pokes, mut sounds): (
+  (mut inscription, signs, mut rests, mut pokes, mut swings, mut sounds): (
     ResMut<Inscription>,
     Query<&Sign>,
     MessageWriter<Rest>,
     MessageWriter<Poke>,
+    MessageWriter<Swing>,
     MessageWriter<Sound>
   ),
   mut cooldown: Local<f32>
@@ -667,8 +686,7 @@ fn work(
           aim.digging = None;
           digs.write(Dig { at });
           let middle = at.as_vec3() + 0.5;
-          sounds.write(Sound::at(footing(block), middle).louder(2.6));
-          sounds.write(Sound::at(Cue::Crumble, middle));
+          sounds.write(Sound::at(breaking(block), middle));
           if *role == Role::Guest {
             voxels.set(at, Block::Air)
           }
@@ -702,7 +720,7 @@ fn work(
         || hit.block.station()
         || hit.block.sign()
         || hit.block.bed()
-        || hit.block == Block::Chest
+        || matches!(hit.block, Block::Chest | Block::EmptyChest)
     });
     if active
       && buttons.just_pressed(MouseButton::Right)
@@ -723,7 +741,7 @@ fn work(
         bed if bed.bed() => {
           rests.write(Rest(hit.at));
         }
-        Block::Chest => {
+        Block::Chest | Block::EmptyChest => {
           opens.write(Open(hit.at));
           sounds.write(Sound::at(Cue::Creak, hit.at.as_vec3() + 0.5));
         }
@@ -773,6 +791,7 @@ fn work(
         laid.is_none() || open(at + facing) && voxels.solid(at + facing - IVec3::Y);
       if !inside && hung && roomy && open(at) {
         puts.write(Put { at, block });
+        swings.write(Swing);
         sounds.write(Sound::at(Cue::Thud, at.as_vec3() + 0.5));
         sounds.write(Sound::at(footing(block), at.as_vec3() + 0.5).louder(2.0));
         if *role == Role::Guest {
@@ -831,6 +850,7 @@ impl Plugin for Piloting {
     app
       .init_resource::<Selected>()
       .add_message::<Poke>()
+      .add_message::<Swing>()
       .init_resource::<Aim>()
       .init_resource::<Gait>()
       .init_resource::<View>()

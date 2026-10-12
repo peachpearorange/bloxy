@@ -2,7 +2,7 @@ use {crate::{block::Block,
              figure::{Clad, Kit, clothe},
              loose::{FLAT, Looks, SIZE, cubic},
              menu::Menu,
-             player::{Aim, Eye, Gait, Pilot, Poke, Selected, View},
+             player::{Aim, Eye, Gait, Pilot, Poke, Selected, Swing, View},
              protocol::{Inventory, plays},
              skin::{PX, Skin},
              spell::Charging,
@@ -10,7 +10,7 @@ use {crate::{block::Block,
      bevy::{light::NotShadowCaster, prelude::*},
      std::f32::consts::PI};
 
-const SWING: f32 = 0.28;
+const SWING: f32 = 0.2;
 const POKE: f32 = 0.3;
 const REST: Vec3 = Vec3::new(0.42, -0.4, -0.34);
 
@@ -221,9 +221,10 @@ fn swing(
   mut hands: Query<(&mut Hand, &mut Transform, &mut Visibility), Without<Rod>>,
   mut rods: Query<(&mut Transform, &mut Visibility), With<Rod>>,
   mut grips: Query<(&mut Grip, &mut Charge, &ChildOf)>,
-  mut pokes: MessageReader<Poke>
+  (mut pokes, mut swings): (MessageReader<Poke>, MessageReader<Swing>)
 ) {
   let poking = pokes.read().count() > 0;
+  let placed = swings.read().count() > 0;
   for (mut grip, mut charge, _) in
     grips.iter_mut().filter(|(.., parent)| hands.contains(parent.parent()))
   {
@@ -242,7 +243,8 @@ fn swing(
   let pressed = !menu.open
     && (buttons.just_pressed(MouseButton::Left)
       || (buttons.just_pressed(MouseButton::Right)
-        && !pilot.held.is_some_and(Block::spell)));
+        && !pilot.held.is_some_and(Block::spell)
+        && !pilot.held.is_some_and(Block::placeable)));
   let first = *view == View::First;
   for (mut hand, mut transform, mut visibility) in hands.iter_mut() {
     visibility.set_if_neq(match first {
@@ -256,6 +258,8 @@ fn swing(
     if poking {
       hand.poked = 0.0;
       hand.swung = SWING
+    } else if placed {
+      hand.swung = 0.0
     } else if (pressed || aim.digging.is_some()) && hand.swung >= SWING {
       hand.swung = 0.0
     }

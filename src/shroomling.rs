@@ -14,7 +14,7 @@ use {crate::{block::Block,
      bevy_replicon::prelude::*,
      std::f32::consts::{PI, TAU}};
 
-const BULK: Bulk = Bulk { half: 0.25, tall: 0.85 };
+pub const BULK: Bulk = Bulk { half: 0.25, tall: 0.85 };
 const WAKE: f32 = 110.0;
 const SLEEP: f32 = 170.0;
 const WALK: f32 = 1.6;

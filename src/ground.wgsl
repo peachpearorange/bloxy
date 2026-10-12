@@ -13,7 +13,6 @@ struct Emerge {
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> emerge: Emerge;
 
 const EMERGING: f32 = 1.1;
-const EDGE: f32 = 0.14;
 
 fn bayer(at: vec2<f32>) -> f32 {
     let p = vec2<u32>(at - floor(at / 4.0) * 4.0);
@@ -42,13 +41,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     if emerge.hidden.w > 0.5 && all(cell == emerge.hidden.xyz) {
         discard;
     }
-    let progress = (globals.time - emerge.born.x) / EMERGING;
-    let edge = progress * (1.0 + EDGE) - threshold(at, normal);
-    if edge < 0.0 {
+    let arriving = (globals.time - emerge.born.x) / EMERGING;
+    let leaving = select(0.0, (globals.time - emerge.born.y) / EMERGING, emerge.born.z > 0.5);
+    let level = threshold(at, normal);
+    if level >= arriving || level < leaving {
         discard;
     }
-    let rim = clamp(1.0 - edge / EDGE, 0.0, 1.0);
-    pbr_input.material.emissive = pbr_input.material.emissive + vec4<f32>(0.55, 0.85, 1.0, 0.0) * rim * 5.0;
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

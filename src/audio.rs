@@ -7,7 +7,8 @@ use {crate::{bird::{Bird, Breed as Flier},
              block::Block,
              loose::SIZE,
              player::{Aim, Eye, Gait, Pilot, STEP_LENGTH},
-             protocol::{Beast, Breed, Folk, Gathered, Health, Loose, Teleport, plays},
+             protocol::{Avatar, Beast, Breed, Folk, Gathered, Health, Loose, Teleport,
+                        plays},
              skill::Skills,
              spell::Flourish,
              voxels::Voxels},
@@ -18,6 +19,7 @@ use {crate::{bird::{Bird, Breed as Flier},
 const MASTER: f32 = 0.8;
 const DIG_EVERY: f32 = 0.24;
 const CALLS_WITHIN: f32 = 40.0;
+const SKY_SEARCH: i32 = 40;
 
 #[derive(Message, Clone, Copy)]
 pub struct Sound {
@@ -34,6 +36,14 @@ impl Sound {
   pub fn louder(self, by: f32) -> Sound { Sound { volume: self.volume * by, ..self } }
 }
 
+pub fn breaking(block: Block) -> Cue {
+  match footing(block) {
+    _ if block.plant() || block.leafy() => Cue::Rustle,
+    Cue::Soft => Cue::Clod,
+    _ => Cue::Crumble
+  }
+}
+
 pub fn footing(block: Block) -> Cue {
   match crate::gear::dug_with(block) {
     Some(Block::Shovel) => Cue::Soft,
@@ -45,16 +55,18 @@ pub fn footing(block: Block) -> Cue {
 
 fn loudness(cue: Cue) -> (f32, f32) {
   match cue {
-    Cue::Soft | Cue::Hard => (0.1, 6.0),
-    Cue::Wood => (0.12, 6.0),
+    Cue::Soft => (0.08, 6.0),
+    Cue::Hard | Cue::Wood => (0.09, 6.0),
+    Cue::Rustle => (0.08, 6.0),
+    Cue::Clod => (0.2, 8.0),
     Cue::Crumble => (0.3, 8.0),
     Cue::Thud => (0.28, 8.0),
-    Cue::Punch => (0.35, 10.0),
-    Cue::Hurt => (0.35, 6.0),
+    Cue::Punch => (0.42, 10.0),
+    Cue::Hurt => (0.4, 6.0),
     Cue::Splash => (0.35, 12.0),
     Cue::Swim => (0.12, 6.0),
-    Cue::Song | Cue::Caw | Cue::Cry | Cue::Honk => (0.1, 16.0),
-    Cue::Bleat => (0.12, 12.0),
+    Cue::Song | Cue::Caw | Cue::Cry | Cue::Honk => (0.09, 16.0),
+    Cue::Bleat => (0.14, 12.0),
     Cue::Cast => (0.28, 10.0),
     Cue::Burst => (0.3, 16.0),
     Cue::Pop => (0.16, 6.0),
@@ -263,18 +275,26 @@ fn dig(
 
 fn wounds(
   pilot: Option<Res<Pilot>>,
-  creatures: Query<(Entity, &Health, Option<&Folk>, Option<&Beast>, Option<&Bird>)>,
+  creatures: Query<(
+    Entity,
+    &Health,
+    Option<&Folk>,
+    Option<&Beast>,
+    Option<&Bird>,
+    Option<&Avatar>
+  )>,
   mut known: Local<HashMap<Entity, u8>>,
   mut sounds: MessageWriter<Sound>
 ) {
   let me = pilot.as_ref().map(|pilot| pilot.me);
   let seen: HashMap<Entity, u8> = creatures
     .iter()
-    .map(|(entity, health, folk, beast, bird)| {
+    .map(|(entity, health, folk, beast, bird, avatar)| {
       let at = folk
         .map(|folk| folk.at)
         .or(beast.map(|beast| beast.at))
-        .or(bird.map(|bird| bird.at));
+        .or(bird.map(|bird| bird.at))
+        .or(avatar.map(|avatar| avatar.at));
       if known.get(&entity).is_some_and(|&was| health.0 < was) {
         match (Some(entity) == me, at) {
           (true, _) => {
@@ -372,17 +392,42 @@ fn travels(mut teleports: MessageReader<Teleport>, mut sounds: MessageWriter<Sou
   }
 }
 
+fn open_sky(voxels: &Voxels, eye: Vec3) -> f32 {
+  let at = eye.floor().as_ivec3();
+  let columns =
+    [(0, 0), (4, 0), (-4, 0), (0, 4), (0, -4), (3, 3), (-3, 3), (3, -3), (-3, -3)];
+  let open = columns
+    .iter()
+    .filter(|&&(x, z)| {
+      (1..SKY_SEARCH).all(|up| {
+        voxels
+          .block(at + IVec3::new(x, up, z))
+          .is_none_or(|block| !block.solid() || block.leafy())
+      })
+    })
+    .count();
+  open as f32 / columns.len() as f32
+}
+
 fn rain(
   time: Res<Time>,
   library: Res<Library>,
   climate: Option<Res<crate::weather::Climate>>,
+  (voxels, eyes): (Option<Res<Voxels>>, Query<&GlobalTransform, With<Eye>>),
   output: Option<NonSendMut<Output>>,
-  mut rain: ResMut<Rain>
+  mut rain: ResMut<Rain>,
+  mut sky: Local<(f32, f32)>
 ) {
   if let Some(mut output) = output
     && let Some(&(take, _)) = library.0.get(&Clip::Rain).and_then(|takes| takes.first())
   {
-    let wanted = climate.map_or(0.0, |climate| climate.wet()) * 0.16 * MASTER;
+    let (open, since) = *sky;
+    *sky = match (since > 0.3, voxels, eyes.iter().next()) {
+      (true, Some(voxels), Some(eye)) => (open_sky(&voxels, eye.translation()), 0.0),
+      _ => (open, since + time.delta_secs())
+    };
+    let open = 0.15 + 0.85 * sky.0;
+    let wanted = climate.map_or(0.0, |climate| climate.wet()) * 0.13 * open * MASTER;
     let (voice, level) =
       rain.0.unwrap_or_else(|| (output.start(take, Mix::SILENT, 1.0, true), 0.0));
     let eased = level + (wanted - level) * (1.0 - (-time.delta_secs() * 0.5).exp());

@@ -9,8 +9,10 @@ mod beast;
 mod bird;
 mod block;
 mod boat;
+mod bump;
 mod chart;
 mod chat;
+mod chest;
 mod claim;
 mod condition;
 mod console;
@@ -280,7 +282,9 @@ fn main() {
       folk::People,
       ship::Ships,
       sign::Signs,
-      trade::Trading
+      trade::Trading,
+      chest::Chests,
+      bump::Bumping
     ))
     .add_plugins((
       fishing::Fishing,

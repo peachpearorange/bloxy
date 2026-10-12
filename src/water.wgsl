@@ -60,7 +60,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let p = vec2<u32>(texel - floor(texel / 4.0) * 4.0);
     let table = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
     let speck = fract(sin(dot(floor(at - in.world_normal * 0.01), vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
-    if (globals.time - swell.born.x) / 1.1 < (table[p.y * 4u + p.x] + 0.5) / 16.0 * 0.55 + speck * 0.45 {
+    let threshold = (table[p.y * 4u + p.x] + 0.5) / 16.0 * 0.55 + speck * 0.45;
+    let leaving = select(0.0, (globals.time - swell.born.y) / 1.1, swell.born.z > 0.5);
+    if threshold >= (globals.time - swell.born.x) / 1.1 || threshold < leaving {
         discard;
     }
     let distance = length(view.world_position.xyz - at);

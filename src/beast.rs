@@ -37,7 +37,7 @@ const BITE: u8 = 2;
 const BITE_EVERY: f32 = 1.0;
 
 impl Breed {
-  fn bulk(self) -> Bulk {
+  pub fn bulk(self) -> Bulk {
     match self {
       Breed::Sheep(_) => Bulk { half: 0.35, tall: 1.0 },
       Breed::Lizard => Bulk { half: 0.3, tall: 0.95 },

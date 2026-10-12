@@ -24,11 +24,13 @@ pub enum Cue {
   Chime,
   Warp,
   Thunder,
-  Craft
+  Craft,
+  Rustle,
+  Clod
 }
 
 impl Cue {
-  pub const ALL: [Cue; 22] = [
+  pub const ALL: [Cue; 24] = [
     Cue::Soft,
     Cue::Hard,
     Cue::Wood,
@@ -50,14 +52,24 @@ impl Cue {
     Cue::Chime,
     Cue::Warp,
     Cue::Thunder,
-    Cue::Craft
+    Cue::Craft,
+    Cue::Rustle,
+    Cue::Clod
   ];
 
   pub fn variants(self) -> u64 {
     match self {
       Cue::Soft | Cue::Hard | Cue::Wood => 4,
-      Cue::Crumble | Cue::Punch | Cue::Song | Cue::Caw | Cue::Cry | Cue::Swim => 3,
-      Cue::Splash | Cue::Honk | Cue::Bleat | Cue::Cast | Cue::Burst | Cue::Thunder => 2,
+      Cue::Crumble
+      | Cue::Punch
+      | Cue::Song
+      | Cue::Caw
+      | Cue::Cry
+      | Cue::Swim
+      | Cue::Bleat
+      | Cue::Rustle
+      | Cue::Clod => 3,
+      Cue::Splash | Cue::Honk | Cue::Cast | Cue::Burst | Cue::Thunder | Cue::Hurt => 2,
       _ => 1
     }
   }
@@ -104,31 +116,84 @@ fn softened(samples: Vec<f32>, cutoff: f32) -> Vec<f32> {
   samples.into_iter().map(|x| filter.step(x).low).collect()
 }
 
+fn thump(
+  rng: &mut Rng,
+  secs: f32,
+  (low, high): (f32, f32),
+  attack: f32,
+  decay: f32
+) -> Vec<f32> {
+  let cutoff = rng.range(low, high);
+  let (mut first, mut second) = (Svf::new(cutoff, 0.6), Svf::new(cutoff, 0.6));
+  shaped(secs, |t| second.step(first.step(rng.signed()).low).low * perc(t, attack, decay))
+}
+
+fn eased(t: f32, attack: f32, decay: f32) -> f32 {
+  smooth(t / attack) * (-(t - attack).max(0.0) / decay).exp()
+}
+
+fn hush(
+  rng: &mut Rng,
+  secs: f32,
+  (low, high): (f32, f32),
+  attack: f32,
+  decay: f32
+) -> Vec<f32> {
+  let mut filter = Svf::new(rng.range(low, high), 0.8);
+  shaped(secs, |t| filter.step(rng.signed()).band * eased(t, attack, decay))
+}
+
 fn step(rng: &mut Rng, cue: Cue) -> Vec<f32> {
-  let mut out = vec![0.0; len(0.16)];
+  let mut out = vec![0.0; len(0.22)];
   match cue {
     Cue::Soft => {
-      let cutoff = rng.range(650.0, 1100.0);
-      add(&mut out, 0.0, &murmur(rng, 0.12, cutoff, 0.004, 0.03), 1.0);
-      add(
-        &mut out,
-        rng.range(0.015, 0.03),
-        &murmur(rng, 0.1, cutoff * 0.8, 0.003, 0.025),
-        0.6
-      )
+      add(&mut out, 0.0, &thump(rng, 0.18, (380.0, 520.0), 0.018, 0.045), 1.0);
+      for _ in 0..5 {
+        let at = rng.range(0.005, 0.06);
+        add(&mut out, at, &hush(rng, 0.08, (900.0, 1600.0), 0.008, 0.018), 0.05)
+      }
     }
     Cue::Hard => {
-      let pitch = rng.range(140.0, 190.0);
-      add(&mut out, 0.0, &grain(rng, 0.08, (1500.0, 2300.0), 1.4, 0.001, 0.016), 1.0);
-      add(&mut out, 0.0, &glide(0.1, pitch, pitch * 0.8, 0.001, 0.025), 0.35)
+      add(&mut out, 0.0, &thump(rng, 0.14, (260.0, 340.0), 0.012, 0.03), 1.0);
+      add(&mut out, 0.0, &hush(rng, 0.08, (900.0, 1300.0), 0.005, 0.012), 0.22);
+      add(
+        &mut out,
+        rng.range(0.01, 0.02),
+        &hush(rng, 0.06, (700.0, 1100.0), 0.004, 0.01),
+        0.1
+      )
     }
     _ => {
-      let pitch = rng.range(190.0, 250.0);
-      add(&mut out, 0.0, &grain(rng, 0.12, (380.0, 520.0), 5.0, 0.001, 0.03), 1.0);
-      add(&mut out, 0.0, &glide(0.12, pitch, pitch * 0.92, 0.001, 0.04), 0.4)
+      add(&mut out, 0.0, &thump(rng, 0.16, (220.0, 300.0), 0.008, 0.035), 1.0);
+      add(&mut out, 0.0, &hush(rng, 0.08, (450.0, 750.0), 0.006, 0.018), 0.35)
     }
   }
-  softened(out, 3200.0)
+  softened(out, 1800.0)
+}
+
+fn rustle(rng: &mut Rng) -> Vec<f32> {
+  let mut out = vec![0.0; len(0.35)];
+  for _ in 0..9 {
+    let at = rng.range(0.0, 0.14);
+    add(
+      &mut out,
+      at,
+      &hush(rng, 0.12, (1000.0, 2400.0), 0.025, 0.035),
+      rng.range(0.4, 1.0)
+    )
+  }
+  softened(out, 2600.0)
+}
+
+fn clod(rng: &mut Rng) -> Vec<f32> {
+  let mut out = vec![0.0; len(0.45)];
+  add(&mut out, 0.0, &thump(rng, 0.3, (240.0, 320.0), 0.02, 0.07), 1.0);
+  for _ in 0..8 {
+    let at = rng.range(0.02, 0.22);
+    let piece = hush(rng, 0.08, (500.0, 1100.0), 0.008, 0.02);
+    add(&mut out, at, &piece, rng.range(0.1, 0.25) * (1.0 - at * 3.0).max(0.2))
+  }
+  softened(out, 1600.0)
 }
 
 fn crumble(rng: &mut Rng) -> Vec<f32> {
@@ -144,20 +209,28 @@ fn crumble(rng: &mut Rng) -> Vec<f32> {
 
 fn punch(rng: &mut Rng, low: f32) -> Vec<f32> {
   let mut out = vec![0.0; len(0.3)];
-  let pitch = rng.range(120.0, 150.0) * low;
-  add(&mut out, 0.0, &glide(0.25, pitch, pitch * 0.4, 0.002, 0.07), 1.0);
-  add(&mut out, 0.0, &murmur(rng, 0.06, 1400.0, 0.001, 0.018), 0.5);
-  softened(out, 2400.0)
+  let pitch = rng.range(85.0, 110.0) * low;
+  add(&mut out, 0.0, &glide(0.16, pitch, pitch * 0.55, 0.0015, 0.045), 0.9);
+  add(&mut out, 0.0, &thump(rng, 0.14, (500.0 * low, 540.0 * low), 0.001, 0.035), 1.4);
+  add(&mut out, 0.0, &grain(rng, 0.03, (1400.0, 2200.0), 0.9, 0.0005, 0.006), 0.6);
+  softened(out.into_iter().map(|x| (x * 2.2).tanh()).collect(), 3200.0)
+}
+
+fn thud(rng: &mut Rng) -> Vec<f32> {
+  let mut out = vec![0.0; len(0.25)];
+  add(&mut out, 0.0, &thump(rng, 0.22, (200.0, 260.0), 0.006, 0.045), 1.0);
+  add(&mut out, 0.0, &glide(0.15, 95.0, 60.0, 0.006, 0.04), 0.5);
+  softened(out, 1500.0)
 }
 
 fn hurt(rng: &mut Rng) -> Vec<f32> {
-  let mut out = punch(rng, 0.8);
+  let mut out = punch(rng, 0.85);
   let mut osc = Osc::default();
   let mut formant = Svf::new(650.0, 2.0);
   let oof =
     shaped(0.2, |t| formant.step(osc.saw(170.0 - t * 200.0)).band * perc(t, 0.015, 0.06));
-  add(&mut out, 0.01, &oof, 0.9);
-  softened(out, 1800.0)
+  add(&mut out, 0.02, &oof, 0.5);
+  softened(out, 2400.0)
 }
 
 fn splash(rng: &mut Rng) -> Vec<f32> {
@@ -185,16 +258,42 @@ fn swim(rng: &mut Rng) -> Vec<f32> {
   })
 }
 
+fn warble(rng: &mut Rng, secs: f32, from: f32, to: f32, flutter: f32) -> Vec<f32> {
+  let (mut carrier, mut wobble) = (Osc::default(), Osc::default());
+  let rate = rng.range(70.0, 110.0);
+  shaped(secs, |t| {
+    let along = (t / secs).min(1.0);
+    let bend = 1.0 + wobble.sine(rate) * flutter;
+    let pitch = (from + (to - from) * along * along.sqrt()) * bend;
+    let tone = carrier.sine(pitch);
+    (tone + (tone * tone - 0.5) * 0.25) * smooth(t / 0.006) * (1.0 - along).powf(0.7)
+  })
+}
+
 fn song(rng: &mut Rng) -> Vec<f32> {
-  let mut out = vec![0.0; len(0.6)];
-  let chirps = 2 + rng.below(3);
-  let base = rng.range(2200.0, 3000.0);
-  for index in 0..chirps {
-    let at = index as f32 * rng.range(0.08, 0.12);
-    let (from, to) = (base * rng.range(0.9, 1.1), base * rng.range(1.25, 1.5));
-    add(&mut out, at, &glide(0.07, from, to, 0.006, 0.025), 1.0)
+  let mut out = vec![0.0; len(1.0)];
+  let base = rng.range(2600.0, 3400.0);
+  let notes = 3 + rng.below(3);
+  let trill = rng.below(notes);
+  let mut at = 0.0;
+  for index in 0..notes {
+    match index == trill {
+      true => {
+        let pitch = base * rng.range(0.8, 1.2);
+        for _ in 0..5 + rng.below(4) {
+          add(&mut out, at, &warble(rng, 0.022, pitch * 1.25, pitch * 0.85, 0.02), 0.7);
+          at += 0.034
+        }
+      }
+      false => {
+        let secs = rng.range(0.04, 0.08);
+        let (from, to) = (base * rng.range(1.1, 1.5), base * rng.range(0.6, 0.85));
+        add(&mut out, at, &warble(rng, secs, from, to, 0.04), 1.0);
+        at += secs + rng.range(0.03, 0.07)
+      }
+    }
   }
-  softened(out, 5000.0)
+  softened(out, 7000.0)
 }
 
 fn caw(rng: &mut Rng) -> Vec<f32> {
@@ -212,19 +311,29 @@ fn caw(rng: &mut Rng) -> Vec<f32> {
 }
 
 fn cry(rng: &mut Rng) -> Vec<f32> {
-  let mut out = vec![0.0; len(0.9)];
-  for (index, gain) in [(0, 1.0), (1, 0.6)] {
+  let mut out = vec![0.0; len(1.2)];
+  let calls = 2 + rng.below(3);
+  let start = rng.range(620.0, 760.0);
+  for index in 0..calls {
+    let secs = match index {
+      0 => 0.32,
+      _ => rng.range(0.16, 0.22)
+    };
     let mut osc = Osc::default();
-    let start = rng.range(1150.0, 1400.0);
-    let secs = 0.34 - index as f32 * 0.12;
+    let (mut nasal, mut bright) = (Svf::new(1900.0, 3.0), Svf::new(3400.0, 4.0));
+    let lift = 1.0 - index as f32 * 0.04;
     let one = shaped(secs, |t| {
       let along = t / secs;
-      let pitch = start - 380.0 * along + (t * TAU * 9.0).sin() * 25.0;
-      (osc.sine(pitch) * smooth(t / 0.04)) * (1.0 - along).max(0.0).powf(0.6)
+      let contour = 1.0 + 0.35 * smooth(along / 0.3) - 0.55 * smooth((along - 0.3) / 0.7);
+      let rough = 1.0 + rng.signed() * 0.25;
+      let x = osc.saw(start * lift * contour * rough.sqrt());
+      (nasal.step(x).band + bright.step(x).band * 0.5)
+        * smooth(t / 0.025)
+        * (1.0 - along).max(0.0).powf(0.5)
     });
-    add(&mut out, index as f32 * 0.4, &one, gain)
+    add(&mut out, 0.04 + index as f32 * 0.3, &one, if index == 0 { 1.0 } else { 0.75 })
   }
-  softened(out, 3000.0)
+  softened(out, 4500.0)
 }
 
 fn honk(rng: &mut Rng) -> Vec<f32> {
@@ -235,15 +344,41 @@ fn honk(rng: &mut Rng) -> Vec<f32> {
 }
 
 fn bleat(rng: &mut Rng) -> Vec<f32> {
-  let mut osc = Osc::default();
-  let (mut low, mut high) = (Svf::new(800.0, 2.0), Svf::new(1800.0, 3.0));
-  let pitch = rng.range(240.0, 300.0);
-  shaped(0.55, |t| {
-    let wobble = (t * TAU * 7.0).sin() * 0.04;
-    let x = osc.saw(pitch * (1.0 + wobble - t * 0.15));
-    (low.step(x).band + high.step(x).band * 0.5)
+  let secs = rng.range(0.6, 0.85);
+  let pitch = rng.range(170.0, 240.0);
+  let quaver = rng.range(17.0, 23.0);
+  let mut glottis = Osc::default();
+  let mut tremolo = Osc::default();
+  let mut source = Svf::new(1800.0, 0.6);
+  let mut lips = Svf::new(300.0, 0.7);
+  let mut formants = [
+    (Svf::new(650.0, 7.0), 1.0),
+    (Svf::new(1150.0, 8.0), 0.6),
+    (Svf::new(2600.0, 9.0), 0.25)
+  ];
+  shaped(secs, |t| {
+    let along = t / secs;
+    let shake = tremolo.sine(quaver);
+    let bend = 1.0 + 0.04 * shake + 0.12 * smooth(along / 0.15)
+      - 0.25 * smooth((along - 0.6) / 0.4);
+    let voiced = source.step(glottis.saw(pitch * bend)).low;
+    let breath = rng.signed() * 0.15;
+    let vowel = smooth(along / 0.25);
+    let opened = lips.step(voiced + breath);
+    lips.tune(300.0 + 3200.0 * smooth(t / 0.06), 0.7);
+    let x = opened.low;
+    let sung = formants
+      .iter_mut()
+      .zip([(560.0, 760.0), (1700.0, 1250.0), (2500.0, 2700.0)])
+      .map(|((filter, gain), (from, to))| {
+        filter.tune(from + (to - from) * vowel, 8.0);
+        filter.step(x).band * *gain
+      })
+      .sum::<f32>();
+    sung
+      * (1.0 - 0.6 * (0.5 + 0.5 * shake))
       * smooth(t / 0.05)
-      * (1.0 - t / 0.55).max(0.0)
+      * (1.0 - along).max(0.0).powf(0.8)
   })
 }
 
@@ -345,7 +480,7 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
   let samples = match cue {
     Cue::Soft | Cue::Hard | Cue::Wood => step(&mut rng, cue),
     Cue::Crumble => crumble(&mut rng),
-    Cue::Thud => punch(&mut rng, 0.7),
+    Cue::Thud => thud(&mut rng),
     Cue::Punch => punch(&mut rng, 1.0),
     Cue::Hurt => hurt(&mut rng),
     Cue::Splash => splash(&mut rng),
@@ -362,7 +497,9 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
     Cue::Chime => chime(),
     Cue::Warp => warp(&mut rng),
     Cue::Thunder => thunder(&mut rng),
-    Cue::Craft => craft(&mut rng)
+    Cue::Craft => craft(&mut rng),
+    Cue::Rustle => rustle(&mut rng),
+    Cue::Clod => clod(&mut rng)
   };
   let wave = Wave::mono(samples).normalized(0.5).trimmed();
   match cue {
@@ -375,19 +512,27 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
 
 pub fn rain() -> Wave {
   let mut rng = Rng::new(0x7A1);
-  let span = len(4.0);
-  let (mut hiss, mut body) = (Svf::new(3000.0, 0.6), Svf::new(500.0, 0.6));
-  let mut raw: Vec<f32> = (0..span + len(0.5))
+  let span = len(6.0);
+  let total = span + len(0.5);
+  let (mut body, mut air) = (Svf::new(700.0, 0.6), Svf::new(2400.0, 0.5));
+  let mut swell = Svf::new(0.6, 0.6);
+  let mut raw: Vec<f32> = (0..total)
     .map(|_| {
+      let gust = 0.75 + swell.step(rng.signed() * 30.0).low.clamp(-0.25, 0.25);
       let x = rng.signed();
-      hiss.step(x).low - body.step(x).low
+      (body.step(x).low + air.step(x).band * 0.08) * gust
     })
     .collect();
-  for _ in 0..160 {
-    let at = rng.range(0.0, 4.4);
-    let pitch = rng.range(2000.0, 4500.0);
-    let drop = glide(0.03, pitch, pitch * 0.7, 0.001, 0.008);
-    add(&mut raw, at, &drop, rng.range(0.1, 0.35))
+  for _ in 0..2600 {
+    let at = rng.range(0.0, 6.45);
+    let tick = hush(&mut rng, 0.012, (700.0, 3200.0), 0.001, 0.003);
+    add(&mut raw, at, &tick, rng.range(0.05, 0.4).powi(2) * 2.0)
   }
-  Wave::mono(seamless(raw, span)).normalized(0.4)
+  for _ in 0..90 {
+    let at = rng.range(0.0, 6.45);
+    let pitch = rng.range(1400.0, 2600.0);
+    let plip = glide(0.03, pitch, pitch * 1.5, 0.002, 0.007);
+    add(&mut raw, at, &plip, rng.range(0.05, 0.15))
+  }
+  Wave::mono(seamless(softened(raw, 3500.0), span)).normalized(0.4)
 }

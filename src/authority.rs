@@ -120,7 +120,7 @@ fn embody(
 const STOCKED_PER_CHEST: usize = 27;
 
 #[derive(Resource, Default)]
-pub struct Stock(Vec<(IVec3, Vec<Stack>)>);
+pub struct Stock(pub Vec<(IVec3, Vec<Stack>)>);
 
 fn stock(voxels: &mut Voxels) -> Stock {
   let items: Vec<Stack> = Block::ALL
@@ -173,7 +173,8 @@ fn found_world(mut commands: Commands) {
     signs,
     claims,
     kept,
-    generation
+    generation,
+    coffers
   } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
@@ -183,7 +184,8 @@ fn found_world(mut commands: Commands) {
     signs: default(),
     claims: default(),
     kept: default(),
-    generation: Some(generate::GENERATION)
+    generation: Some(generate::GENERATION),
+    coffers: default()
   });
   let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
   if migrating {
@@ -226,6 +228,12 @@ fn found_world(mut commands: Commands) {
     voxels.set(at, block)
   }
   voxels.ensure(generate::spawn_point(seed).floor().as_ivec3());
+  commands.insert_resource(crate::chest::Coffers(
+    coffers
+      .into_iter()
+      .filter(|&(at, _)| matches!(voxels.ensure(at), Block::Chest | Block::EmptyChest))
+      .collect()
+  ));
   commands.insert_resource(stock(&mut voxels));
   commands.insert_resource(voxels);
   commands.insert_resource(accounts)
@@ -531,68 +539,6 @@ fn dig(
   }
 }
 
-fn plunder(
-  mut opens: MessageReader<FromClient<Open>>,
-  mut voxels: ResMut<Voxels>,
-  mut players: Query<(&Controller, (Entity, &Avatar, &mut Inventory))>,
-  mut changes: MessageWriter<ToClients<Altered>>,
-  mut notices: MessageWriter<ToClients<Notice>>,
-  mut earned: MessageWriter<Earned>,
-  stock: Res<Stock>,
-  mut commands: Commands
-) {
-  for &FromClient { client_id, message: Open(at) } in opens.read() {
-    let seed = voxels.seed;
-    if voxels.ensure(at) == Block::Chest
-      && let Some((player, avatar, mut inventory)) =
-        player_of(players.iter_mut(), client_id)
-      && within_reach(avatar, at)
-    {
-      let tier = crate::dungeon::Dungeon::within(seed, at.xz(), at.xz())
-        .iter()
-        .find_map(|dungeon| dungeon.chest(at))
-        .unwrap_or(1);
-      let loot = stock
-        .0
-        .iter()
-        .find(|(chest, _)| *chest == at)
-        .map_or_else(|| crate::dungeon::loot(seed, at, tier), |(_, loot)| loot.clone());
-      for &stack in loot.iter() {
-        let left = inventory.gain(stack);
-        if left > 0 {
-          crate::loose::fling(
-            &mut commands,
-            Stack { count: left, ..stack },
-            at.as_vec3() + Vec3::new(0.5, 1.2, 0.5),
-            Vec3::Y * 3.0,
-            0.6
-          )
-        }
-      }
-      let found: Vec<String> = loot
-        .iter()
-        .map(|stack| match stack.gear {
-          Some(_) => crate::gear::title(stack),
-          None => format!("{} {}", stack.count, stack.block.name())
-        })
-        .collect();
-      notices.write(ToClients {
-        targets: SendTargets::Single(client_id),
-        message: Notice(match found.len() {
-          0..=6 => format!("Found {}", found.join(", ")),
-          kinds => format!("Found {kinds} kinds of items")
-        })
-      });
-      earned.write(Earned { player, xp: 20 + u32::from(tier) * 15 });
-      voxels.set(at, Block::EmptyChest);
-      changes.write(ToClients {
-        targets: SendTargets::All,
-        message: Altered { at, block: Block::EmptyChest }
-      });
-    }
-  }
-}
-
 fn put(
   mut puts: MessageReader<FromClient<Put>>,
   time: Res<Time>,
@@ -884,7 +830,7 @@ impl Plugin for Authority {
         PreUpdate,
         (
           sign_in, paint, tint, chat, follow, attune, travel, dig, put, scoop, pour,
-          shuffle, pick, craft, mark, rest, plunder
+          shuffle, pick, craft, mark, rest
         )
           .chain()
           .after(ServerSystems::Receive)
