@@ -449,7 +449,12 @@ fn fly(
         {
           Some(top) => (at.with_y(top), true, true),
           None => (
-            crate::bump::pushed(&voxels, Bulk::PERSON, at, body.shove(at, Bulk::PERSON)),
+            crate::bump::pushed(
+              &voxels,
+              Bulk::PERSON,
+              at,
+              body.shove(at, Bulk::PERSON, STEP)
+            ),
             landed,
             decked
           )

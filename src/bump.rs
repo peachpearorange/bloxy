@@ -7,6 +7,7 @@ use {crate::{boat::HULL,
      bevy::prelude::*};
 
 const DECK_SNAP: f32 = 0.35;
+const YIELDING: f32 = 10.0;
 
 #[derive(Clone, Copy)]
 pub struct Body {
@@ -14,16 +15,24 @@ pub struct Body {
   pub yaw: f32,
   pub half: Vec2,
   pub tall: f32,
-  pub deck: bool
+  pub deck: bool,
+  pub soft: bool
 }
 
 impl Body {
   fn upright(at: Vec3, Bulk { half, tall }: Bulk) -> Body {
-    Body { at, yaw: 0.0, half: Vec2::splat(half), tall, deck: false }
+    Body { at, yaw: 0.0, half: Vec2::splat(half), tall, deck: false, soft: true }
   }
 
   fn vessel(vessel: &Vessel) -> Body {
-    Body { at: vessel.at, yaw: vessel.yaw, half: HULL.xz(), tall: HULL.y, deck: true }
+    Body {
+      at: vessel.at,
+      yaw: vessel.yaw,
+      half: HULL.xz(),
+      tall: HULL.y,
+      deck: true,
+      soft: false
+    }
   }
 
   fn folk(folk: &Folk) -> Body {
@@ -35,21 +44,38 @@ impl Body {
     (Quat::from_rotation_y(-self.yaw) * (at - self.at)).xz()
   }
 
-  pub fn shove(&self, at: Vec3, bulk: Bulk) -> Vec2 {
+  fn overlaps(&self, at: Vec3, bulk: Bulk) -> bool {
+    at.y < self.at.y + self.tall && at.y + bulk.tall > self.at.y
+  }
+
+  fn hard(&self, at: Vec3, bulk: Bulk) -> Vec2 {
     let offset = self.local(at);
     let reach = self.half + Vec2::splat(bulk.half);
     let depth = reach - offset.abs();
-    let overlapping = depth.x > 0.0
-      && depth.y > 0.0
-      && at.y < self.at.y + self.tall
-      && at.y + bulk.tall > self.at.y;
     let push = match depth.x < depth.y {
       true => Vec2::new(depth.x * offset.x.signum(), 0.0),
       false => Vec2::new(0.0, depth.y * offset.y.signum())
     };
-    match overlapping {
+    match depth.x > 0.0 && depth.y > 0.0 {
       true => (Quat::from_rotation_y(self.yaw) * push.extend(0.0).xzy()).xz(),
       false => Vec2::ZERO
+    }
+  }
+
+  fn yielding(&self, at: Vec3, bulk: Bulk, step: f32) -> Vec2 {
+    let apart = (at - self.at).xz();
+    let depth = self.half.x + bulk.half - apart.length();
+    match depth > 0.0 {
+      true => apart.normalize_or(Vec2::X) * depth * (YIELDING * step).min(1.0),
+      false => Vec2::ZERO
+    }
+  }
+
+  pub fn shove(&self, at: Vec3, bulk: Bulk, step: f32) -> Vec2 {
+    match (self.overlaps(at, bulk), self.soft) {
+      (false, _) => Vec2::ZERO,
+      (true, true) => self.yielding(at, bulk, step),
+      (true, false) => self.hard(at, bulk)
     }
   }
 
@@ -112,6 +138,7 @@ enum Mover<'a> {
 }
 
 fn jostle(
+  time: Res<Time>,
   voxels: Option<Res<Voxels>>,
   players: Query<&Avatar>,
   vessels: Query<&Vessel>,
@@ -158,11 +185,12 @@ fn jostle(
       .collect();
     for (entity, bulk, mover) in movers.iter_mut() {
       let from = at(mover);
-      let push = fixed.iter().map(|body| body.shove(from, *bulk)).sum::<Vec2>()
+      let step = time.delta_secs();
+      let push = fixed.iter().map(|body| body.shove(from, *bulk, step)).sum::<Vec2>()
         + moving
           .iter()
           .filter(|(other, _)| other != entity)
-          .map(|(_, body)| body.shove(from + nudge(*entity), *bulk) * 0.5)
+          .map(|(_, body)| body.shove(from + nudge(*entity), *bulk, step) * 0.5)
           .sum::<Vec2>();
       if push != Vec2::ZERO {
         let moved = pushed(&voxels, *bulk, from, push.clamp_length_max(0.5));
@@ -193,11 +221,13 @@ mod tests {
   #[test]
   fn bodies_push_out_and_decks_hold() {
     let sheep = Body::upright(Vec3::ZERO, Bulk { half: 0.35, tall: 1.0 });
-    let push = sheep.shove(Vec3::new(0.5, 0.0, 0.1), Bulk::PERSON);
-    assert!((push - Vec2::new(0.15, 0.0)).length() < 1e-4, "{push}");
-    assert_eq!(sheep.shove(Vec3::new(0.5, 1.2, 0.1), Bulk::PERSON), Vec2::ZERO);
+    let gentle = sheep.shove(Vec3::new(0.5, 0.0, 0.0), Bulk::PERSON, 0.05);
+    assert!((gentle - Vec2::new(0.075, 0.0)).length() < 1e-4, "{gentle}");
+    let slow = sheep.shove(Vec3::new(0.5, 0.0, 0.0), Bulk::PERSON, 1.0);
+    assert!((slow - Vec2::new(0.15, 0.0)).length() < 1e-4, "{slow}");
+    assert_eq!(sheep.shove(Vec3::new(0.5, 1.2, 0.1), Bulk::PERSON, 0.05), Vec2::ZERO);
     let boat = Body::vessel(&Vessel { at: Vec3::ZERO, yaw: FRAC_PI_2, rider: None });
-    let push = boat.shove(Vec3::new(0.9, 0.0, 0.0), Bulk::PERSON);
+    let push = boat.shove(Vec3::new(0.9, 0.0, 0.0), Bulk::PERSON, 0.05);
     assert!(push.x > 0.0 && push.y.abs() < 1e-4, "{push}");
     assert_eq!(boat.deck_under(Vec3::new(0.9, 0.3, 0.0), Bulk::PERSON), Some(HULL.y));
     assert_eq!(boat.deck_under(Vec3::new(0.0, 0.3, 0.9), Bulk::PERSON), None)

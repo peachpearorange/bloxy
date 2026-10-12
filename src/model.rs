@@ -305,7 +305,7 @@ pub fn shift(block: Block, seed: u32, at: IVec3) -> Vec3 {
 
 const WALL_TORCH_LEAN: f32 = 0.4;
 const WALL_TORCH_FOOT: Vec3 = Vec3::new(8.0, 3.0, 8.0);
-const WALL_TORCH_SETBACK: f32 = 6.5;
+const WALL_TORCH_SETBACK: f32 = 7.5;
 const MIDDLE: Vec3 = Vec3::new(8.0, 0.0, 8.0);
 
 pub fn pose(block: Block) -> Affine3A {
