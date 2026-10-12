@@ -208,7 +208,6 @@ fn invoke(
       mut book
     )) = player_of(players.iter_mut(), client_id)
       && spell.spell()
-      && skills.spells().contains(&spell)
       && toward.is_finite()
       && book.ready.get(&spell).is_none_or(|&ready| now >= ready)
     {
