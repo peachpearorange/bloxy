@@ -35,6 +35,11 @@ impl Body {
     }
   }
 
+  fn basket(aerostat: &crate::balloon::Aerostat) -> Body {
+    let (at, yaw, half, tall) = crate::balloon::basket(aerostat);
+    Body { at, yaw, half, tall, deck: false, soft: false }
+  }
+
   fn folk(folk: &Folk) -> Body {
     let scale = folk.band.scale();
     Body::upright(folk.at, Bulk { half: 0.3 * scale, tall: 1.9 * scale })
@@ -98,6 +103,7 @@ pub struct Bodies(pub Vec<Body>);
 fn gather(
   pilot: Option<Res<Pilot>>,
   vessels: Query<&Vessel>,
+  balloons: Query<&crate::balloon::Aerostat>,
   folk: Query<(&Folk, Option<&Health>)>,
   beasts: Query<(&Beast, Option<&Health>)>,
   hoppers: Query<&Hopper>,
@@ -109,6 +115,12 @@ fn gather(
   bodies.0 = vessels
     .iter()
     .map(Body::vessel)
+    .chain(
+      balloons
+        .iter()
+        .filter(|aerostat| aerostat.rider.is_none_or(|rider| Some(rider) != me))
+        .map(Body::basket)
+    )
     .chain(
       folk
         .iter()
@@ -142,6 +154,7 @@ fn jostle(
   voxels: Option<Res<Voxels>>,
   players: Query<&Avatar>,
   vessels: Query<&Vessel>,
+  balloons: Query<&crate::balloon::Aerostat>,
   mut folk: Query<(Entity, &mut Folk), Without<Dying>>,
   mut beasts: Query<(Entity, &mut Beast), Without<Dying>>,
   mut hoppers: Query<(Entity, &mut Hopper)>
@@ -172,6 +185,7 @@ fn jostle(
       .iter()
       .map(|avatar| Body::upright(avatar.at, Bulk::PERSON))
       .chain(vessels.iter().map(Body::vessel))
+      .chain(balloons.iter().map(Body::basket))
       .collect();
     let nudge = |entity: Entity| {
       let bits = entity.to_bits();

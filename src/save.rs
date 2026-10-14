@@ -33,7 +33,9 @@ pub struct World {
   #[serde(default)]
   pub generation: Option<u32>,
   #[serde(default)]
-  pub coffers: Vec<(IVec3, Vec<Option<crate::protocol::Stack>>)>
+  pub coffers: Vec<(IVec3, Vec<Option<crate::protocol::Stack>>)>,
+  #[serde(default)]
+  pub balloons: Vec<(Vec3, f32, f32, u8)>
 }
 
 pub fn load() -> Option<World> {
@@ -62,7 +64,7 @@ fn store(
   players: Query<(&Controller, Kept)>,
   shroomlings: Query<(&Hopper, &Wander)>,
   dormant: Res<Dormant>,
-  boats: Query<&Vessel>,
+  (boats, balloons): (Query<&Vessel>, Query<&crate::balloon::Aerostat>),
   signs: Query<&Sign>,
   claims: Query<(&Claim, &Holding)>,
   coffers: Res<crate::chest::Coffers>,
@@ -77,6 +79,7 @@ fn store(
       Changed<crate::skill::Skills>,
       Changed<Hopper>,
       Changed<Vessel>,
+      Changed<crate::balloon::Aerostat>,
       Changed<Sign>,
       Changed<Claim>,
       Changed<Holding>
@@ -127,7 +130,11 @@ fn store(
         .map(|(column, packed)| (column, encode(&packed)))
         .collect(),
       generation: Some(GENERATION),
-      coffers: coffers.0.iter().map(|(&at, slots)| (at, slots.clone())).collect()
+      coffers: coffers.0.iter().map(|(&at, slots)| (at, slots.clone())).collect(),
+      balloons: balloons
+        .iter()
+        .map(|aerostat| (aerostat.at, aerostat.yaw, aerostat.fuel, aerostat.pattern))
+        .collect()
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

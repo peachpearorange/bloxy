@@ -1,7 +1,7 @@
 use {crate::{authority::{Controller, player_of, within_reach},
              block::{Block, Fluid, Tile},
              menu::Menu,
-             player::{Bulk, Pilot, Riding, Selected, captured, slide},
+             player::{Bulk, Craft, Pilot, Riding, Selected, captured, slide},
              protocol::*,
              stream::{Palette, ready_around},
              texture::uv_corner,
@@ -21,10 +21,7 @@ const STEER_EVERY: f32 = 0.05;
 
 fn ahead(yaw: f32) -> Vec3 { Quat::from_rotation_y(yaw) * Vec3::NEG_Z }
 
-pub fn struck(vessel: &Vessel, from: Vec3, toward: Vec3) -> Option<f32> {
-  let turn = Quat::from_rotation_y(-vessel.yaw);
-  let (origin, direction) = (turn * (from - vessel.at), turn * toward);
-  let (low, high) = (Vec3::new(-HULL.x, 0.0, -HULL.z), HULL);
+pub fn pierce(low: Vec3, high: Vec3, origin: Vec3, direction: Vec3) -> Option<f32> {
   let (near, far) = (0..3).fold((0.0_f32, f32::INFINITY), |(near, far), axis| {
     match direction[axis] == 0.0 {
       true => match (low[axis]..=high[axis]).contains(&origin[axis]) {
@@ -41,6 +38,11 @@ pub fn struck(vessel: &Vessel, from: Vec3, toward: Vec3) -> Option<f32> {
     }
   });
   (near <= far).then_some(near)
+}
+
+pub fn struck(vessel: &Vessel, from: Vec3, toward: Vec3) -> Option<f32> {
+  let turn = Quat::from_rotation_y(-vessel.yaw);
+  pierce(Vec3::new(-HULL.x, 0.0, -HULL.z), HULL, turn * (from - vessel.at), turn * toward)
 }
 
 pub fn planked(slabs: &[(Vec3, Vec3)], tint: [f32; 3]) -> Mesh {
@@ -103,7 +105,7 @@ fn moor(
     let ridden = pilot.as_ref().and_then(|pilot| {
       pilot
         .riding
-        .filter(|riding| riding.boat == entity)
+        .filter(|riding| riding.craft == entity)
         .map(|riding| (pilot.at, riding.yaw))
     });
     let (at, yaw) = ridden.unwrap_or((vessel.at, vessel.yaw));
@@ -133,12 +135,22 @@ fn embark(pilot: Option<ResMut<Pilot>>, boats: Query<(Entity, &Vessel)>) {
     let aboard = boats.iter().find(|(_, vessel)| vessel.rider == Some(me));
     match (pilot.riding, aboard) {
       (None, Some((boat, vessel))) => {
-        pilot.riding = Some(Riding { boat, yaw: vessel.yaw, speed: 0.0 });
+        pilot.riding = Some(Riding {
+          craft: boat,
+          kind: Craft::Boat,
+          yaw: vessel.yaw,
+          speed: 0.0,
+          heat: 0.0
+        });
         pilot.at = vessel.at;
         pilot.velocity = Vec3::ZERO;
         pilot.grounded = false
       }
-      (Some(riding), None) if boats.get(riding.boat).is_err() => pilot.riding = None,
+      (Some(riding), None)
+        if riding.kind == Craft::Boat && boats.get(riding.craft).is_err() =>
+      {
+        pilot.riding = None
+      }
       _ => ()
     }
   }
@@ -169,6 +181,7 @@ fn row(
 ) {
   if let Some(voxels) = voxels
     && let Some(mut riding) = pilot.riding
+    && riding.kind == Craft::Boat
     && ready_around(&voxels, pilot.at)
   {
     let pressed = |key: KeyCode| menu.idle() && keys.pressed(key);

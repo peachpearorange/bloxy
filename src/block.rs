@@ -160,7 +160,8 @@ pub enum Block {
   WallTorch,
   WallTorchEast,
   WallTorchSouth,
-  WallTorchWest
+  WallTorchWest,
+  Balloon
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -289,11 +290,12 @@ pub enum Tile {
   Mail,
   Belt,
   Boots,
-  Ring
+  Ring,
+  Balloon
 }
 
 impl Tile {
-  pub const ALL: [Tile; 125] = [
+  pub const ALL: [Tile; 126] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -418,7 +420,8 @@ impl Tile {
     Tile::Mail,
     Tile::Belt,
     Tile::Boots,
-    Tile::Ring
+    Tile::Ring,
+    Tile::Balloon
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -483,7 +486,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 143] = [
+  pub const ALL: [Block; 144] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -626,7 +629,8 @@ impl Block {
     Block::WallTorch,
     Block::WallTorchEast,
     Block::WallTorchSouth,
-    Block::WallTorchWest
+    Block::WallTorchWest,
+    Block::Balloon
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -651,6 +655,7 @@ impl Block {
     matches!(
       self,
       Block::Boat
+        | Block::Balloon
         | Block::Bucket
         | Block::WaterBucket
         | Block::LavaBucket
@@ -779,6 +784,7 @@ impl Block {
   pub fn stack(self) -> u16 {
     match self {
       Block::WaterBucket | Block::LavaBucket | Block::Boat | Block::FishingRod => 1,
+      Block::Balloon => 1,
       Block::Bed => 1,
       gear if gear.forged() || gear.worn() => 1,
       Block::Bucket => 16,
@@ -1084,7 +1090,8 @@ impl Block {
       Block::WallTorch
       | Block::WallTorchEast
       | Block::WallTorchSouth
-      | Block::WallTorchWest => "Torch"
+      | Block::WallTorchWest => "Torch",
+      Block::Balloon => "Hot Air Balloon"
     }
   }
 
@@ -1233,7 +1240,8 @@ impl Block {
       Block::WallTorch
       | Block::WallTorchEast
       | Block::WallTorchSouth
-      | Block::WallTorchWest => all(Tile::Torch)
+      | Block::WallTorchWest => all(Tile::Torch),
+      Block::Balloon => all(Tile::Balloon)
     }
   }
 }

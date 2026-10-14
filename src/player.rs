@@ -54,11 +54,19 @@ pub struct Pilot {
   pub charging: bool
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Craft {
+  Boat,
+  Balloon
+}
+
 #[derive(Clone, Copy)]
 pub struct Riding {
-  pub boat: Entity,
+  pub craft: Entity,
+  pub kind: Craft,
   pub yaw: f32,
-  pub speed: f32
+  pub speed: f32,
+  pub heat: f32
 }
 
 impl Pilot {
@@ -636,7 +644,11 @@ fn work(
     MessageWriter<Pour>,
     MessageWriter<Shuffle>
   ),
-  (boats, folk): (Query<&Vessel>, Query<&Folk>),
+  (boats, folk, balloons): (
+    Query<&Vessel>,
+    Query<&Folk>,
+    Query<&crate::balloon::Aerostat>
+  ),
   (mut inscription, signs, mut rests, mut pokes, mut swings, mut sounds): (
     ResMut<Inscription>,
     Query<&Sign>,
@@ -657,7 +669,10 @@ fn work(
       let person = folk.iter().any(|folk| {
         crate::folk::struck(folk, eye, toward).is_some_and(|near| near < distance)
       });
-      !boat && !person
+      let balloon = balloons.iter().any(|aerostat| {
+        crate::balloon::struck(aerostat, eye, toward).is_some_and(|near| near < distance)
+      });
+      !boat && !person && !balloon
     });
     let active = captured(&cursor, &menu);
     let target = aim.hit.as_ref().map(|hit| (hit.at, hit.block));

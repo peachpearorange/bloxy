@@ -358,6 +358,7 @@ fn perish(
     &mut crate::condition::Conditions
   )>,
   mut boats: Query<&mut Vessel>,
+  mut balloons: Query<&mut crate::balloon::Aerostat>,
   mut teleports: MessageWriter<ToClients<Teleport>>
 ) {
   for (entity, controller, mut health, mut avatar, mut vigour, bedside, mut conditions) in
@@ -376,6 +377,12 @@ fn perish(
     };
     for mut vessel in boats.iter_mut().filter(|vessel| vessel.rider == Some(entity)) {
       vessel.rider = None
+    }
+    for mut aerostat in
+      balloons.iter_mut().filter(|aerostat| aerostat.rider == Some(entity))
+    {
+      aerostat.rider = None;
+      aerostat.burning = false
     }
     let bed = bedside
       .0

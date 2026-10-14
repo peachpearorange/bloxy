@@ -1262,6 +1262,25 @@ const BONES: Art = [
   ".000...000000000"
 ];
 
+const BALLOON: Art = [
+  "......dd33......",
+  "....3ddd333c....",
+  "...33ddd322cc...",
+  "...33ddd222cc...",
+  "..333ddc222bbb..",
+  "..333ccc221bbb..",
+  "..332ccc211bba..",
+  "...22ccb111ba...",
+  "....2cbb111a....",
+  ".....bbb100.....",
+  "......bb00......",
+  ".......a0.......",
+  "......A..A......",
+  ".....DDDDDD.....",
+  ".....CCCBBB.....",
+  ".....BBBBAA....."
+];
+
 const IVORY: Palette =
   [[0.18, 0.15, 0.12], [0.58, 0.54, 0.44], [0.78, 0.74, 0.62], [0.92, 0.9, 0.82]];
 
@@ -1695,6 +1714,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::Mail => inked(&MAIL, [&IRON, &HAFT, &HAFT], x, y),
     Tile::Belt => inked(&BELT, [&IRON, &LEATHER, &GILT], x, y),
     Tile::Boots => inked(&BOOTS, [&IRON, &LEATHER, &GILT], x, y),
+    Tile::Balloon => inked(&BALLOON, [&CRIMSON, &IVORY, &WOOD], x, y),
     Tile::Ring => match inked(&RING, [&CRIMSON, &GILT, &GILT], x, y) {
       gem if shade_of(&RING, x, y) == Some(3) => gem.glowing(0.4),
       texel => texel

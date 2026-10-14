@@ -174,7 +174,8 @@ fn found_world(mut commands: Commands) {
     claims,
     kept,
     generation,
-    coffers
+    coffers,
+    balloons
   } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
@@ -185,7 +186,8 @@ fn found_world(mut commands: Commands) {
     claims: default(),
     kept: default(),
     generation: Some(generate::GENERATION),
-    coffers: default()
+    coffers: default(),
+    balloons: default()
   });
   let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
   if migrating {
@@ -205,6 +207,12 @@ fn found_world(mut commands: Commands) {
   }
   for (at, yaw) in boats.into_iter() {
     commands.spawn((Replicated, Vessel { at, yaw, rider: None }));
+  }
+  for (at, yaw, fuel, pattern) in balloons.into_iter() {
+    crate::balloon::spawn(
+      &mut commands,
+      crate::balloon::Aerostat::landed(at, yaw, fuel, pattern)
+    )
   }
   let colonies = shroomlings.iter().map(|&(home, _)| home).collect();
   for (index, (home, hopper)) in shroomlings.into_iter().enumerate() {

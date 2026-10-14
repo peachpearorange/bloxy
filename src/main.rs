@@ -5,6 +5,7 @@ mod account;
 mod admin;
 mod audio;
 mod authority;
+mod balloon;
 mod beast;
 mod bird;
 mod block;
@@ -287,6 +288,7 @@ fn main() {
       bump::Bumping
     ))
     .add_plugins((
+      balloon::Balloons,
       fishing::Fishing,
       weather::Weathering,
       bird::Birds,
