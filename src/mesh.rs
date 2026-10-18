@@ -10,7 +10,9 @@ use {crate::{block::{Block, Fluid, Look},
             prelude::*},
      std::sync::Arc};
 
-const SPAN: i32 = SIZE + 2;
+const PAD: i32 = 3;
+const SPAN: i32 = SIZE + 2 * PAD;
+const RIM: i32 = SIZE + 2;
 const WATER_TOP: f32 = 0.88;
 const OCCLUSION: [f32; 4] = [0.42, 0.62, 0.8, 1.0];
 const SKY_FALLOFF: f32 = 7.0;
@@ -23,7 +25,7 @@ pub struct Padded(Vec<Block>);
 
 impl Padded {
   fn index(local: IVec3) -> usize {
-    let shifted = local + IVec3::ONE;
+    let shifted = local + IVec3::splat(PAD);
     ((shifted.y * SPAN + shifted.z) * SPAN + shifted.x) as usize
   }
 
@@ -53,7 +55,7 @@ impl Padded {
           .map(|index| {
             let local =
               IVec3::new(index % SPAN, index / (SPAN * SPAN), index / SPAN % SPAN)
-                - IVec3::ONE;
+                - IVec3::splat(PAD);
             let offset = local.div_euclid(IVec3::splat(SIZE));
             let (_, chunk) = &neighbours
               [(((offset.y + 1) * 3 + offset.z + 1) * 3 + offset.x + 1) as usize];
@@ -137,8 +139,12 @@ const OCTAGON: [Vec2; 8] = [
 
 const CORNERS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 
-const DIVISIONS: i32 = 2;
-const MOST_SHIFT: f32 = 0.34;
+const LATTICE: i32 = SIZE + 1;
+const MOST_SHIFT: f32 = 0.45;
+const STEADY: f32 = 0.05;
+const LEANING: f32 = 0.3;
+const BLUR: [f32; 3] = [1.0, 0.6, 0.25];
+const DEPTH: [(i32, f32); 4] = [(-1, 0.5), (0, 1.0), (1, 1.0), (2, 0.5)];
 
 fn occupies(block: Block) -> bool {
   matches!(block.look(), Look::Opaque | Look::Liquid | Look::Log)
@@ -146,45 +152,117 @@ fn occupies(block: Block) -> bool {
     || block == Block::Glass
 }
 
-struct Field<'a>(&'a Padded);
+#[derive(Clone, Copy)]
+struct Point {
+  at: Vec3,
+  normal: Vec3,
+  soft: f32
+}
 
-impl Field<'_> {
-  fn sample(&self, at: Vec3) -> (f32, Vec3, f32) {
-    let below = (at - 0.5).floor();
-    let along = at - 0.5 - below;
-    let (density, gradient, soft, mass) = (0..8).fold(
-      (0.0, Vec3::ZERO, 0.0, 0.0),
-      |(density, gradient, soft, mass), corner| {
-        let step = IVec3::new(corner & 1, corner >> 1 & 1, corner >> 2);
-        let block = self.0.get(below.as_ivec3() + step);
-        let filled = f32::from(u8::from(occupies(block)));
-        let pick = |high: i32, t: f32| match high {
-          1 => (t, 1.0),
-          _ => (1.0 - t, -1.0)
-        };
-        let ((wx, dx), (wy, dy), (wz, dz)) =
-          (pick(step.x, along.x), pick(step.y, along.y), pick(step.z, along.z));
-        let weight = wx * wy * wz * filled;
-        (
-          density + weight,
-          gradient + Vec3::new(dx * wy * wz, wx * dy * wz, wx * wy * dz) * filled,
-          soft + weight * block.softness(),
-          mass + weight
-        )
-      }
-    );
-    (density, gradient, if mass > 0.0 { soft / mass } else { 0.0 })
+struct Contour<'a> {
+  padded: &'a Padded,
+  points: Vec<Option<Point>>
+}
+
+impl<'a> Contour<'a> {
+  fn new(padded: &'a Padded) -> Contour<'a> {
+    Contour { padded, points: vec![None; (LATTICE * LATTICE * LATTICE) as usize] }
   }
 
-  fn settle(&self, at: Vec3, normal: Vec3) -> (Vec3, Vec3) {
-    let (density, gradient, soft) = self.sample(at);
-    let steep = gradient.length_squared();
-    match steep > 1.0e-4 && soft > 0.0 {
-      true => (
-        at + (gradient * (0.5 - density) / steep).clamp_length_max(MOST_SHIFT) * soft,
-        normal.lerp(-gradient / steep.sqrt(), soft).normalize_or(normal)
-      ),
-      false => (at, normal)
+  fn filled(&self, cell: IVec3) -> bool { occupies(self.padded.get(cell)) }
+
+  fn bent(&self, inside: IVec3, out: IVec3) -> Vec3 {
+    let centre = inside.as_vec3() + 0.5 + out.as_vec3() * 0.5;
+    let (across, up) = match out.abs() {
+      IVec3::X => (IVec3::Y, IVec3::Z),
+      IVec3::Y => (IVec3::X, IVec3::Z),
+      _ => (IVec3::X, IVec3::Y)
+    };
+    let pull = DEPTH.iter().fold(Vec3::ZERO, |pull, &(depth, deep)| {
+      (-2..=2).flat_map(|a| (-2..=2).map(move |b| (a, b))).fold(pull, |pull, (a, b)| {
+        let cell = inside + out * depth + across * a + up * b;
+        match self.filled(cell) {
+          true => {
+            let weight =
+              deep * BLUR[a.unsigned_abs() as usize] * BLUR[b.unsigned_abs() as usize];
+            pull + (cell.as_vec3() + 0.5 - centre) * weight
+          }
+          false => pull
+        }
+      })
+    });
+    (out.as_vec3() * LEANING - pull).normalize_or(out.as_vec3())
+  }
+
+  fn solve(&self, corner: IVec3) -> Point {
+    let cells = (0..8).map(|index| {
+      corner - IVec3::ONE + IVec3::new(index & 1, index >> 1 & 1, index >> 2)
+    });
+    let crossings: Vec<(Vec3, Vec3)> = cells
+      .clone()
+      .flat_map(|cell| {
+        [IVec3::X, IVec3::Y, IVec3::Z]
+          .into_iter()
+          .filter(move |&axis| (cell + axis - corner).cmple(IVec3::ZERO).all())
+          .map(move |axis| (cell, cell + axis))
+      })
+      .filter(|&(low, high)| self.filled(low) != self.filled(high))
+      .map(|(low, high)| {
+        let (inside, outside) = match self.filled(low) {
+          true => (low, high),
+          false => (high, low)
+        };
+        ((low + high).as_vec3() / 2.0 + 0.5, self.bent(inside, outside - inside))
+      })
+      .collect();
+    let (soft, mass) = cells
+      .map(|cell| self.padded.get(cell))
+      .filter(|block| matches!(block.look(), Look::Opaque | Look::Cutout))
+      .fold((0.0, 0.0), |(soft, mass), block| (soft + block.softness(), mass + 1.0));
+    let at = corner.as_vec3();
+    match crossings.is_empty() || mass == 0.0 {
+      true => Point { at, normal: Vec3::Y, soft: 0.0 },
+      false => {
+        let middle = crossings.iter().map(|&(point, _)| point).sum::<Vec3>()
+          / crossings.len() as f32;
+        let (weights, aims) = crossings.iter().fold(
+          (Mat3::from_diagonal(Vec3::splat(STEADY)), middle * STEADY),
+          |(weights, aims), &(point, normal)| {
+            (
+              weights
+                + Mat3::from_cols(
+                  normal * normal.x,
+                  normal * normal.y,
+                  normal * normal.z
+                ),
+              aims + normal * normal.dot(point)
+            )
+          }
+        );
+        let best = (weights.inverse() * aims).clamp(at - MOST_SHIFT, at + MOST_SHIFT);
+        let soft = soft / mass;
+        Point {
+          at: at + (best - at) * soft,
+          normal: crossings
+            .iter()
+            .map(|&(_, normal)| normal)
+            .sum::<Vec3>()
+            .normalize_or(Vec3::Y),
+          soft
+        }
+      }
+    }
+  }
+
+  fn point(&mut self, corner: IVec3) -> Point {
+    let index = ((corner.y * LATTICE + corner.z) * LATTICE + corner.x) as usize;
+    match self.points[index] {
+      Some(point) => point,
+      None => {
+        let point = self.solve(corner);
+        self.points[index] = Some(point);
+        point
+      }
     }
   }
 }
@@ -302,16 +380,16 @@ fn builders(
   torches: &[IVec3]
 ) -> (Builder, Builder, Builder) {
   let origin = origin_of(key);
-  let surface: Vec<i32> = (0..SPAN * SPAN)
+  let surface: Vec<i32> = (0..RIM * RIM)
     .map(|index| {
-      generate::height(seed, origin.x + index % SPAN - 1, origin.z + index / SPAN - 1)
+      generate::height(seed, origin.x + index % RIM - 1, origin.z + index / RIM - 1)
     })
     .collect();
   let sky = |at: IVec3| {
-    let depth = surface[((at.z + 1) * SPAN + at.x + 1) as usize] - origin.y - at.y;
+    let depth = surface[((at.z + 1) * RIM + at.x + 1) as usize] - origin.y - at.y;
     (1.0 - depth as f32 / SKY_FALLOFF).clamp(CAVE_DARK, 1.0)
   };
-  let column = |x: i32, z: i32| surface[((z + 1) * SPAN + x + 1) as usize];
+  let column = |x: i32, z: i32| surface[((z + 1) * RIM + x + 1) as usize];
   let tint = |corner: Vec3| {
     let (x, z) = (corner.x as i32, corner.z as i32);
     sea_tint(
@@ -332,6 +410,7 @@ fn builders(
       .fold(0.0, f32::max)
       .powf(1.4)
   };
+  let mut contour = Contour::new(padded);
   let mut solid = Builder::default();
   let mut liquid = Builder::default();
   let mut unshadowed = Builder::default();
@@ -380,54 +459,43 @@ fn builders(
             / 4.0
         });
         let tile = block.tiles()[face.side];
-        let pieces = match kind(block) {
-          Some(_) => 1,
-          None => DIVISIONS
-        };
-        let blend = |values: [f32; 4], (u, v): (f32, f32)| {
-          let [low, right, high, left] = values;
-          (low * (1.0 - u) + right * u) * (1.0 - v) + (left * (1.0 - u) + high * u) * v
-        };
+        let first = builder.positions.len() as u32;
         let shades = occlusion.map(|shade| OCCLUSION[shade as usize]);
-        for piece in 0..pieces * pieces {
-          let (column, row) = (piece % pieces, piece / pieces);
-          let first = builder.positions.len() as u32;
-          let spots = CORNERS.map(|(a, b)| {
-            ((column + a) as f32 / pieces as f32, (row + b) as f32 / pieces as f32)
-          });
-          let shade = spots.map(|spot| blend(shades, spot));
-          for (spot @ (u, v), shade) in spots.into_iter().zip(shade) {
-            let flat = (local + face.base).as_vec3()
-              + face.across.as_vec3() * u
-              + face.up.as_vec3() * v;
-            let (position, normal) = match kind(block) {
-              Some(_) => (
-                flat.with_y(match flat.y > local.y as f32 + 0.5 {
-                  true => local.y as f32 + top,
-                  false => local.y as f32 + floor
-                }),
-                face.normal.as_vec3()
-              ),
-              None => Field(padded).settle(flat, face.normal.as_vec3())
-            };
-            builder.positions.push(position.to_array());
-            builder.normals.push(normal.to_array());
-            builder.uvs.push(uv_corner(tile, Vec2::new(u, 1.0 - v)).to_array());
-            let hue = match (kind(block), block) {
-              (Some(Fluid::Water), _) => tint(flat),
-              (_, Block::Grass) => meadow(origin.as_vec3() + flat),
-              _ => LinearRgba::WHITE
-            };
-            let torch = torchlight(origin.as_vec3() + position);
-            builder.colors.push(lit(hue, blend(daylight, spot), torch, shade));
-            builder.sways.push([f32::from(u8::from(block.leafy())), 0.0])
-          }
-          let order = match shade[1] + shade[3] > shade[0] + shade[2] {
-            true => [1, 2, 3, 1, 3, 0],
-            false => [0, 1, 2, 0, 2, 3]
+        for ((&(a, b), shade), daylight) in CORNERS.iter().zip(shades).zip(daylight) {
+          let corner = local + face.base + face.across * a + face.up * b;
+          let flat = corner.as_vec3();
+          let (position, normal) = match kind(block) {
+            Some(_) => (
+              flat.with_y(match flat.y > local.y as f32 + 0.5 {
+                true => local.y as f32 + top,
+                false => local.y as f32 + floor
+              }),
+              face.normal.as_vec3()
+            ),
+            None => {
+              let Point { at, normal, soft } = contour.point(corner);
+              (at, face.normal.as_vec3().lerp(normal, soft).normalize_or(normal))
+            }
           };
-          builder.indices.extend(order.map(|corner| first + corner))
+          builder.positions.push(position.to_array());
+          builder.normals.push(normal.to_array());
+          builder
+            .uvs
+            .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
+          let hue = match (kind(block), block) {
+            (Some(Fluid::Water), _) => tint(flat),
+            (_, Block::Grass) => meadow(origin.as_vec3() + flat),
+            _ => LinearRgba::WHITE
+          };
+          let torch = torchlight(origin.as_vec3() + position);
+          builder.colors.push(lit(hue, daylight, torch, shade));
+          builder.sways.push([f32::from(u8::from(block.leafy())), 0.0])
         }
+        let order = match shades[1] + shades[3] > shades[0] + shades[2] {
+          true => [1, 2, 3, 1, 3, 0],
+          false => [0, 1, 2, 0, 2, 3]
+        };
+        builder.indices.extend(order.map(|corner| first + corner))
       }
       let shift = model::shift(block, seed, origin + local);
       let pose = model::pose(block);
@@ -534,7 +602,7 @@ pub fn lone(block: Block, at: IVec3, seed: u32, torches: &[IVec3]) -> Vec<[Corne
     (0..SPAN * SPAN * SPAN)
       .map(|index| {
         let cell = IVec3::new(index % SPAN, index / (SPAN * SPAN), index / SPAN % SPAN)
-          - IVec3::ONE;
+          - IVec3::splat(PAD);
         if cell == local { block } else { Block::Air }
       })
       .collect()
