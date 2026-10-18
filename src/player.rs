@@ -162,6 +162,7 @@ fn spawn_eye(mut commands: Commands, settings: Res<Settings>) {
     Projection::Perspective(PerspectiveProjection {
       fov: settings.fov.to_radians(),
       near: 0.05,
+      far: crate::far::FAR as f32 + 800.0,
       ..default()
     }),
     crate::sky::lens(),
@@ -236,6 +237,41 @@ pub fn cells(low: Vec3, high: Vec3) -> impl Iterator<Item = IVec3> {
   (from.y..=to.y).flat_map(move |y| {
     (from.z..=to.z).flat_map(move |z| (from.x..=to.x).map(move |x| IVec3::new(x, y, z)))
   })
+}
+
+pub struct Placement {
+  pub at: IVec3,
+  pub block: Block,
+  pub head: Option<(IVec3, Block)>,
+  pub fits: bool
+}
+
+pub fn placement(voxels: &Voxels, pilot: &Pilot, hit: &Hit, item: Block) -> Placement {
+  let at = hit.at + hit.normal;
+  let ahead = (pilot.facing() * Vec3::NEG_Z).xz();
+  let facing = match ahead.x.abs() > ahead.y.abs() {
+    true => IVec3::X * ahead.x.signum() as i32,
+    false => IVec3::Z * ahead.y.signum() as i32
+  };
+  let wall = match (hit.normal.y, item.torch()) {
+    (0, _) => Some(-hit.normal),
+    (_, true) => None,
+    _ => Some(facing)
+  };
+  let laid = (item == Block::Bed).then(|| Block::laid(facing)).flatten();
+  let block =
+    laid.map_or(wall.map_or(item, |wall| item.against(wall)), |(foot, _)| foot);
+  let (low, high) = Bulk::PERSON.body(pilot.at);
+  let inside = cells(low, high).any(|cell| cell == at) && block.solid();
+  let hung = block.wall().is_none_or(|wall| voxels.solid(at + wall));
+  let open = |cell: IVec3| voxels.block(cell).is_some_and(|block| !block.solid());
+  let roomy = laid.is_none() || open(at + facing) && voxels.solid(at + facing - IVec3::Y);
+  Placement {
+    at,
+    block,
+    head: laid.map(|(_, head)| (at + facing, head)),
+    fits: !inside && hung && roomy && open(at)
+  }
 }
 
 pub fn slide(
@@ -794,37 +830,17 @@ fn work(
       && let Some(stack) = stack.filter(|stack| stack.block.placeable())
     {
       *cooldown = PLACE_EVERY;
-      let at = hit.at + hit.normal;
-      let ahead = (pilot.facing() * Vec3::NEG_Z).xz();
-      let facing = match ahead.x.abs() > ahead.y.abs() {
-        true => IVec3::X * ahead.x.signum() as i32,
-        false => IVec3::Z * ahead.y.signum() as i32
-      };
-      let wall = match (hit.normal.y, stack.block.torch()) {
-        (0, _) => Some(-hit.normal),
-        (_, true) => None,
-        _ => Some(facing)
-      };
-      let laid = (stack.block == Block::Bed).then(|| Block::laid(facing)).flatten();
-      let block = laid.map_or(
-        wall.map_or(stack.block, |wall| stack.block.against(wall)),
-        |(foot, _)| foot
-      );
-      let (low, high) = Bulk::PERSON.body(pilot.at);
-      let inside = cells(low, high).any(|cell| cell == at) && block.solid();
-      let hung = block.wall().is_none_or(|wall| voxels.solid(at + wall));
-      let open = |cell: IVec3| voxels.block(cell).is_some_and(|block| !block.solid());
-      let roomy =
-        laid.is_none() || open(at + facing) && voxels.solid(at + facing - IVec3::Y);
-      if !inside && hung && roomy && open(at) {
+      let Placement { at, block, head, fits } =
+        placement(voxels, &pilot, hit, stack.block);
+      if fits {
         puts.write(Put { at, block });
         swings.write(Swing);
         sounds.write(Sound::at(Cue::Thud, at.as_vec3() + 0.5));
         sounds.write(Sound::at(footing(block), at.as_vec3() + 0.5).louder(2.0));
         if *role == Role::Guest {
           voxels.set(at, block);
-          for (_, head) in laid.into_iter() {
-            voxels.set(at + facing, head)
+          for (cell, head) in head.into_iter() {
+            voxels.set(cell, head)
           }
         }
         if stack.block.sign() && voxels.block(at - IVec3::Y).is_some_and(Block::solid) {

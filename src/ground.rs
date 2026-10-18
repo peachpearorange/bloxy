@@ -13,10 +13,18 @@ pub struct Emerge {
   #[uniform(100)]
   pub born: Vec4,
   #[uniform(100)]
-  pub hidden: Vec4
+  pub hidden: Vec4,
+  #[uniform(100)]
+  pub weather: Vec4
 }
 
 impl MaterialExtension for Emerge {
+  fn vertex_shader() -> ShaderRef { "embedded://bloxy/ground.wgsl".into() }
+
+  fn prepass_vertex_shader() -> ShaderRef {
+    "embedded://bloxy/ground_prepass.wgsl".into()
+  }
+
   fn fragment_shader() -> ShaderRef { "embedded://bloxy/ground.wgsl".into() }
 
   fn prepass_fragment_shader() -> ShaderRef {
@@ -44,11 +52,26 @@ impl Concealed {
   }
 }
 
-fn conceal(concealed: Res<Concealed>, mut grounds: ResMut<Assets<Ground>>) {
-  if concealed.is_changed() {
-    let hidden = concealed.hidden();
+#[derive(Resource, Default, PartialEq, Clone, Copy)]
+pub struct Elements {
+  pub wind: f32,
+  pub wet: f32
+}
+
+impl Elements {
+  pub fn weather(self) -> Vec4 { Vec4::new(self.wind, self.wet, 0.0, 0.0) }
+}
+
+fn conceal(
+  concealed: Res<Concealed>,
+  elements: Res<Elements>,
+  mut grounds: ResMut<Assets<Ground>>
+) {
+  if concealed.is_changed() || elements.is_changed() {
+    let (hidden, weather) = (concealed.hidden(), elements.weather());
     for (_, ground) in grounds.iter_mut() {
-      ground.extension.hidden = hidden
+      ground.extension.hidden = hidden;
+      ground.extension.weather = weather
     }
   }
 }
@@ -63,6 +86,7 @@ impl Plugin for Grounds {
       app
         .add_plugins(MaterialPlugin::<Ground>::default())
         .init_resource::<Concealed>()
+        .init_resource::<Elements>()
         .add_systems(PostUpdate, conceal);
     }
   }

@@ -4,6 +4,7 @@ use {crate::{island::{Island, Kind},
              player::{Eye, Pilot},
              protocol::{Role, authority, plays},
              sky::daylight,
+             ground::Elements,
              voxels::Voxels},
      bevy::{asset::embedded_asset,
             light::{NotShadowCaster, NotShadowReceiver,
@@ -12,13 +13,14 @@ use {crate::{island::{Island, Kind},
             pbr::{DistanceFog, Material, MaterialPipeline, MaterialPipelineKey,
                   MaterialPlugin},
             prelude::*,
+            render::view::ColorGrading,
             render::render_resource::{AsBindGroup, Face, RenderPipelineDescriptor,
                                       SpecializedMeshPipelineError},
             shader::ShaderRef},
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
 
-const RAIN_FOG: f32 = 0.008;
+const MIST: Vec3 = Vec3::new(0.5, 0.56, 0.58);
 const CLOUD_HEIGHT: f32 = 170.0;
 const CLOUD_THICK: f32 = 80.0;
 const CLOUD_SPAN: f32 = 5200.0;
@@ -61,6 +63,24 @@ impl Sky {
       Sky::Cloudy => 0.6,
       Sky::Rain => 0.3,
       Sky::Storm => 0.16
+    }
+  }
+
+  fn wind(self) -> f32 {
+    match self {
+      Sky::Clear => 0.35,
+      Sky::Cloudy => 0.65,
+      Sky::Rain => 1.0,
+      Sky::Storm => 1.6
+    }
+  }
+
+  fn murk(self) -> f32 {
+    match self {
+      Sky::Clear => 0.0007,
+      Sky::Cloudy => 0.0015,
+      Sky::Rain => 0.0065,
+      Sky::Storm => 0.011
     }
   }
 
@@ -122,6 +142,8 @@ pub struct Climate {
   cover: f32,
   wet: f32,
   sun: f32,
+  wind: f32,
+  murk: f32,
   flash: f32,
   luck: u32,
   settled: bool
@@ -264,6 +286,7 @@ fn drift(
   weathers: Query<&Weather>,
   canopy: Res<Canopy>,
   mut climate: ResMut<Climate>,
+  mut elements: ResMut<Elements>,
   mut clouds: ResMut<Assets<Cloud>>,
   mut skies: Query<&mut Transform, With<Clouds>>
 ) {
@@ -276,6 +299,12 @@ fn drift(
   climate.cover = ease(climate.cover, sky.cover(), rate);
   climate.wet = ease(climate.wet, sky.wet(), rate * 2.0);
   climate.sun = ease(climate.sun, sky.sun(), rate);
+  climate.wind = ease(climate.wind, sky.wind(), rate);
+  climate.murk = ease(climate.murk, sky.murk(), rate);
+  elements.set_if_neq(Elements {
+    wind: (climate.wind * 50.0).round() / 50.0,
+    wet: (climate.wet * 50.0).round() / 50.0
+  });
   for mut transform in skies.iter_mut() {
     transform.translation = pilot.at.with_y(CLOUD_HEIGHT + CLOUD_THICK / 2.0).floor()
   }
@@ -380,7 +409,7 @@ fn darken(
   voxels: Option<Res<Voxels>>,
   mut climate: ResMut<Climate>,
   mut suns: Query<&mut DirectionalLight>,
-  mut fogs: Query<&mut DistanceFog, With<Eye>>,
+  mut fogs: Query<(&mut DistanceFog, &mut ColorGrading), With<Eye>>,
   mut bolts: Query<(Entity, &mut Bolt)>,
   mut sounds: MessageWriter<crate::audio::Sound>,
   mut commands: Commands
@@ -437,11 +466,20 @@ fn darken(
   for mut sun in suns.iter_mut() {
     sun.illuminance = day.lux * climate.sun + climate.flash * flash
   }
-  let wet = climate.wet;
-  for mut fog in fogs.iter_mut() {
-    let haze = day.haze * (1.0 - wet * 0.35);
+  let gloom = ((1.0 - climate.sun) / (1.0 - Sky::Storm.sun())).clamp(0.0, 1.0);
+  let bright = 1.0 - day.dark;
+  for (mut fog, mut grading) in fogs.iter_mut() {
+    let haze = day.haze.lerp(MIST * day.haze.length() / MIST.length(), gloom) * (1.0 - gloom * 0.3);
     fog.color = Color::srgb(haze.x, haze.y, haze.z);
-    fog.falloff = FogFalloff::Exponential { density: wet * RAIN_FOG }
+    fog.directional_light_color = Color::srgba(1.0, 0.9, 0.72, 0.6 * (1.0 - gloom));
+    fog.falloff = FogFalloff::Exponential { density: climate.murk };
+    grading.global.post_saturation = 1.12 - 0.42 * gloom;
+    grading.global.temperature = (0.08 - 0.3 * gloom) * bright;
+    grading.global.tint = -0.04 * gloom;
+    grading.global.exposure = -0.35 * gloom;
+    grading.midtones.contrast = 1.06 - 0.1 * gloom;
+    grading.shadows.lift = 0.01 * gloom;
+    grading.shadows.saturation = 1.0 - 0.3 * gloom
   }
 }
 
@@ -459,6 +497,8 @@ impl Plugin for Weathering {
         cover: Sky::Clear.cover(),
         wet: 0.0,
         sun: 1.0,
+        wind: Sky::Clear.wind(),
+        murk: Sky::Clear.murk(),
         flash: 0.0,
         luck: 0xC10D,
         settled: false

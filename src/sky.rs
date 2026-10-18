@@ -12,7 +12,8 @@ use {crate::{block::Block,
             pbr::{AtmosphereSettings, DistanceFog},
             platform::collections::HashMap,
             post_process::bloom::Bloom,
-            prelude::*},
+            prelude::*,
+            render::view::ColorGrading},
      std::f32::consts::PI};
 
 const DAY_EXPOSURE: f32 = 13.6;
@@ -99,7 +100,8 @@ pub fn lens() -> impl Bundle {
       falloff: FogFalloff::Exponential { density: 0.0 },
       ..default()
     },
-    Msaa::Off
+    Msaa::Off,
+    ColorGrading::default()
   )
 }
 

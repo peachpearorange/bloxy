@@ -1,4 +1,5 @@
-use {crate::{ground::{Concealed, EMERGING, Emerge, Ground, LONG_AGO, born, settled},
+use {crate::{ground::{Concealed, EMERGING, Elements, Emerge, Ground, LONG_AGO, born,
+                      settled},
              mesh::{self, Meshes, Padded},
              player::Pilot,
              protocol::plays,
@@ -35,7 +36,8 @@ struct Streaming {
 
 #[derive(Resource, Default)]
 pub struct Progress {
-  pub pending: usize
+  pub pending: usize,
+  pub distant: usize
 }
 
 pub fn paint(
@@ -58,7 +60,11 @@ pub fn paint(
   };
   let solid = materials.add(base.clone());
   let ground = grounds
-    .add(Ground { base, extension: Emerge { born: settled(), hidden: Vec4::ZERO } });
+    .add(Ground { base, extension: Emerge {
+      born: settled(),
+      hidden: Vec4::ZERO,
+      weather: Vec4::ZERO
+    } });
   let liquid = waters.add(water::water(settled()));
   commands.insert_resource(Palette {
     solid,
@@ -121,9 +127,10 @@ fn stream(
   palette: Res<Palette>,
   settings: Res<crate::settings::Settings>,
   mut meshes: ResMut<Assets<Mesh>>,
-  (time, concealed, mut grounds, mut waters): (
+  (time, concealed, elements, mut grounds, mut waters): (
     Res<Time>,
     Res<Concealed>,
+    Res<Elements>,
     ResMut<Assets<Ground>>,
     ResMut<Assets<Water>>
   )
@@ -209,7 +216,8 @@ fn stream(
             base: shared.base.clone(),
             extension: Emerge {
               born: Vec4::new(birth, 0.0, 0.0, 0.0),
-              hidden: concealed.hidden()
+              hidden: concealed.hidden(),
+              weather: elements.weather()
             }
           })
           .map_or(palette.ground.clone(), |ground| grounds.add(ground)),
@@ -282,7 +290,11 @@ fn stream(
           true => chunk.try_insert(MeshMaterial3d(waters.add(water::water(leaving)))),
           false => chunk.try_insert(MeshMaterial3d(grounds.add(Ground {
             base: base.clone(),
-            extension: Emerge { born: leaving, hidden: concealed.hidden() }
+            extension: Emerge {
+              born: leaving,
+              hidden: concealed.hidden(),
+              weather: elements.weather()
+            }
           })))
         };
         streaming.fading.push((old, death))

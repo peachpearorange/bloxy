@@ -137,6 +137,58 @@ const OCTAGON: [Vec2; 8] = [
 
 const CORNERS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 
+const DIVISIONS: i32 = 2;
+const MOST_SHIFT: f32 = 0.34;
+
+fn occupies(block: Block) -> bool {
+  matches!(block.look(), Look::Opaque | Look::Liquid | Look::Log)
+    || block.leafy()
+    || block == Block::Glass
+}
+
+struct Field<'a>(&'a Padded);
+
+impl Field<'_> {
+  fn sample(&self, at: Vec3) -> (f32, Vec3, f32) {
+    let below = (at - 0.5).floor();
+    let along = at - 0.5 - below;
+    let (density, gradient, soft, mass) = (0..8).fold(
+      (0.0, Vec3::ZERO, 0.0, 0.0),
+      |(density, gradient, soft, mass), corner| {
+        let step = IVec3::new(corner & 1, corner >> 1 & 1, corner >> 2);
+        let block = self.0.get(below.as_ivec3() + step);
+        let filled = f32::from(u8::from(occupies(block)));
+        let pick = |high: i32, t: f32| match high {
+          1 => (t, 1.0),
+          _ => (1.0 - t, -1.0)
+        };
+        let ((wx, dx), (wy, dy), (wz, dz)) =
+          (pick(step.x, along.x), pick(step.y, along.y), pick(step.z, along.z));
+        let weight = wx * wy * wz * filled;
+        (
+          density + weight,
+          gradient + Vec3::new(dx * wy * wz, wx * dy * wz, wx * wy * dz) * filled,
+          soft + weight * block.softness(),
+          mass + weight
+        )
+      }
+    );
+    (density, gradient, if mass > 0.0 { soft / mass } else { 0.0 })
+  }
+
+  fn settle(&self, at: Vec3, normal: Vec3) -> (Vec3, Vec3) {
+    let (density, gradient, soft) = self.sample(at);
+    let steep = gradient.length_squared();
+    match steep > 1.0e-4 && soft > 0.0 {
+      true => (
+        at + (gradient * (0.5 - density) / steep).clamp_length_max(MOST_SHIFT) * soft,
+        normal.lerp(-gradient / steep.sqrt(), soft).normalize_or(normal)
+      ),
+      false => (at, normal)
+    }
+  }
+}
+
 fn kind(block: Block) -> Option<Fluid> { block.liquid().map(|(fluid, _)| fluid) }
 
 fn shows(block: Block, neighbour: Block) -> bool {
@@ -157,13 +209,22 @@ struct Builder {
   normals: Vec<[f32; 3]>,
   uvs: Vec<[f32; 2]>,
   colors: Vec<[f32; 4]>,
+  sways: Vec<[f32; 2]>,
   indices: Vec<u32>
 }
 
 impl Builder {
-  fn polygon(&mut self, points: &[Vec3], uvs: &[Vec2], normal: Vec3, hue: LinearRgba) {
+  fn polygon(
+    &mut self,
+    points: &[Vec3],
+    uvs: &[Vec2],
+    normal: Vec3,
+    hue: LinearRgba,
+    bend: impl Fn(usize) -> f32
+  ) {
     let first = self.positions.len() as u32;
-    for (point, uv) in points.iter().zip(uvs) {
+    for (index, (point, uv)) in points.iter().zip(uvs).enumerate() {
+      self.sways.push([0.0, bend(index)]);
       self.positions.push(point.to_array());
       self.normals.push(normal.to_array());
       self.uvs.push(uv.to_array());
@@ -185,6 +246,7 @@ impl Builder {
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs)
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, self.sways)
         .with_inserted_indices(Indices::U32(self.indices))
     })
   }
@@ -205,6 +267,11 @@ fn crest(block: Block, above: Block) -> f32 {
     }
     None => 1.0
   }
+}
+
+pub fn sea_tint(floor: f32) -> LinearRgba {
+  let deep = ((SEA as f32 - floor) / OCEAN_DEPTH).clamp(0.0, 1.0);
+  SHALLOWS.mix(&OPEN_SEA, deep.sqrt())
 }
 
 const DRY: LinearRgba = LinearRgba::rgb(1.08, 1.03, 0.78);
@@ -247,13 +314,13 @@ fn builders(
   let column = |x: i32, z: i32| surface[((z + 1) * SPAN + x + 1) as usize];
   let tint = |corner: Vec3| {
     let (x, z) = (corner.x as i32, corner.z as i32);
-    let floor = [(x - 1, z - 1), (x, z - 1), (x - 1, z), (x, z)]
-      .map(|(x, z)| column(x.clamp(-1, SIZE), z.clamp(-1, SIZE)))
-      .iter()
-      .sum::<i32>() as f32
-      / 4.0;
-    let deep = ((SEA as f32 - floor) / OCEAN_DEPTH).clamp(0.0, 1.0);
-    SHALLOWS.mix(&OPEN_SEA, deep.sqrt())
+    sea_tint(
+      [(x - 1, z - 1), (x, z - 1), (x - 1, z), (x, z)]
+        .map(|(x, z)| column(x.clamp(-1, SIZE), z.clamp(-1, SIZE)))
+        .iter()
+        .sum::<i32>() as f32
+        / 4.0
+    )
   };
   let torchlight = |point: Vec3| {
     torches
@@ -313,32 +380,54 @@ fn builders(
             / 4.0
         });
         let tile = block.tiles()[face.side];
-        let first = builder.positions.len() as u32;
-        for ((&(a, b), shade), daylight) in CORNERS.iter().zip(occlusion).zip(daylight) {
-          let corner = (local + face.base + face.across * a + face.up * b).as_vec3();
-          let height = match corner.y > local.y as f32 + 0.5 {
-            true => local.y as f32 + top,
-            false => local.y as f32 + floor
-          };
-          builder.positions.push([corner.x, height, corner.z]);
-          builder.normals.push(face.normal.as_vec3().to_array());
-          builder
-            .uvs
-            .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
-          let hue = match (kind(block), block) {
-            (Some(Fluid::Water), _) => tint(corner),
-            (_, Block::Grass) => meadow(origin.as_vec3() + corner),
-            _ => LinearRgba::WHITE
-          };
-          let torch = torchlight(origin.as_vec3() + corner.with_y(height));
-          builder.colors.push(lit(hue, daylight, torch, OCCLUSION[shade as usize]));
-        }
-        let flipped = occlusion[1] + occlusion[3] > occlusion[0] + occlusion[2];
-        let order = match flipped {
-          true => [1, 2, 3, 1, 3, 0],
-          false => [0, 1, 2, 0, 2, 3]
+        let pieces = match kind(block) {
+          Some(_) => 1,
+          None => DIVISIONS
         };
-        builder.indices.extend(order.map(|corner| first + corner))
+        let blend = |values: [f32; 4], (u, v): (f32, f32)| {
+          let [low, right, high, left] = values;
+          (low * (1.0 - u) + right * u) * (1.0 - v) + (left * (1.0 - u) + high * u) * v
+        };
+        let shades = occlusion.map(|shade| OCCLUSION[shade as usize]);
+        for piece in 0..pieces * pieces {
+          let (column, row) = (piece % pieces, piece / pieces);
+          let first = builder.positions.len() as u32;
+          let spots = CORNERS.map(|(a, b)| {
+            ((column + a) as f32 / pieces as f32, (row + b) as f32 / pieces as f32)
+          });
+          let shade = spots.map(|spot| blend(shades, spot));
+          for (spot @ (u, v), shade) in spots.into_iter().zip(shade) {
+            let flat = (local + face.base).as_vec3()
+              + face.across.as_vec3() * u
+              + face.up.as_vec3() * v;
+            let (position, normal) = match kind(block) {
+              Some(_) => (
+                flat.with_y(match flat.y > local.y as f32 + 0.5 {
+                  true => local.y as f32 + top,
+                  false => local.y as f32 + floor
+                }),
+                face.normal.as_vec3()
+              ),
+              None => Field(padded).settle(flat, face.normal.as_vec3())
+            };
+            builder.positions.push(position.to_array());
+            builder.normals.push(normal.to_array());
+            builder.uvs.push(uv_corner(tile, Vec2::new(u, 1.0 - v)).to_array());
+            let hue = match (kind(block), block) {
+              (Some(Fluid::Water), _) => tint(flat),
+              (_, Block::Grass) => meadow(origin.as_vec3() + flat),
+              _ => LinearRgba::WHITE
+            };
+            let torch = torchlight(origin.as_vec3() + position);
+            builder.colors.push(lit(hue, blend(daylight, spot), torch, shade));
+            builder.sways.push([f32::from(u8::from(block.leafy())), 0.0])
+          }
+          let order = match shade[1] + shade[3] > shade[0] + shade[2] {
+            true => [1, 2, 3, 1, 3, 0],
+            false => [0, 1, 2, 0, 2, 3]
+          };
+          builder.indices.extend(order.map(|corner| first + corner))
+        }
       }
       let shift = model::shift(block, seed, origin + local);
       let pose = model::pose(block);
@@ -373,7 +462,11 @@ fn builders(
               uv_corner(tile, Vec2::new(u / 16.0, 1.0 - v / 16.0))
             }),
             pose.transform_vector3(face.normal.as_vec3()),
-            hue
+            hue,
+            |index| match block.plant() {
+              true => texels[index].y / 16.0,
+              false => 0.0
+            }
           )
         }
       }
@@ -396,7 +489,8 @@ fn builders(
               &[(from, 1.0), (to, 1.0), (to, 0.0), (from, 0.0)]
                 .map(|(point, v)| uv_corner(side, Vec2::new(across(point), v))),
               normal,
-              hue
+              hue,
+              |_| 0.0
             )
           }
         }
@@ -409,7 +503,8 @@ fn builders(
               &OCTAGON.map(|point| corner + Vec3::new(point.x, y, point.y)),
               &OCTAGON.map(|point| uv_corner(tile, point)),
               normal.as_vec3(),
-              hue
+              hue,
+              |_| 0.0
             )
           }
         }

@@ -23,12 +23,14 @@ mod death;
 mod dungeon;
 mod editor;
 mod figure;
+mod far;
 mod fishing;
 mod flow;
 mod folk;
 mod fx;
 mod gear;
 mod generate;
+mod ghost;
 mod glance;
 mod glyph;
 mod ground;
@@ -126,6 +128,7 @@ fn snapshot(
   if let Some(at) = opts().shot {
     let settled = time.elapsed_secs() > at
       && progress.pending == 0
+      && progress.distant == 0
       && (pilot.is_some() || opts().menu.is_some());
     if time.elapsed_secs() as u32 != (time.elapsed_secs() - time.delta_secs()) as u32 {
       info!("shot waits: {} pending, pilot {}", progress.pending, pilot.is_some())
@@ -335,7 +338,9 @@ fn main() {
         glance::Glances,
         console::Console,
         plate::Plates,
-        chat::Chat
+        chat::Chat,
+        ghost::Ghosts,
+        far::Distance
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

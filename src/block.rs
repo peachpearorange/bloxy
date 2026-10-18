@@ -871,6 +871,47 @@ impl Block {
 
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
 
+  pub fn softness(self) -> f32 {
+    match self {
+      Block::Grass
+      | Block::Dirt
+      | Block::Sand
+      | Block::Snow
+      | Block::Mycelium
+      | Block::Clay
+      | Block::Leaves
+      | Block::BirchLeaves
+      | Block::SpruceLeaves
+      | Block::PalmLeaves => 1.0,
+      Block::Gravel | Block::RedCap | Block::BrownCap | Block::MushroomStem => 0.8,
+      Block::Stone
+      | Block::Granite
+      | Block::Diorite
+      | Block::Andesite
+      | Block::Limestone
+      | Block::Slate
+      | Block::Basalt
+      | Block::Bedrock
+      | Block::CoalOre
+      | Block::IronOre
+      | Block::CopperOre
+      | Block::TinOre
+      | Block::GoldOre
+      | Block::DiamondOre => 0.6,
+      Block::Cobblestone
+      | Block::GraniteCobble
+      | Block::DioriteCobble
+      | Block::AndesiteCobble
+      | Block::LimestoneCobble
+      | Block::SlateCobble
+      | Block::MossyBrick
+      | Block::CrackedBrick
+      | Block::Wool => 0.4,
+      Block::Ice | Block::Lumen | Block::AncientBrick | Block::CarvedStone => 0.25,
+      _ => 0.0
+    }
+  }
+
   pub fn fluid(self) -> bool { self.liquid().is_some() }
 
   pub fn solid(self) -> bool {
