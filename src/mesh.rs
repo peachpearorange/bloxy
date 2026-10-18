@@ -11,7 +11,7 @@ use {crate::{block::{Block, Fluid, Look},
             prelude::*},
      std::sync::Arc};
 
-const PAD: i32 = SPREAD + 1;
+const PAD: i32 = LEVEL_REACH + 2;
 const SPAN: i32 = SIZE + 2 * PAD;
 const RIM: i32 = SIZE + 2;
 const WATER_TOP: f32 = 0.88;
@@ -175,7 +175,8 @@ fn occupies(block: Block) -> bool {
 struct Point {
   at: Vec3,
   normal: Vec3,
-  soft: f32
+  soft: f32,
+  even: bool
 }
 
 pub trait Cells {
@@ -219,8 +220,8 @@ fn bent(cells: &impl Cells, inside: IVec3, out: IVec3, sunk: bool) -> Vec3 {
 }
 
 const SPREAD: i32 = 3;
-const LEVEL_REACH: i32 = 3;
-const RISE_LIMIT: f32 = 0.48;
+const LEVEL_REACH: i32 = 6;
+const RISE_LIMIT: f32 = 1.0;
 const WINDOW: i32 = 2 * SPREAD + 2;
 
 fn earthy(block: Block) -> bool { block.look() == Look::Opaque && block.softness() > 0.0 }
@@ -241,8 +242,8 @@ fn level(cells: &impl Cells, corner: IVec3) -> Option<(f32, Vec3)> {
         .map(|index| {
           let column = corner.xz() + IVec2::new(index % WINDOW, index / WINDOW)
             - IVec2::splat(SPREAD + 1);
-          (corner.y - LEVEL_REACH..=corner.y + LEVEL_REACH)
-            .rev()
+          (0..=2 * LEVEL_REACH)
+            .map(|step| corner.y + (step + 1) / 2 * if step % 2 == 0 { -1 } else { 1 })
             .find(|&y| {
               earthy(cells.cell(column.extend(y - 1).xzy()))
                 && !cells.cell(column.extend(y).xzy()).solid()
@@ -265,7 +266,18 @@ fn level(cells: &impl Cells, corner: IVec3) -> Option<(f32, Vec3)> {
         );
         (weight > 0.0).then(|| total / weight)
       };
-      smooth(0, 0).map(|middle| {
+      let beside = [
+        (SPREAD, SPREAD),
+        (SPREAD + 1, SPREAD),
+        (SPREAD, SPREAD + 1),
+        (SPREAD + 1, SPREAD + 1)
+      ]
+      .iter()
+      .all(|&(x, z)| {
+        heights[(z * WINDOW + x) as usize]
+          .is_some_and(|height| (height - corner.y as f32).abs() <= 1.0)
+      });
+      smooth(0, 0).filter(|_| beside).map(|middle| {
         let at = |dx: i32, dz: i32| smooth(dx, dz).unwrap_or(middle);
         (
           middle.clamp(corner.y as f32 - RISE_LIMIT, corner.y as f32 + RISE_LIMIT),
@@ -305,7 +317,7 @@ fn solve(cells: &impl Cells, corner: IVec3) -> Point {
     .unwrap_or(0.0);
   let at = corner.as_vec3();
   match crossings.is_empty() || soft == 0.0 {
-    true => Point { at, normal: Vec3::Y, soft: 0.0 },
+    true => Point { at, normal: Vec3::Y, soft: 0.0, even: false },
     false => {
       let middle =
         crossings.iter().map(|&(point, _)| point).sum::<Vec3>() / crossings.len() as f32;
@@ -322,9 +334,10 @@ fn solve(cells: &impl Cells, corner: IVec3) -> Point {
       let best = (weights.inverse() * aims).clamp(at - MOST_SHIFT, at + MOST_SHIFT);
       let bent =
         crossings.iter().map(|&(_, normal)| normal).sum::<Vec3>().normalize_or(Vec3::Y);
-      let (best, normal) = level(cells, corner)
-        .map_or((best, bent), |(height, slope)| (best.with_y(height), slope));
-      Point { at: at + (best - at) * soft, normal, soft }
+      level(cells, corner).map_or(
+        Point { at: at + (best - at) * soft, normal: bent, soft, even: false },
+        |(height, normal)| Point { at: at.with_y(height), normal, soft: 1.0, even: true }
+      )
     }
   }
 }
@@ -604,9 +617,6 @@ fn builders(
           let (across, up) = (face.across * (a * 2 - 1), face.up * (b * 2 - 1));
           [outside, outside + across, outside + up, outside + across + up]
             .map(|at| sky(clamp(at)))
-            .iter()
-            .sum::<f32>()
-            / 4.0
         });
         let tile = block.tiles()[face.side];
         let first = builder.positions.len() as u32;
@@ -614,18 +624,23 @@ fn builders(
         for ((&(a, b), shade), daylight) in CORNERS.iter().zip(shades).zip(daylight) {
           let corner = local + face.base + face.across * a + face.up * b;
           let flat = corner.as_vec3();
-          let (position, normal) = match kind(block) {
+          let (position, normal, even) = match kind(block) {
             Some(_) => (
               flat.with_y(match flat.y > local.y as f32 + 0.5 {
                 true => local.y as f32 + top,
                 false => local.y as f32 + floor
               }),
-              face.normal.as_vec3()
+              face.normal.as_vec3(),
+              false
             ),
             None => {
-              let Point { at, normal, soft } = contour.point(corner);
-              (at, face.normal.as_vec3().lerp(normal, soft).normalize_or(normal))
+              let Point { at, normal, soft, even } = contour.point(corner);
+              (at, face.normal.as_vec3().lerp(normal, soft).normalize_or(normal), even)
             }
+          };
+          let (shade, daylight) = match even {
+            true => (1.0, daylight.into_iter().fold(0.0, f32::max)),
+            false => (shade, daylight.iter().sum::<f32>() / 4.0)
           };
           builder.positions.push(position.to_array());
           builder.normals.push(normal.to_array());
