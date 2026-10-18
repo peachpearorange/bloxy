@@ -155,7 +155,10 @@ fn build(samples: &Samples, tile: IVec2, near: u16) -> (Option<Mesh>, Option<Mes
       land.quad(SQUARE.map(|(a, b)| {
         (position(x + a, z + b), normal(x + a, z + b), color(x + a, z + b))
       }));
-      let wet = SQUARE.map(|(a, b)| samples.at(x + a, z + b)).into_iter().filter(|point| point.water());
+      let wet = SQUARE
+        .map(|(a, b)| samples.at(x + a, z + b))
+        .into_iter()
+        .filter(|point| point.water());
       if let Some(level) = wet.clone().map(|point| point.top).max() {
         let floor = wet.map(|point| point.floor).min().unwrap_or(level) as f32;
         let height = level as f32 + WATER_TOP - WATER_SINK;
@@ -174,7 +177,8 @@ fn build(samples: &Samples, tile: IVec2, near: u16) -> (Option<Mesh>, Option<Mes
           let outward = Vec3::new(dx as f32, 0.0, dz as f32);
           let (top_from, top_to) =
             (position(x + from.0, z + from.1), position(x + to.0, z + to.1));
-          let (hue_from, hue_to) = (color(x + from.0, z + from.1), color(x + to.0, z + to.1));
+          let (hue_from, hue_to) =
+            (color(x + from.0, z + from.1), color(x + to.0, z + to.1));
           land.quad([
             (top_to, outward, hue_to),
             (top_from, outward, hue_from),
@@ -232,10 +236,7 @@ fn wanted(centre: IVec3, at: Vec2, reach: i32) -> Vec<(IVec2, Wanted, f32)> {
       });
       (distance < FAR as f32 && near != u16::MAX).then_some((
         tile,
-        Wanted {
-          step: if distance < FINE_WITHIN as f32 { FINE } else { COARSE },
-          near
-        },
+        Wanted { step: if distance < FINE_WITHIN as f32 { FINE } else { COARSE }, near },
         distance
       ))
     })
@@ -305,7 +306,9 @@ fn survey(
       .into_iter()
       .flatten()
       .collect();
-      for old in distant.shown.insert(tile, (want, entities)).into_iter().flat_map(|(_, old)| old) {
+      for old in
+        distant.shown.insert(tile, (want, entities)).into_iter().flat_map(|(_, old)| old)
+      {
         commands.entity(old).despawn()
       }
     }
@@ -316,7 +319,9 @@ fn survey(
       .filter(|tile| !tiles.iter().any(|(wanted, _, _)| wanted == tile))
       .collect();
     for tile in gone {
-      for entity in distant.shown.remove(&tile).into_iter().flat_map(|(_, entities)| entities) {
+      for entity in
+        distant.shown.remove(&tile).into_iter().flat_map(|(_, entities)| entities)
+      {
         commands.entity(entity).despawn()
       }
     }
@@ -350,7 +355,8 @@ fn survey(
     if distant.samples.len() > KEPT_SAMPLES {
       let home = pilot.at.xz();
       distant.samples.retain(|(tile, _), _| {
-        ((*tile * TILE).as_vec2() + TILE as f32 / 2.0).distance(home) < (FAR + TILE * 2) as f32
+        ((*tile * TILE).as_vec2() + TILE as f32 / 2.0).distance(home)
+          < (FAR + TILE * 2) as f32
       })
     }
   }

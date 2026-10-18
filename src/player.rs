@@ -259,8 +259,7 @@ pub fn placement(voxels: &Voxels, pilot: &Pilot, hit: &Hit, item: Block) -> Plac
     _ => Some(facing)
   };
   let laid = (item == Block::Bed).then(|| Block::laid(facing)).flatten();
-  let block =
-    laid.map_or(wall.map_or(item, |wall| item.against(wall)), |(foot, _)| foot);
+  let block = laid.map_or(wall.map_or(item, |wall| item.against(wall)), |(foot, _)| foot);
   let (low, high) = Bulk::PERSON.body(pilot.at);
   let inside = cells(low, high).any(|cell| cell == at) && block.solid();
   let hung = block.wall().is_none_or(|wall| voxels.solid(at + wall));

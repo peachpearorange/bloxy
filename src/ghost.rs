@@ -12,8 +12,8 @@ use {crate::{block::Block,
             prelude::*}};
 
 const SHRUNK: f32 = 0.98;
-const FITS: Color = Color::srgba(0.78, 0.94, 1.0, 0.42);
-const BLOCKED: Color = Color::srgba(1.0, 0.32, 0.28, 0.42);
+const FITS: Color = Color::srgba(0.85, 0.97, 1.0, 0.6);
+const BLOCKED: Color = Color::srgba(1.0, 0.35, 0.3, 0.6);
 const PULSE: f32 = 0.12;
 
 #[derive(Component)]
@@ -56,7 +56,8 @@ fn summon(
   palette: Res<Palette>,
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
-  let atlas = materials.get(&palette.solid).and_then(|solid| solid.base_color_texture.clone());
+  let atlas =
+    materials.get(&palette.solid).and_then(|solid| solid.base_color_texture.clone());
   let mut tinted = |color: Color| {
     materials.add(StandardMaterial {
       base_color: color,
@@ -134,12 +135,12 @@ fn haunt(
   for (&Ghost { head }, mut mesh, mut material, mut transform, mut visibility) in
     ghosts.iter_mut()
   {
-    let cell = shown.as_ref().and_then(|(Placement { at, block, head: other, .. }, _)| {
-      match head {
+    let cell = shown.as_ref().and_then(
+      |(Placement { at, block, head: other, .. }, _)| match head {
         true => *other,
         false => Some((*at, *block))
       }
-    });
+    );
     match cell.zip(shown.as_ref()) {
       Some(((at, block), (Placement { fits, .. }, seed))) => {
         let shape = phantoms

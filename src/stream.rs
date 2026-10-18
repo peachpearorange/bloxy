@@ -59,12 +59,10 @@ pub fn paint(
     ..default()
   };
   let solid = materials.add(base.clone());
-  let ground = grounds
-    .add(Ground { base, extension: Emerge {
-      born: settled(),
-      hidden: Vec4::ZERO,
-      weather: Vec4::ZERO
-    } });
+  let ground = grounds.add(Ground {
+    base,
+    extension: Emerge { born: settled(), hidden: Vec4::ZERO, weather: Vec4::ZERO }
+  });
   let liquid = waters.add(water::water(settled()));
   commands.insert_resource(Palette {
     solid,
