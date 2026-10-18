@@ -8,14 +8,17 @@ use {crate::{opts::opts, protocol::Role},
 pub const EMERGING: f32 = 1.1;
 pub const LONG_AGO: f32 = -1.0e4;
 
-#[derive(Asset, AsBindGroup, TypePath, Clone, Copy)]
+#[derive(Asset, AsBindGroup, TypePath, Clone)]
 pub struct Emerge {
   #[uniform(100)]
   pub born: Vec4,
   #[uniform(100)]
   pub hidden: Vec4,
   #[uniform(100)]
-  pub weather: Vec4
+  pub weather: Vec4,
+  #[texture(101)]
+  #[sampler(102)]
+  pub atlas: Option<Handle<Image>>
 }
 
 impl MaterialExtension for Emerge {

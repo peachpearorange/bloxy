@@ -2006,6 +2006,12 @@ pub fn icons() -> Image {
 
 pub fn uv_corner(tile: Tile, corner: Vec2) -> Vec2 { uv_slot(tile.index(), corner) }
 
+pub fn tile_origin(tile: Tile) -> Vec2 {
+  let index = tile.index();
+  Vec2::new((index % COLUMNS) as f32, (index / COLUMNS) as f32)
+    / Vec2::new(COLUMNS as f32, ROWS as f32)
+}
+
 pub fn uv_slot(index: u32, corner: Vec2) -> Vec2 {
   let cell = Vec2::new((index % COLUMNS) as f32, (index / COLUMNS) as f32);
   (cell + corner * 0.996 + 0.002) / Vec2::new(COLUMNS as f32, ROWS as f32)

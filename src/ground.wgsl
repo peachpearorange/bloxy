@@ -14,6 +14,8 @@ struct Emerge {
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> emerge: Emerge;
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var atlas: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var atlas_sampler: sampler;
 
 const EMERGING: f32 = 1.1;
 const WIND: vec3<f32> = vec3<f32>(0.8, 0.0, 0.6);
@@ -24,7 +26,7 @@ fn sway(at: vec3<f32>, bend: vec2<f32>, wind: f32, time: f32) -> vec3<f32> {
     let swing = sin(time * 1.3 + phase) * 0.6 + sin(time * 2.9 + phase * 1.7) * 0.3 + gust * 0.5;
     let across = vec3<f32>(-WIND.z, 0.0, WIND.x) * sin(time * 1.7 + phase * 1.3) * 0.4;
     let leaves = (WIND * swing + across + vec3<f32>(0.0, sin(time * 2.3 + phase) * 0.3, 0.0)) * 0.07 * bend.x;
-    let plants = (WIND * swing + across) * 0.16 * bend.y * bend.y;
+    let plants = (WIND * swing + across) * 0.16 * max(bend.y, 0.0) * max(bend.y, 0.0);
     return (leaves + plants) * wind * gust;
 }
 
@@ -77,12 +79,36 @@ fn threshold(at: vec3<f32>, normal: vec3<f32>) -> f32 {
     return bayer(across) * 0.55 + scatter(block) * 0.45;
 }
 
+fn painted(origin: vec2<f32>, tile: vec2<f32>, at: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+    let uv = origin + (fract(at) * 0.996 + 0.002) * tile;
+    return textureSampleGrad(atlas, atlas_sampler, uv, dx * tile, dy * tile);
+}
+
+fn projected(origin: vec2<f32>, at: vec3<f32>, normal: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>) -> vec4<f32> {
+    let tile = 16.0 / vec2<f32>(textureDimensions(atlas, 0));
+    let sharp = pow(abs(normal), vec3<f32>(8.0));
+    let weights = sharp / (sharp.x + sharp.y + sharp.z);
+    let east = painted(origin, tile, vec2<f32>(at.z, -at.y), vec2<f32>(dx.z, -dx.y), vec2<f32>(dy.z, -dy.y));
+    let up = painted(origin, tile, at.xz, dx.xz, dy.xz);
+    let south = painted(origin, tile, vec2<f32>(at.x, -at.y), vec2<f32>(dx.x, -dx.y), vec2<f32>(dy.x, -dy.y));
+    return east * weights.x + up * weights.y + south * weights.z;
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
+    let at = in.world_position.xyz;
+    let dx = dpdx(at);
+    let dy = dpdy(at);
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
-    let at = in.world_position.xyz;
     let normal = normalize(in.world_normal);
+#ifdef VERTEX_UVS_B
+#ifdef VERTEX_COLORS
+    if in.uv_b.y < -0.5 {
+        pbr_input.material.base_color = projected(in.uv, at, normal, dx, dy) * in.color;
+    }
+#endif
+#endif
     let cell = floor(at - normal * 0.01);
     if emerge.hidden.w > 0.5 && all(cell == emerge.hidden.xyz) {
         discard;

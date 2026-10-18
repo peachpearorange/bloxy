@@ -60,8 +60,13 @@ pub fn paint(
   };
   let solid = materials.add(base.clone());
   let ground = grounds.add(Ground {
-    base,
-    extension: Emerge { born: settled(), hidden: Vec4::ZERO, weather: Vec4::ZERO }
+    extension: Emerge {
+      born: settled(),
+      hidden: Vec4::ZERO,
+      weather: Vec4::ZERO,
+      atlas: base.base_color_texture.clone()
+    },
+    base
   });
   let liquid = waters.add(water::water(settled()));
   commands.insert_resource(Palette {
@@ -215,7 +220,8 @@ fn stream(
             extension: Emerge {
               born: Vec4::new(birth, 0.0, 0.0, 0.0),
               hidden: concealed.hidden(),
-              weather: elements.weather()
+              weather: elements.weather(),
+              atlas: shared.base.base_color_texture.clone()
             }
           })
           .map_or(palette.ground.clone(), |ground| grounds.add(ground)),
@@ -287,12 +293,13 @@ fn stream(
         match liquid {
           true => chunk.try_insert(MeshMaterial3d(waters.add(water::water(leaving)))),
           false => chunk.try_insert(MeshMaterial3d(grounds.add(Ground {
-            base: base.clone(),
             extension: Emerge {
               born: leaving,
               hidden: concealed.hidden(),
-              weather: elements.weather()
-            }
+              weather: elements.weather(),
+              atlas: base.base_color_texture.clone()
+            },
+            base: base.clone()
           })))
         };
         streaming.fading.push((old, death))

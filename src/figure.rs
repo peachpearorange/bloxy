@@ -204,6 +204,7 @@ fn mirror(
 fn animate(
   time: Res<Time>,
   pilot: Option<Res<Pilot>>,
+  voxels: Option<Res<crate::voxels::Voxels>>,
   mut figures: Query<
     (
       Option<&Avatar>,
@@ -232,7 +233,14 @@ fn animate(
         at: pilot.at + Vec3::Y * pilot.lift,
         ..pilot.avatar()
       }),
-      false => avatar.copied().unwrap_or_default()
+      false => avatar.copied().map_or_else(Avatar::default, |avatar| Avatar {
+        at: voxels
+          .as_deref()
+          .and_then(|voxels| crate::mesh::ground(voxels, avatar.at))
+          .filter(|ground| (ground - avatar.at.y).abs() < 0.5)
+          .map_or(avatar.at, |ground| avatar.at.with_y(ground)),
+        ..avatar
+      })
     };
     let inventory = match mirrored {
       true => pilot.as_ref().and_then(|pilot| inventories.get(pilot.me).ok()),

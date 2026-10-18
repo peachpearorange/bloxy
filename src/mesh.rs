@@ -3,8 +3,8 @@ use {crate::{block::{Block, Fluid, Look},
              island::SEA,
              model::{self, Bit},
              noise::fbm2,
-             texture::uv_corner,
-             voxels::{Chunk, HEIGHT, SIZE, chunk_of, origin_of}},
+             texture::{tile_origin, uv_corner},
+             voxels::{Chunk, HEIGHT, SIZE, Voxels, chunk_of, origin_of}},
      bevy::{asset::RenderAssetUsages,
             mesh::{Indices, PrimitiveTopology},
             prelude::*},
@@ -124,18 +124,16 @@ const FACES: [Face; 6] = [
   }
 ];
 
-const CUT: f32 = 5.0 / 16.0;
+const TRUNK_SIDES: usize = 12;
+const TRUNK_RADIUS: f32 = 0.47;
 
-const OCTAGON: [Vec2; 8] = [
-  Vec2::new(CUT, 0.0),
-  Vec2::new(1.0 - CUT, 0.0),
-  Vec2::new(1.0, CUT),
-  Vec2::new(1.0, 1.0 - CUT),
-  Vec2::new(1.0 - CUT, 1.0),
-  Vec2::new(CUT, 1.0),
-  Vec2::new(0.0, 1.0 - CUT),
-  Vec2::new(0.0, CUT)
-];
+fn trunk() -> [Vec2; TRUNK_SIDES] {
+  std::array::from_fn(|side| {
+    Vec2::splat(0.5)
+      + Vec2::from_angle(side as f32 / TRUNK_SIDES as f32 * std::f32::consts::TAU)
+        * TRUNK_RADIUS
+  })
+}
 
 const CORNERS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 
@@ -145,6 +143,15 @@ const STEADY: f32 = 0.05;
 const LEANING: f32 = 0.3;
 const BLUR: [f32; 3] = [1.0, 0.6, 0.25];
 const DEPTH: [(i32, f32); 4] = [(-1, 0.5), (0, 1.0), (1, 1.0), (2, 0.5)];
+
+fn projected(block: Block) -> bool {
+  let [top, side, bottom] = block.tiles();
+  block.look() == Look::Opaque
+    && block.softness() > 0.0
+    && block != Block::Lumen
+    && top == side
+    && side == bottom
+}
 
 fn occupies(block: Block) -> bool {
   matches!(block.look(), Look::Opaque | Look::Liquid | Look::Log)
@@ -159,6 +166,116 @@ struct Point {
   soft: f32
 }
 
+pub trait Cells {
+  fn cell(&self, at: IVec3) -> Block;
+}
+
+impl Cells for Padded {
+  fn cell(&self, at: IVec3) -> Block { self.get(at) }
+}
+
+impl Cells for Voxels {
+  fn cell(&self, at: IVec3) -> Block { self.block(at).unwrap_or(Block::Stone) }
+}
+
+fn filled(cells: &impl Cells, cell: IVec3, sunk: bool) -> bool {
+  let block = cells.cell(cell);
+  occupies(block) && !(sunk && block.fluid())
+}
+
+fn bent(cells: &impl Cells, inside: IVec3, out: IVec3, sunk: bool) -> Vec3 {
+  let centre = inside.as_vec3() + 0.5 + out.as_vec3() * 0.5;
+  let (across, up) = match out.abs() {
+    IVec3::X => (IVec3::Y, IVec3::Z),
+    IVec3::Y => (IVec3::X, IVec3::Z),
+    _ => (IVec3::X, IVec3::Y)
+  };
+  let pull = DEPTH.iter().fold(Vec3::ZERO, |pull, &(depth, deep)| {
+    (-2..=2).flat_map(|a| (-2..=2).map(move |b| (a, b))).fold(pull, |pull, (a, b)| {
+      let cell = inside + out * depth + across * a + up * b;
+      match filled(cells, cell, sunk) {
+        true => {
+          let weight =
+            deep * BLUR[a.unsigned_abs() as usize] * BLUR[b.unsigned_abs() as usize];
+          pull + (cell.as_vec3() + 0.5 - centre) * weight
+        }
+        false => pull
+      }
+    })
+  });
+  (out.as_vec3() * LEANING - pull).normalize_or(out.as_vec3())
+}
+
+fn solve(cells: &impl Cells, corner: IVec3) -> Point {
+  let around = (0..8)
+    .map(|index| corner - IVec3::ONE + IVec3::new(index & 1, index >> 1 & 1, index >> 2));
+  let sunk = around.clone().all(|cell| occupies(cells.cell(cell)));
+  let crossings: Vec<(Vec3, Vec3)> = around
+    .clone()
+    .flat_map(|cell| {
+      [IVec3::X, IVec3::Y, IVec3::Z]
+        .into_iter()
+        .filter(move |&axis| (cell + axis - corner).cmple(IVec3::ZERO).all())
+        .map(move |axis| (cell, cell + axis))
+    })
+    .filter(|&(low, high)| filled(cells, low, sunk) != filled(cells, high, sunk))
+    .map(|(low, high)| {
+      let (inside, outside) = match filled(cells, low, sunk) {
+        true => (low, high),
+        false => (high, low)
+      };
+      ((low + high).as_vec3() / 2.0 + 0.5, bent(cells, inside, outside - inside, sunk))
+    })
+    .collect();
+  let soft = around
+    .map(|cell| cells.cell(cell))
+    .filter(|block| matches!(block.look(), Look::Opaque | Look::Cutout))
+    .map(Block::softness)
+    .reduce(f32::min)
+    .unwrap_or(0.0);
+  let at = corner.as_vec3();
+  match crossings.is_empty() || soft == 0.0 {
+    true => Point { at, normal: Vec3::Y, soft: 0.0 },
+    false => {
+      let middle =
+        crossings.iter().map(|&(point, _)| point).sum::<Vec3>() / crossings.len() as f32;
+      let (weights, aims) = crossings.iter().fold(
+        (Mat3::from_diagonal(Vec3::splat(STEADY)), middle * STEADY),
+        |(weights, aims), &(point, normal)| {
+          (
+            weights
+              + Mat3::from_cols(normal * normal.x, normal * normal.y, normal * normal.z),
+            aims + normal * normal.dot(point)
+          )
+        }
+      );
+      let best = (weights.inverse() * aims).clamp(at - MOST_SHIFT, at + MOST_SHIFT);
+      Point {
+        at: at + (best - at) * soft,
+        normal: crossings
+          .iter()
+          .map(|&(_, normal)| normal)
+          .sum::<Vec3>()
+          .normalize_or(Vec3::Y),
+        soft
+      }
+    }
+  }
+}
+
+pub fn ground(voxels: &Voxels, at: Vec3) -> Option<f32> {
+  let cell = (at - Vec3::Y * 0.05).floor().as_ivec3();
+  voxels
+    .block(cell)
+    .filter(|&block| occupies(block) && block.solid() && !voxels.solid(cell + IVec3::Y))
+    .map(|_| {
+      let height = |dx: i32, dz: i32| solve(voxels, cell + IVec3::new(dx, 1, dz)).at.y;
+      let (u, v) = (at.x - cell.x as f32, at.z - cell.z as f32);
+      (height(0, 0) * (1.0 - u) + height(1, 0) * u) * (1.0 - v)
+        + (height(0, 1) * (1.0 - u) + height(1, 1) * u) * v
+    })
+}
+
 struct Contour<'a> {
   padded: &'a Padded,
   points: Vec<Option<Point>>
@@ -169,101 +286,12 @@ impl<'a> Contour<'a> {
     Contour { padded, points: vec![None; (LATTICE * LATTICE * LATTICE) as usize] }
   }
 
-  fn filled(&self, cell: IVec3, sunk: bool) -> bool {
-    let block = self.padded.get(cell);
-    occupies(block) && !(sunk && block.fluid())
-  }
-
-  fn bent(&self, inside: IVec3, out: IVec3, sunk: bool) -> Vec3 {
-    let centre = inside.as_vec3() + 0.5 + out.as_vec3() * 0.5;
-    let (across, up) = match out.abs() {
-      IVec3::X => (IVec3::Y, IVec3::Z),
-      IVec3::Y => (IVec3::X, IVec3::Z),
-      _ => (IVec3::X, IVec3::Y)
-    };
-    let pull = DEPTH.iter().fold(Vec3::ZERO, |pull, &(depth, deep)| {
-      (-2..=2).flat_map(|a| (-2..=2).map(move |b| (a, b))).fold(pull, |pull, (a, b)| {
-        let cell = inside + out * depth + across * a + up * b;
-        match self.filled(cell, sunk) {
-          true => {
-            let weight =
-              deep * BLUR[a.unsigned_abs() as usize] * BLUR[b.unsigned_abs() as usize];
-            pull + (cell.as_vec3() + 0.5 - centre) * weight
-          }
-          false => pull
-        }
-      })
-    });
-    (out.as_vec3() * LEANING - pull).normalize_or(out.as_vec3())
-  }
-
-  fn solve(&self, corner: IVec3) -> Point {
-    let cells = (0..8).map(|index| {
-      corner - IVec3::ONE + IVec3::new(index & 1, index >> 1 & 1, index >> 2)
-    });
-    let sunk = cells.clone().all(|cell| occupies(self.padded.get(cell)));
-    let crossings: Vec<(Vec3, Vec3)> = cells
-      .clone()
-      .flat_map(|cell| {
-        [IVec3::X, IVec3::Y, IVec3::Z]
-          .into_iter()
-          .filter(move |&axis| (cell + axis - corner).cmple(IVec3::ZERO).all())
-          .map(move |axis| (cell, cell + axis))
-      })
-      .filter(|&(low, high)| self.filled(low, sunk) != self.filled(high, sunk))
-      .map(|(low, high)| {
-        let (inside, outside) = match self.filled(low, sunk) {
-          true => (low, high),
-          false => (high, low)
-        };
-        ((low + high).as_vec3() / 2.0 + 0.5, self.bent(inside, outside - inside, sunk))
-      })
-      .collect();
-    let (soft, mass) = cells
-      .map(|cell| self.padded.get(cell))
-      .filter(|block| matches!(block.look(), Look::Opaque | Look::Cutout))
-      .fold((0.0, 0.0), |(soft, mass), block| (soft + block.softness(), mass + 1.0));
-    let at = corner.as_vec3();
-    match crossings.is_empty() || mass == 0.0 {
-      true => Point { at, normal: Vec3::Y, soft: 0.0 },
-      false => {
-        let middle = crossings.iter().map(|&(point, _)| point).sum::<Vec3>()
-          / crossings.len() as f32;
-        let (weights, aims) = crossings.iter().fold(
-          (Mat3::from_diagonal(Vec3::splat(STEADY)), middle * STEADY),
-          |(weights, aims), &(point, normal)| {
-            (
-              weights
-                + Mat3::from_cols(
-                  normal * normal.x,
-                  normal * normal.y,
-                  normal * normal.z
-                ),
-              aims + normal * normal.dot(point)
-            )
-          }
-        );
-        let best = (weights.inverse() * aims).clamp(at - MOST_SHIFT, at + MOST_SHIFT);
-        let soft = soft / mass;
-        Point {
-          at: at + (best - at) * soft,
-          normal: crossings
-            .iter()
-            .map(|&(_, normal)| normal)
-            .sum::<Vec3>()
-            .normalize_or(Vec3::Y),
-          soft
-        }
-      }
-    }
-  }
-
   fn point(&mut self, corner: IVec3) -> Point {
     let index = ((corner.y * LATTICE + corner.z) * LATTICE + corner.x) as usize;
     match self.points[index] {
       Some(point) => point,
       None => {
-        let point = self.solve(corner);
+        let point = solve(self.padded, corner);
         self.points[index] = Some(point);
         point
       }
@@ -319,6 +347,27 @@ impl Builder {
         false => [first, first + corner + 1, first + corner]
       })
     }
+  }
+
+  fn strip(&mut self, corners: [(Vec3, Vec3, Vec2); 4], hue: LinearRgba) {
+    let first = self.positions.len() as u32;
+    for (point, normal, uv) in corners {
+      self.positions.push(point.to_array());
+      self.normals.push(normal.to_array());
+      self.uvs.push(uv.to_array());
+      self.colors.push(hue.with_alpha(1.0).to_f32_array());
+      self.sways.push([0.0, 0.0])
+    }
+    let facing =
+      (corners[1].0 - corners[0].0).cross(corners[2].0 - corners[0].0).dot(corners[0].1)
+        > 0.0;
+    self.indices.extend(
+      match facing {
+        true => [0, 1, 2, 0, 2, 3],
+        false => [0, 2, 1, 0, 3, 2]
+      }
+      .map(|corner| first + corner)
+    )
   }
 
   fn mesh(self) -> Option<Mesh> {
@@ -381,7 +430,8 @@ fn builders(
   padded: &Padded,
   key: IVec3,
   seed: u32,
-  torches: &[IVec3]
+  torches: &[IVec3],
+  world: bool
 ) -> (Builder, Builder, Builder) {
   let origin = origin_of(key);
   let surface: Vec<i32> = (0..RIM * RIM)
@@ -483,9 +533,14 @@ fn builders(
           };
           builder.positions.push(position.to_array());
           builder.normals.push(normal.to_array());
-          builder
-            .uvs
-            .push(uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32)).to_array());
+          let painted = world && projected(block);
+          builder.uvs.push(
+            match painted {
+              true => tile_origin(tile),
+              false => uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32))
+            }
+            .to_array()
+          );
           let hue = match (kind(block), block) {
             (Some(Fluid::Water), _) => tint(flat),
             (_, Block::Grass) => meadow(origin.as_vec3() + flat),
@@ -493,7 +548,9 @@ fn builders(
           };
           let torch = torchlight(origin.as_vec3() + position);
           builder.colors.push(lit(hue, daylight, torch, shade));
-          builder.sways.push([f32::from(u8::from(block.leafy())), 0.0])
+          builder
+            .sways
+            .push([f32::from(u8::from(block.leafy())), if painted { -1.0 } else { 0.0 }])
         }
         let order = match shades[1] + shades[3] > shades[0] + shades[2] {
           true => [1, 2, 3, 1, 3, 0],
@@ -546,23 +603,35 @@ fn builders(
         let [top, side, bottom] = block.tiles();
         let hue = LinearRgba::from_f32_array(lit(LinearRgba::WHITE, light, torch, 1.0));
         let corner = local.as_vec3();
-        for edge in 0..8 {
-          let (from, to) = (OCTAGON[edge], OCTAGON[(edge + 1) % 8]);
-          let outward = ((from + to) / 2.0 - 0.5).normalize();
-          let normal = Vec3::new(outward.x, 0.0, outward.y);
-          let along_x = outward.y.abs() > outward.x.abs();
-          let across = |point: Vec2| if along_x { point.x } else { point.y };
-          let covered =
-            edge % 2 == 0 && padded.get(local + normal.round().as_ivec3()).opaque();
+        let ring = trunk();
+        for edge in 0..TRUNK_SIDES {
+          let (from, to) = (ring[edge], ring[(edge + 1) % TRUNK_SIDES]);
+          let middle = ((from + to) / 2.0 - 0.5).normalize();
+          let facing = Vec3::new(middle.x, 0.0, middle.y);
+          let covered = facing.abs().max_element() > 0.9
+            && padded.get(local + facing.round().as_ivec3()).opaque();
           if !covered {
-            solid.polygon(
-              &[(from, 0.0), (to, 0.0), (to, 1.0), (from, 1.0)]
-                .map(|(point, y)| corner + Vec3::new(point.x, y, point.y)),
-              &[(from, 1.0), (to, 1.0), (to, 0.0), (from, 0.0)]
-                .map(|(point, v)| uv_corner(side, Vec2::new(across(point), v))),
-              normal,
-              hue,
-              |_| 0.0
+            let quarter = (edge % (TRUNK_SIDES / 4)) as f32 / (TRUNK_SIDES / 4) as f32;
+            let width = 4.0 / TRUNK_SIDES as f32;
+            let outward = |point: Vec2| {
+              let out = (point - 0.5).normalize();
+              Vec3::new(out.x, 0.0, out.y)
+            };
+            solid.strip(
+              [
+                (from, 0.0, quarter, 1.0),
+                (to, 0.0, quarter + width, 1.0),
+                (to, 1.0, quarter + width, 0.0),
+                (from, 1.0, quarter, 0.0)
+              ]
+              .map(|(point, y, u, v)| {
+                (
+                  corner + Vec3::new(point.x, y, point.y),
+                  outward(point),
+                  uv_corner(side, Vec2::new(u, v))
+                )
+              }),
+              hue
             )
           }
         }
@@ -572,8 +641,8 @@ fn builders(
           let next = padded.get(local + normal);
           if !next.opaque() && next.look() != Look::Log {
             solid.polygon(
-              &OCTAGON.map(|point| corner + Vec3::new(point.x, y, point.y)),
-              &OCTAGON.map(|point| uv_corner(tile, point)),
+              &ring.map(|point| corner + Vec3::new(point.x, y, point.y)),
+              &ring.map(|point| uv_corner(tile, point)),
               normal.as_vec3(),
               hue,
               |_| 0.0
@@ -587,7 +656,7 @@ fn builders(
 }
 
 pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
-  let (solid, liquid, unshadowed) = builders(padded, key, seed, torches);
+  let (solid, liquid, unshadowed) = builders(padded, key, seed, torches, true);
   Meshes { solid: solid.mesh(), liquid: liquid.mesh(), unshadowed: unshadowed.mesh() }
 }
 
@@ -611,7 +680,7 @@ pub fn lone(block: Block, at: IVec3, seed: u32, torches: &[IVec3]) -> Vec<[Corne
       })
       .collect()
   );
-  let (solid, _, unshadowed) = builders(&padded, key, seed, torches);
+  let (solid, _, unshadowed) = builders(&padded, key, seed, torches, false);
   [solid, unshadowed]
     .iter()
     .flat_map(|built| {

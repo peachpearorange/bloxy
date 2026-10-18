@@ -303,6 +303,7 @@ pub fn slide(
 
 const STEP_UP: f32 = 1.05;
 const LIFT_EASE: f32 = 10.0;
+const SETTLE: f32 = 0.5;
 
 fn step_up(voxels: &Voxels, at: Vec3, axis: usize, distance: f32) -> Option<Vec3> {
   let (raised, bumped) = slide(voxels, Bulk::PERSON, at, 1, STEP_UP);
@@ -408,6 +409,9 @@ fn fly(
     } * if webbed { 0.3 } else { 1.0 };
     let heading = Quat::from_rotation_y(pilot.yaw);
     let walk = heading * Vec3::new(wish.x, 0.0, wish.y).normalize_or_zero() * speed;
+    let settled = crate::mesh::ground(&voxels, pilot.at)
+      .filter(|_| pilot.grounded && !pilot.swimming)
+      .map_or(0.0, |ground| (ground - pilot.at.y).clamp(-SETTLE, SETTLE));
     let banked = (*spare + time.delta_secs()).min(0.25);
     let steps = (banked / STEP).floor();
     *spare = banked - steps * STEP;
@@ -506,7 +510,8 @@ fn fly(
       if floored || decked {
         velocity.y = 0.0
       }
-      pilot.lift = (pilot.lift - lifted).clamp(-1.5, 1.5) * (1.0 - STEP * LIFT_EASE);
+      pilot.lift = settled
+        + ((pilot.lift - lifted).clamp(-1.5, 1.5) - settled) * (1.0 - STEP * LIFT_EASE);
       pilot.at = at;
       pilot.velocity = velocity;
       pilot.grounded = landed;
