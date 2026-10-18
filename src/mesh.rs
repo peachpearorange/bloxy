@@ -11,7 +11,7 @@ use {crate::{block::{Block, Fluid, Look},
             prelude::*},
      std::sync::Arc};
 
-const PAD: i32 = 3;
+const PAD: i32 = SPREAD + 1;
 const SPAN: i32 = SIZE + 2 * PAD;
 const RIM: i32 = SIZE + 2;
 const WATER_TOP: f32 = 0.88;
@@ -218,6 +218,64 @@ fn bent(cells: &impl Cells, inside: IVec3, out: IVec3, sunk: bool) -> Vec3 {
   (out.as_vec3() * LEANING - pull).normalize_or(out.as_vec3())
 }
 
+const SPREAD: i32 = 3;
+const LEVEL_REACH: i32 = 3;
+const RISE_LIMIT: f32 = 0.48;
+const WINDOW: i32 = 2 * SPREAD + 2;
+
+fn earthy(block: Block) -> bool { block.look() == Look::Opaque && block.softness() > 0.0 }
+
+fn level(cells: &impl Cells, corner: IVec3) -> Option<(f32, Vec3)> {
+  let around: Vec<Block> = (0..8)
+    .map(|index| {
+      cells.cell(corner - IVec3::ONE + IVec3::new(index & 1, index >> 2, index >> 1 & 1))
+    })
+    .collect();
+  let (below, above) = around.split_at(4);
+  let ground = below.iter().any(|&block| earthy(block))
+    && above.iter().any(|block| !block.solid())
+    && around.iter().all(|&block| earthy(block) || !block.solid());
+  ground
+    .then(|| {
+      let heights: Vec<Option<f32>> = (0..WINDOW * WINDOW)
+        .map(|index| {
+          let column = corner.xz() + IVec2::new(index % WINDOW, index / WINDOW)
+            - IVec2::splat(SPREAD + 1);
+          (corner.y - LEVEL_REACH..=corner.y + LEVEL_REACH)
+            .rev()
+            .find(|&y| {
+              earthy(cells.cell(column.extend(y - 1).xzy()))
+                && !cells.cell(column.extend(y).xzy()).solid()
+            })
+            .map(|y| y as f32)
+        })
+        .collect();
+      let smooth = |dx: i32, dz: i32| {
+        let (total, weight) = heights.iter().enumerate().fold(
+          (0.0, 0.0),
+          |(total, weight), (index, height)| {
+            let offset = Vec2::new(
+              (index as i32 % WINDOW - SPREAD - 1 - dx) as f32 + 0.5,
+              (index as i32 / WINDOW - SPREAD - 1 - dz) as f32 + 0.5
+            );
+            let near = (SPREAD as f32 + 0.5 - offset.length()).max(0.0);
+            height
+              .map_or((total, weight), |height| (total + height * near, weight + near))
+          }
+        );
+        (weight > 0.0).then(|| total / weight)
+      };
+      smooth(0, 0).map(|middle| {
+        let at = |dx: i32, dz: i32| smooth(dx, dz).unwrap_or(middle);
+        (
+          middle.clamp(corner.y as f32 - RISE_LIMIT, corner.y as f32 + RISE_LIMIT),
+          Vec3::new(at(-1, 0) - at(1, 0), 2.0, at(0, -1) - at(0, 1)).normalize()
+        )
+      })
+    })
+    .flatten()
+}
+
 fn solve(cells: &impl Cells, corner: IVec3) -> Point {
   let around = (0..8)
     .map(|index| corner - IVec3::ONE + IVec3::new(index & 1, index >> 1 & 1, index >> 2));
@@ -262,15 +320,11 @@ fn solve(cells: &impl Cells, corner: IVec3) -> Point {
         }
       );
       let best = (weights.inverse() * aims).clamp(at - MOST_SHIFT, at + MOST_SHIFT);
-      Point {
-        at: at + (best - at) * soft,
-        normal: crossings
-          .iter()
-          .map(|&(_, normal)| normal)
-          .sum::<Vec3>()
-          .normalize_or(Vec3::Y),
-        soft
-      }
+      let bent =
+        crossings.iter().map(|&(_, normal)| normal).sum::<Vec3>().normalize_or(Vec3::Y);
+      let (best, normal) = level(cells, corner)
+        .map_or((best, bent), |(height, slope)| (best.with_y(height), slope));
+      Point { at: at + (best - at) * soft, normal, soft }
     }
   }
 }
