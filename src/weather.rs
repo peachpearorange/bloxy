@@ -20,7 +20,6 @@ use {crate::{ground::Elements,
      bevy_replicon::prelude::*,
      serde::{Deserialize, Serialize}};
 
-const MIST: Vec3 = Vec3::new(0.56, 0.6, 0.66);
 const CLOUD_HEIGHT: f32 = 170.0;
 const CLOUD_THICK: f32 = 80.0;
 const CLOUD_SPAN: f32 = 5200.0;
@@ -280,6 +279,14 @@ fn spread(
   ));
 }
 
+const HAZE: f32 = 1.3;
+
+fn glow(day: &crate::sky::Daylight, climate: &Climate) -> Vec3 {
+  Vec3::new(0.55, 0.64, 0.82)
+    * (9000.0 * day.lux / RAW_SUNLIGHT + 6.0)
+    * climate.sun.sqrt()
+}
+
 fn drift(
   time: Res<Time>,
   pilot: Res<Pilot>,
@@ -309,9 +316,8 @@ fn drift(
     transform.translation = pilot.at.with_y(CLOUD_HEIGHT + CLOUD_THICK / 2.0).floor()
   }
   let day = daylight(opts().hour);
-  let lit = day.lux / RAW_SUNLIGHT;
   let [r, g, b, _] = day.tint.to_linear().to_f32_array();
-  let sky_glow = Vec3::new(0.55, 0.64, 0.82) * (9000.0 * lit + 6.0) * climate.sun.sqrt();
+  let sky_glow = glow(&day, &climate);
   if let Some(mut cloud) = clouds.get_mut(&canopy.0) {
     *cloud = Cloud {
       toward_light: day.toward.extend(0.0),
@@ -323,7 +329,7 @@ fn drift(
         climate.cover - 0.3,
         climate.wet
       ),
-      haze: (sky_glow * 1.3).extend(1.0)
+      haze: (sky_glow * HAZE).extend(1.0)
     }
   }
 }
@@ -469,8 +475,7 @@ fn darken(
   let gloom = ((1.0 - climate.sun) / (1.0 - Sky::Storm.sun())).clamp(0.0, 1.0);
   let bright = 1.0 - day.dark;
   for (mut fog, mut grading) in fogs.iter_mut() {
-    let haze = day.haze.lerp(MIST * day.haze.length() / MIST.length(), gloom)
-      * (1.0 - gloom * 0.3);
+    let haze = glow(&day, &climate) * HAZE * 2f32.powf(-day.ev100) / 1.2;
     fog.color = Color::srgb(haze.x, haze.y, haze.z);
     fog.directional_light_color = Color::srgba(1.0, 0.9, 0.72, 0.6 * (1.0 - gloom));
     fog.falloff = FogFalloff::Exponential { density: climate.murk };
