@@ -85,12 +85,12 @@ pub fn daylight(hour: f32) -> Daylight {
   }
 }
 
-const UNHAZED: f32 = 100.0;
+const UNHAZED: f32 = 1.0;
 
 pub fn lens() -> impl Bundle {
   let Daylight { ev100, haze, .. } = daylight(opts().hour);
   (
-    AtmosphereSettings::default(),
+    AtmosphereSettings { aerial_view_lut_max_distance: UNHAZED, ..default() },
     AtmosphereEnvironmentMapLight::default(),
     Exposure { ev100 },
     Tonemapping::AcesFitted,
@@ -113,10 +113,8 @@ fn light(
   mut ambient: ResMut<GlobalAmbientLight>
 ) {
   let Daylight { toward, lux, tint, disk, dark, .. } = daylight(opts().hour);
-  commands.spawn((
-    bevy::light::Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256))),
-    Transform::from_scale(Vec3::splat(UNHAZED))
-  ));
+  commands
+    .spawn(bevy::light::Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256))));
   commands.spawn((
     DirectionalLight {
       illuminance: lux,
