@@ -139,7 +139,7 @@ fn trunk() -> [Vec2; TRUNK_SIDES] {
 const CORNERS: [(i32, i32); 4] = [(0, 0), (1, 0), (1, 1), (0, 1)];
 
 const LATTICE: i32 = SIZE + 1;
-const MOST_SHIFT: f32 = 0.45;
+const MOST_SHIFT: f32 = 0.3;
 const STEADY: f32 = 0.05;
 const LEANING: f32 = 0.3;
 const BLUR: [f32; 3] = [1.0, 0.6, 0.25];
@@ -219,9 +219,9 @@ fn bent(cells: &impl Cells, inside: IVec3, out: IVec3, sunk: bool) -> Vec3 {
   (out.as_vec3() * LEANING - pull).normalize_or(out.as_vec3())
 }
 
-const SPREAD: i32 = 3;
+const SPREAD: i32 = 2;
 const LEVEL_REACH: i32 = 6;
-const RISE_LIMIT: f32 = 1.0;
+const RISE_LIMIT: f32 = 0.5;
 const WINDOW: i32 = 2 * SPREAD + 2;
 
 fn earthy(block: Block) -> bool { block.look() == Look::Opaque && block.softness() > 0.0 }
