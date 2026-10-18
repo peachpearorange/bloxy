@@ -169,9 +169,12 @@ impl<'a> Contour<'a> {
     Contour { padded, points: vec![None; (LATTICE * LATTICE * LATTICE) as usize] }
   }
 
-  fn filled(&self, cell: IVec3) -> bool { occupies(self.padded.get(cell)) }
+  fn filled(&self, cell: IVec3, sunk: bool) -> bool {
+    let block = self.padded.get(cell);
+    occupies(block) && !(sunk && block.fluid())
+  }
 
-  fn bent(&self, inside: IVec3, out: IVec3) -> Vec3 {
+  fn bent(&self, inside: IVec3, out: IVec3, sunk: bool) -> Vec3 {
     let centre = inside.as_vec3() + 0.5 + out.as_vec3() * 0.5;
     let (across, up) = match out.abs() {
       IVec3::X => (IVec3::Y, IVec3::Z),
@@ -181,7 +184,7 @@ impl<'a> Contour<'a> {
     let pull = DEPTH.iter().fold(Vec3::ZERO, |pull, &(depth, deep)| {
       (-2..=2).flat_map(|a| (-2..=2).map(move |b| (a, b))).fold(pull, |pull, (a, b)| {
         let cell = inside + out * depth + across * a + up * b;
-        match self.filled(cell) {
+        match self.filled(cell, sunk) {
           true => {
             let weight =
               deep * BLUR[a.unsigned_abs() as usize] * BLUR[b.unsigned_abs() as usize];
@@ -198,6 +201,7 @@ impl<'a> Contour<'a> {
     let cells = (0..8).map(|index| {
       corner - IVec3::ONE + IVec3::new(index & 1, index >> 1 & 1, index >> 2)
     });
+    let sunk = cells.clone().all(|cell| occupies(self.padded.get(cell)));
     let crossings: Vec<(Vec3, Vec3)> = cells
       .clone()
       .flat_map(|cell| {
@@ -206,13 +210,13 @@ impl<'a> Contour<'a> {
           .filter(move |&axis| (cell + axis - corner).cmple(IVec3::ZERO).all())
           .map(move |axis| (cell, cell + axis))
       })
-      .filter(|&(low, high)| self.filled(low) != self.filled(high))
+      .filter(|&(low, high)| self.filled(low, sunk) != self.filled(high, sunk))
       .map(|(low, high)| {
-        let (inside, outside) = match self.filled(low) {
+        let (inside, outside) = match self.filled(low, sunk) {
           true => (low, high),
           false => (high, low)
         };
-        ((low + high).as_vec3() / 2.0 + 0.5, self.bent(inside, outside - inside))
+        ((low + high).as_vec3() / 2.0 + 0.5, self.bent(inside, outside - inside, sunk))
       })
       .collect();
     let (soft, mass) = cells
