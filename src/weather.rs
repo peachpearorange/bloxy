@@ -77,8 +77,8 @@ impl Sky {
 
   fn murk(self) -> f32 {
     match self {
-      Sky::Clear => 0.0007,
-      Sky::Cloudy => 0.0015,
+      Sky::Clear => 0.0,
+      Sky::Cloudy => 0.0,
       Sky::Rain => 0.0065,
       Sky::Storm => 0.011
     }

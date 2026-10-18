@@ -1,5 +1,5 @@
-use {crate::{ground::{Concealed, EMERGING, Elements, Emerge, Ground, LONG_AGO, born,
-                      settled},
+use {crate::{ground::{Ground, Surface},
+             hull::Hulls,
              mesh::{self, Meshes, Padded},
              player::Pilot,
              protocol::plays,
@@ -7,7 +7,7 @@ use {crate::{ground::{Concealed, EMERGING, Elements, Emerge, Ground, LONG_AGO, b
              voxels::{Chunk, LAYERS, Voxels, chunk_of, generated, in_world, origin_of},
              water::{self, Water}},
      bevy::{light::NotShadowCaster,
-            platform::collections::HashMap,
+            platform::collections::{HashMap, HashSet},
             prelude::*,
             tasks::{AsyncComputeTaskPool, Task, futures::check_ready}}};
 
@@ -29,10 +29,11 @@ pub struct Palette {
 struct Streaming {
   generating: HashMap<IVec3, Task<Chunk>>,
   meshing: HashMap<IVec3, Task<Meshes>>,
-  shown: HashMap<IVec3, Vec<(Entity, bool)>>,
-  emerging: Vec<(Entity, f32, bool)>,
-  fading: Vec<(Entity, f32)>
+  shown: HashMap<IVec3, Vec<Entity>>
 }
+
+#[derive(Resource, Default)]
+pub struct Meshed(pub HashSet<IVec2>);
 
 #[derive(Resource, Default)]
 pub struct Progress {
@@ -60,15 +61,15 @@ pub fn paint(
   };
   let solid = materials.add(base.clone());
   let ground = grounds.add(Ground {
-    extension: Emerge {
-      born: settled(),
-      hidden: Vec4::ZERO,
+    extension: Surface {
+      dug: Vec4::ZERO,
+      aimed: Vec4::ZERO,
       weather: Vec4::ZERO,
       atlas: base.base_color_texture.clone()
     },
-    base
+    base: StandardMaterial { cull_mode: None, ..base }
   });
-  let liquid = waters.add(water::water(settled()));
+  let liquid = waters.add(water::water());
   commands.insert_resource(Palette {
     solid,
     ground,
@@ -94,33 +95,6 @@ fn horizontal(key: IVec3, centre: IVec3) -> i32 {
   offset.length_squared()
 }
 
-fn settle(
-  time: Res<Time>,
-  palette: Res<Palette>,
-  mut streaming: ResMut<Streaming>,
-  mut commands: Commands
-) {
-  let now = time.elapsed_secs_wrapped();
-  streaming.fading.retain(|&(entity, death)| {
-    let fading = now >= death && now - death < EMERGING + 0.1;
-    if !fading {
-      commands.entity(entity).try_despawn()
-    }
-    fading
-  });
-  streaming.emerging.retain(|&(entity, birth, liquid)| {
-    let emerging = now >= birth && now - birth < EMERGING + 0.2;
-    if !emerging {
-      let mut chunk = commands.entity(entity);
-      match liquid {
-        true => chunk.try_insert(MeshMaterial3d(palette.liquid.clone())),
-        false => chunk.try_insert(MeshMaterial3d(palette.ground.clone()))
-      };
-    }
-    emerging
-  })
-}
-
 fn stream(
   mut commands: Commands,
   mut streaming: ResMut<Streaming>,
@@ -130,13 +104,8 @@ fn stream(
   palette: Res<Palette>,
   settings: Res<crate::settings::Settings>,
   mut meshes: ResMut<Assets<Mesh>>,
-  (time, concealed, elements, mut grounds, mut waters): (
-    Res<Time>,
-    Res<Concealed>,
-    Res<Elements>,
-    ResMut<Assets<Ground>>,
-    ResMut<Assets<Water>>
-  )
+  mut hulls: ResMut<Hulls>,
+  mut meshed: ResMut<Meshed>
 ) {
   if let Some(mut voxels) = voxels
     && let Some(pilot) = pilot
@@ -210,68 +179,43 @@ fn stream(
     for (key, built) in built.into_iter() {
       streaming.meshing.remove(&key);
       let placed = Transform::from_translation(origin_of(key).as_vec3());
-      let fresh = !streaming.shown.contains_key(&key);
-      let birth = born(&time);
-      let ground = match fresh {
-        true => grounds
-          .get(&palette.ground)
-          .map(|shared| Ground {
-            base: shared.base.clone(),
-            extension: Emerge {
-              born: Vec4::new(birth, 0.0, 0.0, 0.0),
-              hidden: concealed.hidden(),
-              weather: elements.weather(),
-              atlas: shared.base.base_color_texture.clone()
-            }
-          })
-          .map_or(palette.ground.clone(), |ground| grounds.add(ground)),
-        false => palette.ground.clone()
-      };
-      let liquid_material = match fresh {
-        true => waters.add(water::water(Vec4::new(birth, 0.0, 0.0, 0.0))),
-        false => palette.liquid.clone()
-      };
-      let solid = built.solid.map(|mesh| {
-        commands
-          .spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(ground.clone()), placed))
-          .id()
-      });
-      let unshadowed = built.unshadowed.map(|mesh| {
-        commands
-          .spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(ground),
-            NotShadowCaster,
-            placed
-          ))
-          .id()
-      });
-      let liquid = built.liquid.map(|mesh| {
-        commands
-          .spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(liquid_material),
-            NotShadowCaster,
-            placed
-          ))
-          .id()
-      });
-      if fresh {
-        streaming.emerging.extend(
-          solid
-            .into_iter()
-            .chain(unshadowed)
-            .map(|entity| (entity, birth, false))
-            .chain(liquid.map(|entity| (entity, birth, true)))
-        )
-      }
-      let shown: Vec<(Entity, bool)> = solid
-        .into_iter()
-        .chain(unshadowed)
-        .map(|entity| (entity, false))
-        .chain(liquid.map(|entity| (entity, true)))
-        .collect();
-      for (old, _) in streaming.shown.insert(key, shown).into_iter().flatten() {
+      let Meshes { solid, liquid, unshadowed, hull } = built;
+      hulls.0.insert(key, std::sync::Arc::new(hull));
+      let shown: Vec<Entity> = [
+        solid.map(|mesh| {
+          commands
+            .spawn((
+              Mesh3d(meshes.add(mesh)),
+              MeshMaterial3d(palette.ground.clone()),
+              placed
+            ))
+            .id()
+        }),
+        unshadowed.map(|mesh| {
+          commands
+            .spawn((
+              Mesh3d(meshes.add(mesh)),
+              MeshMaterial3d(palette.ground.clone()),
+              NotShadowCaster,
+              placed
+            ))
+            .id()
+        }),
+        liquid.map(|mesh| {
+          commands
+            .spawn((
+              Mesh3d(meshes.add(mesh)),
+              MeshMaterial3d(palette.liquid.clone()),
+              NotShadowCaster,
+              placed
+            ))
+            .id()
+        })
+      ]
+      .into_iter()
+      .flatten()
+      .collect();
+      for old in streaming.shown.insert(key, shown).into_iter().flatten() {
         commands.entity(old).despawn()
       }
     }
@@ -281,29 +225,23 @@ fn stream(
       .copied()
       .filter(|key| horizontal(*key, centre) > reach * reach)
       .collect();
-    let death = time.elapsed_secs_wrapped();
-    let leaving = Vec4::new(LONG_AGO, death, 1.0, 0.0);
-    let base = grounds
-      .get(&palette.ground)
-      .map_or_else(StandardMaterial::default, |shared| shared.base.clone());
     for key in gone.into_iter() {
       voxels.dirty.insert(key);
-      for (old, liquid) in streaming.shown.remove(&key).into_iter().flatten() {
-        let mut chunk = commands.entity(old);
-        match liquid {
-          true => chunk.try_insert(MeshMaterial3d(waters.add(water::water(leaving)))),
-          false => chunk.try_insert(MeshMaterial3d(grounds.add(Ground {
-            extension: Emerge {
-              born: leaving,
-              hidden: concealed.hidden(),
-              weather: elements.weather(),
-              atlas: base.base_color_texture.clone()
-            },
-            base: base.clone()
-          })))
-        };
-        streaming.fading.push((old, death))
+      hulls.0.remove(&key);
+      for old in streaming.shown.remove(&key).into_iter().flatten() {
+        commands.entity(old).despawn()
       }
+    }
+    let complete: HashSet<IVec2> = streaming
+      .shown
+      .keys()
+      .map(|key| key.xz())
+      .filter(|column| {
+        (0..LAYERS).all(|y| streaming.shown.contains_key(&column.extend(y).xzy()))
+      })
+      .collect();
+    if complete != meshed.0 {
+      meshed.0 = complete
     }
     let unmeshed = voxels
       .dirty
@@ -330,7 +268,9 @@ impl Plugin for Stream {
     app
       .init_resource::<Streaming>()
       .init_resource::<Progress>()
+      .init_resource::<Hulls>()
+      .init_resource::<Meshed>()
       .add_systems(Startup, paint.run_if(plays))
-      .add_systems(Update, (stream, settle).chain().run_if(plays));
+      .add_systems(Update, stream.run_if(plays));
   }
 }

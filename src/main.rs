@@ -37,6 +37,7 @@ mod ground;
 mod hand;
 mod haunt;
 mod hud;
+mod hull;
 mod identity;
 mod island;
 mod local;

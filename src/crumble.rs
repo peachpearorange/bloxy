@@ -31,7 +31,8 @@ fn between(a: Corner, b: Corner, c: Corner, s: f32, t: f32) -> Corner {
     position: a.position * r + b.position * s + c.position * t,
     normal: a.normal,
     uv: a.uv * r + b.uv * s + c.uv * t,
-    color
+    color,
+    sway: a.sway
   }
 }
 
@@ -90,7 +91,7 @@ fn crumbled(shards: &[Shard], progress: f32, now: f32) -> Mesh {
   let shake = Vec3::new((now * 53.0).sin(), (now * 61.0).sin(), (now * 47.0).sin())
     * 0.02
     * progress;
-  let corners: Vec<(Vec3, Vec3, Vec2, [f32; 4])> = shards
+  let corners: Vec<(Vec3, Vec3, Vec2, [f32; 4], [f32; 2])> = shards
     .iter()
     .flat_map(|&(shard, crack)| {
       let broken = crack < progress * 0.8;
@@ -98,13 +99,14 @@ fn crumbled(shards: &[Shard], progress: f32, now: f32) -> Mesh {
         true => (0.15 + crack * 0.6, 0.02 + progress * 0.05 * (1.0 - crack)),
         false => (1.0, 0.0)
       };
-      shard.map(|Corner { position, normal, uv, color: [r, g, b, a] }| {
-        (contort(position, progress, now) + shake + normal * pop, normal, uv, [
-          r * shade,
-          g * shade,
-          b * shade,
-          a
-        ])
+      shard.map(|Corner { position, normal, uv, color: [r, g, b, a], sway }| {
+        (
+          contort(position, progress, now) + shake + normal * pop,
+          normal,
+          uv,
+          [r * shade, g * shade, b * shade, a],
+          sway
+        )
       })
     })
     .collect();
@@ -119,11 +121,15 @@ fn crumbled(shards: &[Shard], progress: f32, now: f32) -> Mesh {
     )
     .with_inserted_attribute(
       Mesh::ATTRIBUTE_UV_0,
-      corners.iter().map(|(.., uv, _)| uv.to_array()).collect::<Vec<_>>()
+      corners.iter().map(|(.., uv, _, _)| uv.to_array()).collect::<Vec<_>>()
     )
     .with_inserted_attribute(
       Mesh::ATTRIBUTE_COLOR,
-      corners.iter().map(|&(.., color)| color).collect::<Vec<_>>()
+      corners.iter().map(|&(.., color, _)| color).collect::<Vec<_>>()
+    )
+    .with_inserted_attribute(
+      Mesh::ATTRIBUTE_UV_1,
+      corners.iter().map(|&(.., sway)| sway).collect::<Vec<_>>()
     )
     .with_inserted_indices(Indices::U32((0..corners.len() as u32).collect()))
 }
@@ -137,7 +143,7 @@ fn prepare(
   commands.spawn((
     Crumbling { mesh: mesh.clone(), shape: None },
     Mesh3d(mesh),
-    MeshMaterial3d(palette.solid.clone()),
+    MeshMaterial3d(palette.ground.clone()),
     NotShadowCaster,
     Transform::default(),
     Visibility::Hidden
@@ -177,8 +183,11 @@ fn crumble(
         if shell.shape.as_ref().is_none_or(|(was, made, _)| *was != at || *made != block)
         {
           let torches = voxels.torches_near(chunk_of(at));
-          shell.shape =
-            Some((at, block, shatter(lone(block, at, voxels.seed, &torches), at)))
+          shell.shape = Some((
+            at,
+            block,
+            shatter(lone(block, at, voxels.seed, &torches, Some(voxels)), at)
+          ))
         }
         if let Some((.., shards)) = &shell.shape
           && let Some(mut mesh) = meshes.get_mut(&shell.mesh)
@@ -210,13 +219,13 @@ mod tests {
   use super::*;
 
   #[test]
-  fn logs_crumble_as_octagons() {
+  fn logs_crumble_round() {
     let at = IVec3::new(5, 80, 9);
-    let triangles = lone(Block::Log, at, 1, &[]);
+    let triangles = lone(Block::Log, at, 1, &[], None);
     let corners = || triangles.iter().flat_map(|triangle| triangle.iter());
     assert!(corners().any(|corner| {
       let Vec3 { x, z, .. } = corner.position;
-      x > 0.01 && x < 0.99 && (z < 0.01 || z > 0.99)
+      (Vec2::new(x, z) - 0.5).length() > 0.45
     }));
     assert!(
       !corners().any(|corner| corner.position.x < 0.01 && corner.position.z < 0.01)

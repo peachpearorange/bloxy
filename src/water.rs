@@ -21,9 +21,7 @@ const SURFACE: f32 = 0.86;
 #[derive(Asset, AsBindGroup, TypePath, Clone, Copy)]
 pub struct Swell {
   #[uniform(100)]
-  settings: Vec4,
-  #[uniform(100)]
-  born: Vec4
+  settings: Vec4
 }
 
 impl MaterialExtension for Swell {
@@ -32,10 +30,10 @@ impl MaterialExtension for Swell {
 
 pub type Water = ExtendedMaterial<StandardMaterial, Swell>;
 
-pub fn water(born: Vec4) -> Water {
+pub fn water() -> Water {
   ExtendedMaterial {
     base: StandardMaterial { perceptual_roughness: 0.08, reflectance: 0.6, ..default() },
-    extension: Swell { settings: Vec4::new(0.32, 0.55, 1.0, 0.22), born }
+    extension: Swell { settings: Vec4::new(0.32, 0.55, 1.0, 0.22) }
   }
 }
 

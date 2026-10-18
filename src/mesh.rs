@@ -1,5 +1,6 @@
 use {crate::{block::{Block, Fluid, Look},
              generate,
+             hull::{Facet, Hull},
              island::SEA,
              model::{self, Bit},
              noise::fbm2,
@@ -144,13 +145,24 @@ const LEANING: f32 = 0.3;
 const BLUR: [f32; 3] = [1.0, 0.6, 0.25];
 const DEPTH: [(i32, f32); 4] = [(-1, 0.5), (0, 1.0), (1, 1.0), (2, 0.5)];
 
-fn projected(block: Block) -> bool {
+fn turf(block: Block) -> bool {
+  matches!(block, Block::Grass | Block::Snow | Block::Mycelium)
+}
+
+fn projection(block: Block) -> Option<f32> {
   let [top, side, bottom] = block.tiles();
-  block.look() == Look::Opaque
+  let flank = if turf(block) { bottom } else { side };
+  (block.look() == Look::Opaque
     && block.softness() > 0.0
     && block != Block::Lumen
-    && top == side
-    && side == bottom
+    && (turf(block) || top == side || side == bottom))
+    .then(|| -1.0 - (flank.index() * 256 + bottom.index()) as f32)
+}
+
+const UNOWNED: f32 = -2.0;
+
+fn owner(local: IVec3) -> f32 {
+  ((local.y * SIZE + local.z) * SIZE + local.x) as f32 * 2.0
 }
 
 fn occupies(block: Block) -> bool {
@@ -330,11 +342,12 @@ impl Builder {
     uvs: &[Vec2],
     normal: Vec3,
     hue: LinearRgba,
+    owner: f32,
     bend: impl Fn(usize) -> f32
   ) {
     let first = self.positions.len() as u32;
     for (index, (point, uv)) in points.iter().zip(uvs).enumerate() {
-      self.sways.push([0.0, bend(index)]);
+      self.sways.push([owner, bend(index)]);
       self.positions.push(point.to_array());
       self.normals.push(normal.to_array());
       self.uvs.push(uv.to_array());
@@ -349,14 +362,14 @@ impl Builder {
     }
   }
 
-  fn strip(&mut self, corners: [(Vec3, Vec3, Vec2); 4], hue: LinearRgba) {
+  fn strip(&mut self, corners: [(Vec3, Vec3, Vec2); 4], hue: LinearRgba, owner: f32) {
     let first = self.positions.len() as u32;
     for (point, normal, uv) in corners {
       self.positions.push(point.to_array());
       self.normals.push(normal.to_array());
       self.uvs.push(uv.to_array());
       self.colors.push(hue.with_alpha(1.0).to_f32_array());
-      self.sways.push([0.0, 0.0])
+      self.sways.push([owner, 0.0])
     }
     let facing =
       (corners[1].0 - corners[0].0).cross(corners[2].0 - corners[0].0).dot(corners[0].1)
@@ -386,7 +399,8 @@ impl Builder {
 pub struct Meshes {
   pub solid: Option<Mesh>,
   pub liquid: Option<Mesh>,
-  pub unshadowed: Option<Mesh>
+  pub unshadowed: Option<Mesh>,
+  pub hull: Hull
 }
 
 fn crest(block: Block, above: Block) -> f32 {
@@ -431,8 +445,9 @@ fn builders(
   key: IVec3,
   seed: u32,
   torches: &[IVec3],
-  world: bool
-) -> (Builder, Builder, Builder) {
+  only: Option<IVec3>,
+  painted: bool
+) -> (Builder, Builder, Builder, Hull) {
   let origin = origin_of(key);
   let surface: Vec<i32> = (0..RIM * RIM)
     .map(|index| {
@@ -468,10 +483,37 @@ fn builders(
   let mut solid = Builder::default();
   let mut liquid = Builder::default();
   let mut unshadowed = Builder::default();
-  for index in 0..SIZE * SIZE * SIZE {
-    let local = IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE);
+  let mut hull = Hull::default();
+  let cells: Vec<IVec3> = match only {
+    Some(local) => vec![local],
+    None => (0..SIZE * SIZE * SIZE)
+      .map(|index| IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE))
+      .collect()
+  };
+  for local in cells {
     let block = padded.get(local);
+    let owned = only.map_or(owner(local), |_| UNOWNED);
     if block != Block::Air {
+      if only.is_none() && block.solid() {
+        let facets: Vec<Facet> = FACES
+          .iter()
+          .filter(|face| !padded.get(local + face.normal).solid())
+          .map(|face| Facet {
+            normal: face.normal,
+            corners: CORNERS.map(|(a, b)| {
+              let corner = local + face.base + face.across * a + face.up * b;
+              origin.as_vec3()
+                + match block.look() {
+                  Look::Model => corner.as_vec3(),
+                  _ => contour.point(corner).at
+                }
+            })
+          })
+          .collect();
+        if !facets.is_empty() {
+          hull.0.insert(origin + local, facets);
+        }
+      }
       let top = crest(block, padded.get(local + IVec3::Y));
       let floor = |face: &Face| {
         let neighbour = padded.get(local + face.normal);
@@ -533,11 +575,11 @@ fn builders(
           };
           builder.positions.push(position.to_array());
           builder.normals.push(normal.to_array());
-          let painted = world && projected(block);
+          let projected = projection(block).filter(|_| painted);
           builder.uvs.push(
-            match painted {
-              true => tile_origin(tile),
-              false => uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32))
+            match projected {
+              Some(_) => tile_origin(block.tiles()[0]),
+              None => uv_corner(tile, Vec2::new(a as f32, 1.0 - b as f32))
             }
             .to_array()
           );
@@ -548,13 +590,27 @@ fn builders(
           };
           let torch = torchlight(origin.as_vec3() + position);
           builder.colors.push(lit(hue, daylight, torch, shade));
-          builder
-            .sways
-            .push([f32::from(u8::from(block.leafy())), if painted { -1.0 } else { 0.0 }])
+          builder.sways.push([
+            owned + f32::from(u8::from(block.leafy() && only.is_none())),
+            projected.unwrap_or(0.0)
+          ])
         }
-        let order = match shades[1] + shades[3] > shades[0] + shades[2] {
-          true => [1, 2, 3, 1, 3, 0],
-          false => [0, 1, 2, 0, 2, 3]
+        let placed: [Vec3; 4] = std::array::from_fn(|corner| {
+          Vec3::from(builder.positions[first as usize + corner])
+        });
+        let facing = |[a, b, c]: [usize; 3]| {
+          (placed[b] - placed[a]).cross(placed[c] - placed[a]).dot(face.normal.as_vec3())
+            > 0.0
+        };
+        let (straight, crossed) = (
+          facing([0, 1, 2]) && facing([0, 2, 3]),
+          facing([1, 2, 3]) && facing([1, 3, 0])
+        );
+        let order = match (straight, crossed) {
+          (false, true) => [1, 2, 3, 1, 3, 0],
+          (true, false) => [0, 1, 2, 0, 2, 3],
+          _ if shades[1] + shades[3] > shades[0] + shades[2] => [1, 2, 3, 1, 3, 0],
+          _ => [0, 1, 2, 0, 2, 3]
         };
         builder.indices.extend(order.map(|corner| first + corner))
       }
@@ -592,6 +648,7 @@ fn builders(
             }),
             pose.transform_vector3(face.normal.as_vec3()),
             hue,
+            owned,
             |index| match block.plant() {
               true => texels[index].y / 16.0,
               false => 0.0
@@ -631,7 +688,8 @@ fn builders(
                   uv_corner(side, Vec2::new(u, v))
                 )
               }),
-              hue
+              hue,
+              owned
             )
           }
         }
@@ -645,6 +703,7 @@ fn builders(
               &ring.map(|point| uv_corner(tile, point)),
               normal.as_vec3(),
               hue,
+              owned,
               |_| 0.0
             )
           }
@@ -652,12 +711,18 @@ fn builders(
       }
     }
   }
-  (solid, liquid, unshadowed)
+  (solid, liquid, unshadowed, hull)
 }
 
 pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
-  let (solid, liquid, unshadowed) = builders(padded, key, seed, torches, true);
-  Meshes { solid: solid.mesh(), liquid: liquid.mesh(), unshadowed: unshadowed.mesh() }
+  let (solid, liquid, unshadowed, hull) =
+    builders(padded, key, seed, torches, None, true);
+  Meshes {
+    solid: solid.mesh(),
+    liquid: liquid.mesh(),
+    unshadowed: unshadowed.mesh(),
+    hull
+  }
 }
 
 #[derive(Clone, Copy)]
@@ -665,10 +730,17 @@ pub struct Corner {
   pub position: Vec3,
   pub normal: Vec3,
   pub uv: Vec2,
-  pub color: [f32; 4]
+  pub color: [f32; 4],
+  pub sway: [f32; 2]
 }
 
-pub fn lone(block: Block, at: IVec3, seed: u32, torches: &[IVec3]) -> Vec<[Corner; 3]> {
+pub fn lone(
+  block: Block,
+  at: IVec3,
+  seed: u32,
+  torches: &[IVec3],
+  around: Option<&Voxels>
+) -> Vec<[Corner; 3]> {
   let key = chunk_of(at);
   let local = at - origin_of(key);
   let padded = Padded(
@@ -676,11 +748,18 @@ pub fn lone(block: Block, at: IVec3, seed: u32, torches: &[IVec3]) -> Vec<[Corne
       .map(|index| {
         let cell = IVec3::new(index % SPAN, index / (SPAN * SPAN), index / SPAN % SPAN)
           - IVec3::splat(PAD);
-        if cell == local { block } else { Block::Air }
+        match (cell == local, around) {
+          (true, _) => block,
+          (false, Some(voxels)) => {
+            voxels.block(origin_of(key) + cell).unwrap_or(Block::Air)
+          }
+          (false, None) => Block::Air
+        }
       })
       .collect()
   );
-  let (solid, _, unshadowed) = builders(&padded, key, seed, torches, false);
+  let (solid, _, unshadowed, _) =
+    builders(&padded, key, seed, torches, Some(local), around.is_some());
   [solid, unshadowed]
     .iter()
     .flat_map(|built| {
@@ -690,7 +769,8 @@ pub fn lone(block: Block, at: IVec3, seed: u32, torches: &[IVec3]) -> Vec<[Corne
           position: Vec3::from(built.positions[index]) - local.as_vec3(),
           normal: Vec3::from(built.normals[index]),
           uv: Vec2::from(built.uvs[index]),
-          color: built.colors[index]
+          color: built.colors[index],
+          sway: built.sways[index]
         }
       };
       built

@@ -2,6 +2,7 @@ use {crate::{audio::{Cue, Sound, breaking, footing},
              block::Block,
              condition::{Conditions, Kind},
              gear::Material,
+             hull::Hulls,
              local,
              menu::{Menu, Tab, closed},
              opts::opts,
@@ -10,7 +11,7 @@ use {crate::{audio::{Cue, Sound, breaking, footing},
              sign::Inscription,
              skill::Skills,
              stream::ready_around,
-             voxels::{Hit, Voxels, unpack}},
+             voxels::{Hit, Voxels, chunk_of, in_world, unpack}},
      bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
             prelude::*,
             window::{CursorGrabMode, CursorOptions, MonitorSelection, PrimaryWindow,
@@ -303,13 +304,79 @@ pub fn slide(
 
 const STEP_UP: f32 = 1.05;
 const LIFT_EASE: f32 = 10.0;
-const SETTLE: f32 = 0.5;
+const NOTICED_LIFT: f32 = 0.2;
+const STRIDE: f32 = 0.12;
+const TORSO: [f32; 2] =
+  [STEP_UP + Bulk::PERSON.half, Bulk::PERSON.tall - Bulk::PERSON.half];
+const FOOTPRINT: [Vec2; 5] = [
+  Vec2::ZERO,
+  Vec2::new(0.2, 0.2),
+  Vec2::new(-0.2, 0.2),
+  Vec2::new(0.2, -0.2),
+  Vec2::new(-0.2, -0.2)
+];
 
-fn step_up(voxels: &Voxels, at: Vec3, axis: usize, distance: f32) -> Option<Vec3> {
-  let (raised, bumped) = slide(voxels, Bulk::PERSON, at, 1, STEP_UP);
-  let (ahead, blocked) = slide(voxels, Bulk::PERSON, raised, axis, distance);
-  let (settled, _) = slide(voxels, Bulk::PERSON, ahead, 1, -STEP_UP);
-  (!bumped && !blocked && settled.y > at.y + 0.01).then_some(settled)
+pub fn braced(hulls: &Hulls, at: Vec3) -> (Vec3, Vec3) {
+  (0..3).fold((at, Vec3::ZERO), |held, _| {
+    TORSO.iter().fold(held, |(at, pushed), &height| {
+      let push = hulls.push(at + Vec3::Y * height, Bulk::PERSON.half);
+      (at + push, pushed + push)
+    })
+  })
+}
+
+fn foothold(hulls: &Hulls, at: Vec3, below: f32) -> Option<f32> {
+  FOOTPRINT
+    .iter()
+    .filter_map(|offset| {
+      hulls.floor(at.x + offset.x, at.z + offset.y, at.y + STEP_UP, at.y - below)
+    })
+    .reduce(f32::max)
+}
+
+struct Stride {
+  at: Vec3,
+  velocity: Vec3,
+  landed: bool,
+  walled: bool,
+  lifted: f32
+}
+
+fn stride(
+  hulls: &Hulls,
+  at: Vec3,
+  velocity: Vec3,
+  grounded: bool,
+  footed: bool
+) -> Stride {
+  let parts = (velocity.length() * STEP / STRIDE).ceil().max(1.0);
+  (0..parts as u32).fold(
+    Stride { at, velocity, landed: false, walled: false, lifted: 0.0 },
+    |Stride { at, velocity, landed, walled, lifted }, _| {
+      let (at, push) = braced(hulls, at + velocity * STEP / parts);
+      let away = push.normalize_or_zero();
+      let velocity = velocity - away * velocity.dot(away).min(0.0);
+      let walled = walled || push.xz().length() > 1e-4;
+      let reach = match (grounded || landed) && footed {
+        true => STEP_UP,
+        false => 0.0
+      };
+      match (velocity.y <= 0.0).then(|| foothold(hulls, at, reach)).flatten() {
+        Some(ground) => Stride {
+          at: at.with_y(ground),
+          velocity: velocity.with_y(0.0),
+          landed: true,
+          walled,
+          lifted: lifted
+            + match (ground - at.y).abs() > NOTICED_LIFT {
+              true => ground - at.y,
+              false => 0.0
+            }
+        },
+        None => Stride { at, velocity, landed, walled, lifted }
+      }
+    }
+  )
 }
 
 pub struct Marched {
@@ -380,6 +447,7 @@ fn fly(
   mut pilot: ResMut<Pilot>,
   traits: Query<(Option<&Skills>, Option<&Conditions>, Option<&Inventory>)>,
   bodies: Res<crate::bump::Bodies>,
+  hulls: Res<Hulls>,
   mut spare: Local<f32>
 ) {
   let knack = traits
@@ -389,6 +457,10 @@ fn fly(
     });
   if let Some(voxels) = voxels
     && ready_around(&voxels, pilot.at)
+    && (-1..=1).all(|y| {
+      let key = chunk_of(pilot.at.floor().as_ivec3()) + IVec3::Y * y;
+      !in_world(key) || hulls.ready(key)
+    })
     && pilot.riding.is_none()
   {
     let pressed = |key: KeyCode| menu.idle() && keys.pressed(key);
@@ -409,9 +481,6 @@ fn fly(
     } * if webbed { 0.3 } else { 1.0 };
     let heading = Quat::from_rotation_y(pilot.yaw);
     let walk = heading * Vec3::new(wish.x, 0.0, wish.y).normalize_or_zero() * speed;
-    let settled = crate::mesh::ground(&voxels, pilot.at)
-      .filter(|_| pilot.grounded && !pilot.swimming)
-      .map_or(0.0, |ground| (ground - pilot.at.y).clamp(-SETTLE, SETTLE));
     let banked = (*spare + time.delta_secs()).min(0.25);
     let steps = (banked / STEP).floor();
     *spare = banked - steps * STEP;
@@ -454,40 +523,8 @@ fn fly(
       pilot.velocity = Vec3::new(horizontal.x, vertical, horizontal.y);
       pilot.swimming = swimming;
       let footed = !swimming && !climbing && pilot.staggered <= 0.0;
-      let (at, mut velocity) = (pilot.at, pilot.velocity);
-      let (at, landed, walled, lifted) = [1, 0, 2].into_iter().fold(
-        (at, false, false, 0.0),
-        |(at, landed, walled, lifted), axis| {
-          let distance = velocity[axis] * STEP;
-          let (moved, hit) = slide(&voxels, Bulk::PERSON, at, axis, distance);
-          let stepped = (axis != 1 && hit && landed && footed)
-            .then(|| step_up(&voxels, at, axis, distance))
-            .flatten();
-          match stepped {
-            Some(stepped) => (stepped, landed, walled, lifted + stepped.y - at.y),
-            None => {
-              if hit {
-                velocity[axis] = 0.0
-              }
-              (
-                moved,
-                landed || (axis == 1 && hit && pilot.velocity.y < 0.0),
-                walled || (axis != 1 && hit),
-                lifted
-              )
-            }
-          }
-        }
-      );
-      let (dropped, floored) =
-        match pilot.grounded && !landed && footed && velocity.y <= 0.0 {
-          true => slide(&voxels, Bulk::PERSON, at, 1, -STEP_UP),
-          false => (at, false)
-        };
-      let (at, landed, lifted) = match floored {
-        true => (dropped, true, lifted + dropped.y - at.y),
-        false => (at, landed, lifted)
-      };
+      let Stride { at, mut velocity, landed, walled, lifted } =
+        stride(&hulls, pilot.at, pilot.velocity, pilot.grounded, footed);
       let (at, landed, decked) = bodies.0.iter().fold(
         (at, landed, false),
         |(at, landed, decked), body| match body
@@ -495,23 +532,16 @@ fn fly(
           .filter(|_| velocity.y <= 0.0)
         {
           Some(top) => (at.with_y(top), true, true),
-          None => (
-            crate::bump::pushed(
-              &voxels,
-              Bulk::PERSON,
-              at,
-              body.shove(at, Bulk::PERSON, STEP)
-            ),
-            landed,
-            decked
-          )
+          None => {
+            let shove = body.shove(at, Bulk::PERSON, STEP);
+            (braced(&hulls, at + Vec3::new(shove.x, 0.0, shove.y)).0, landed, decked)
+          }
         }
       );
-      if floored || decked {
+      if decked {
         velocity.y = 0.0
       }
-      pilot.lift = settled
-        + ((pilot.lift - lifted).clamp(-1.5, 1.5) - settled) * (1.0 - STEP * LIFT_EASE);
+      pilot.lift = (pilot.lift - lifted).clamp(-1.5, 1.5) * (1.0 - STEP * LIFT_EASE);
       pilot.at = at;
       pilot.velocity = velocity;
       pilot.grounded = landed;
@@ -674,7 +704,7 @@ fn work(
   inventories: Query<&Inventory>,
   skills: Query<&Skills>,
   mut voxels: Option<ResMut<Voxels>>,
-  mut aim: ResMut<Aim>,
+  (mut aim, hulls): (ResMut<Aim>, Res<Hulls>),
   mut opens: MessageWriter<Open>,
   (mut digs, mut puts, mut attunes, mut scoops, mut pours, mut shuffles): (
     MessageWriter<Dig>,
@@ -701,7 +731,29 @@ fn work(
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
     let (eye, toward) = (pilot.eye(), pilot.facing() * Vec3::NEG_Z);
-    aim.hit = voxels.cast(eye, toward, REACH).filter(|hit| {
+    let cubic = voxels.cast(eye, toward, REACH);
+    let sighted = match hulls.ready(chunk_of(eye.floor().as_ivec3())) {
+      true => {
+        let smooth = hulls.cast(eye, toward, REACH).and_then(|(distance, at, normal)| {
+          voxels
+            .block(at)
+            .filter(|block| block.solid())
+            .map(|block| (distance, Hit { at, normal, block }))
+        });
+        let loose = cubic.filter(|hit| !hit.block.solid()).and_then(|hit| {
+          let (low, high) = crate::model::bounds(hit.block, voxels.seed, hit.at)
+            .unwrap_or((hit.at.as_vec3(), hit.at.as_vec3() + 1.0));
+          crate::hull::entry(eye, toward, low, high).map(|distance| (distance, hit))
+        });
+        match (smooth, loose) {
+          (Some(smooth), Some(loose)) if loose.0 < smooth.0 => Some(loose.1),
+          (Some(smooth), _) => Some(smooth.1),
+          (None, loose) => loose.map(|(_, hit)| hit)
+        }
+      }
+      false => cubic
+    };
+    aim.hit = sighted.filter(|hit| {
       let distance = (hit.at.as_vec3() + 0.5).distance(eye);
       let boat = boats.iter().any(|vessel| {
         crate::boat::struck(vessel, eye, toward).is_some_and(|near| near < distance)

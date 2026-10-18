@@ -4,9 +4,8 @@ use {crate::{block::{Block, Fluid},
              minimap::hue,
              player::Pilot,
              protocol::plays,
-             settings::Settings,
-             stream::{Palette, Progress},
-             voxels::{SIZE, Voxels, chunk_of}},
+             stream::{Meshed, Palette, Progress},
+             voxels::{SIZE, Voxels}},
      bevy::{asset::RenderAssetUsages,
             light::{NotShadowCaster, NotShadowReceiver},
             mesh::{Indices, PrimitiveTopology},
@@ -219,7 +218,7 @@ fn prepare(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial
   })))
 }
 
-fn wanted(centre: IVec3, at: Vec2, reach: i32) -> Vec<(IVec2, Wanted, f32)> {
+fn wanted(meshed: &Meshed, at: Vec2) -> Vec<(IVec2, Wanted, f32)> {
   let span = FAR / TILE + 1;
   let home = (at / TILE as f32).floor().as_ivec2();
   let mut tiles: Vec<(IVec2, Wanted, f32)> = (-span..=span)
@@ -229,7 +228,7 @@ fn wanted(centre: IVec3, at: Vec2, reach: i32) -> Vec<(IVec2, Wanted, f32)> {
       let distance = at.clamp(low, low + TILE as f32).distance(at);
       let near = (0..COLUMNS * COLUMNS).fold(0u16, |near, index| {
         let column = tile * COLUMNS + IVec2::new(index % COLUMNS, index / COLUMNS);
-        match (column - centre.xz()).length_squared() <= reach * reach {
+        match meshed.0.contains(&column) {
           true => near | 1 << index,
           false => near
         }
@@ -251,7 +250,7 @@ fn survey(
   mut progress: ResMut<Progress>,
   voxels: Option<Res<Voxels>>,
   pilot: Option<Res<Pilot>>,
-  settings: Res<Settings>,
+  meshed: Res<Meshed>,
   vista: Res<Vista>,
   palette: Res<Palette>,
   mut meshes: ResMut<Assets<Mesh>>
@@ -270,8 +269,7 @@ fn survey(
       distant.building.clear();
       distant.seed = Some(seed)
     }
-    let centre = chunk_of(pilot.at.floor().as_ivec3());
-    let tiles = wanted(centre, pilot.at.xz(), settings.reach);
+    let tiles = wanted(&meshed, pilot.at.xz());
     let finished: Vec<(IVec2, Built)> = distant
       .building
       .iter_mut()

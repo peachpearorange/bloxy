@@ -1,19 +1,16 @@
-use {crate::{opts::opts, protocol::Role},
+use {crate::protocol::Role,
      bevy::{asset::embedded_asset,
             pbr::{ExtendedMaterial, MaterialExtension},
             prelude::*,
             render::render_resource::AsBindGroup,
             shader::ShaderRef}};
 
-pub const EMERGING: f32 = 1.1;
-pub const LONG_AGO: f32 = -1.0e4;
-
 #[derive(Asset, AsBindGroup, TypePath, Clone)]
-pub struct Emerge {
+pub struct Surface {
   #[uniform(100)]
-  pub born: Vec4,
+  pub dug: Vec4,
   #[uniform(100)]
-  pub hidden: Vec4,
+  pub aimed: Vec4,
   #[uniform(100)]
   pub weather: Vec4,
   #[texture(101)]
@@ -21,7 +18,7 @@ pub struct Emerge {
   pub atlas: Option<Handle<Image>>
 }
 
-impl MaterialExtension for Emerge {
+impl MaterialExtension for Surface {
   fn vertex_shader() -> ShaderRef { "embedded://bloxy/ground.wgsl".into() }
 
   fn prepass_vertex_shader() -> ShaderRef {
@@ -35,25 +32,17 @@ impl MaterialExtension for Emerge {
   }
 }
 
-pub type Ground = ExtendedMaterial<StandardMaterial, Emerge>;
+pub type Ground = ExtendedMaterial<StandardMaterial, Surface>;
 
-pub fn born(time: &Time) -> f32 {
-  match opts().shot {
-    Some(_) => LONG_AGO,
-    None => time.elapsed_secs_wrapped()
-  }
+fn spot(cell: Option<IVec3>) -> Vec4 {
+  cell.map_or(Vec4::ZERO, |cell| cell.as_vec3().extend(1.0))
 }
-
-pub fn settled() -> Vec4 { Vec4::new(LONG_AGO, 0.0, 0.0, 0.0) }
 
 #[derive(Resource, Default, PartialEq)]
 pub struct Concealed(pub Option<IVec3>);
 
-impl Concealed {
-  pub fn hidden(&self) -> Vec4 {
-    self.0.map_or(Vec4::ZERO, |cell| cell.as_vec3().extend(1.0))
-  }
-}
+#[derive(Resource, Default, PartialEq)]
+pub struct Aimed(pub Option<IVec3>);
 
 #[derive(Resource, Default, PartialEq, Clone, Copy)]
 pub struct Elements {
@@ -67,13 +56,15 @@ impl Elements {
 
 fn conceal(
   concealed: Res<Concealed>,
+  aimed: Res<Aimed>,
   elements: Res<Elements>,
   mut grounds: ResMut<Assets<Ground>>
 ) {
-  if concealed.is_changed() || elements.is_changed() {
-    let (hidden, weather) = (concealed.hidden(), elements.weather());
+  if concealed.is_changed() || aimed.is_changed() || elements.is_changed() {
+    let (dug, aimed, weather) = (spot(concealed.0), spot(aimed.0), elements.weather());
     for (_, ground) in grounds.iter_mut() {
-      ground.extension.hidden = hidden;
+      ground.extension.dug = dug;
+      ground.extension.aimed = aimed;
       ground.extension.weather = weather
     }
   }
@@ -89,6 +80,7 @@ impl Plugin for Grounds {
       app
         .add_plugins(MaterialPlugin::<Ground>::default())
         .init_resource::<Concealed>()
+        .init_resource::<Aimed>()
         .init_resource::<Elements>()
         .add_systems(PostUpdate, conceal);
     }

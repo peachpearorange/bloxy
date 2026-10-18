@@ -1,16 +1,15 @@
 #import bevy_pbr::{prepass_io, pbr_prepass_functions, mesh_functions, view_transformations::position_world_to_clip}
 #import bevy_render::globals::Globals
 
-struct Emerge {
-    born: vec4<f32>,
-    hidden: vec4<f32>,
+struct Surface {
+    dug: vec4<f32>,
+    aimed: vec4<f32>,
     weather: vec4<f32>,
 }
 
 @group(0) @binding(1) var<uniform> globals: Globals;
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> emerge: Emerge;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: Surface;
 
-const EMERGING: f32 = 1.1;
 const WIND: vec3<f32> = vec3<f32>(0.8, 0.0, 0.6);
 
 fn sway(at: vec3<f32>, bend: vec2<f32>, wind: f32, time: f32) -> vec3<f32> {
@@ -23,14 +22,27 @@ fn sway(at: vec3<f32>, bend: vec2<f32>, wind: f32, time: f32) -> vec3<f32> {
     return (leaves + plants) * wind * gust;
 }
 
+fn ownership(code: f32, origin: vec3<f32>) -> vec2<f32> {
+    let whole = round(code);
+    if whole < 0.0 {
+        return vec2<f32>(0.0, 0.0);
+    }
+    let leafy = whole - floor(whole / 2.0) * 2.0;
+    let index = floor(whole / 2.0);
+    let cell = round(origin) + vec3<f32>(index - floor(index / 32.0) * 32.0, floor(index / 1024.0), floor(index / 32.0) - floor(index / 1024.0) * 32.0);
+    let dug = surface.dug.w > 0.5 && all(cell == surface.dug.xyz);
+    return vec2<f32>(select(0.0, 1.0, dug), leafy);
+}
+
 @vertex
 fn vertex(vertex: prepass_io::Vertex) -> prepass_io::VertexOutput {
     var out: prepass_io::VertexOutput;
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     var world = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
 #ifdef VERTEX_UVS_B
-    world = vec4<f32>(world.xyz + sway(world.xyz, vertex.uv_b, emerge.weather.x, globals.time), 1.0);
-    out.uv_b = vertex.uv_b;
+    let owned = ownership(vertex.uv_b.x, world_from_local[3].xyz);
+    world = vec4<f32>(world.xyz + sway(world.xyz, vec2<f32>(owned.y, vertex.uv_b.y), surface.weather.x, globals.time), 1.0);
+    out.uv_b = vec2<f32>(owned.x, vertex.uv_b.y);
 #endif
     out.world_position = world;
     out.position = position_world_to_clip(world.xyz);
@@ -64,21 +76,19 @@ fn vertex(vertex: prepass_io::Vertex) -> prepass_io::VertexOutput {
     return out;
 }
 
-fn vanish(at: vec3<f32>) {
-    let inside = all(at >= emerge.hidden.xyz - 0.001) && all(at <= emerge.hidden.xyz + 1.001);
-    let arriving = (globals.time - emerge.born.x) / EMERGING;
-    let leaving = select(0.0, (globals.time - emerge.born.y) / EMERGING, emerge.born.z > 0.5);
-    let speck = fract(sin(dot(floor(at * 16.0 + 0.001), vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
-    if (emerge.hidden.w > 0.5 && inside) || speck >= arriving || speck < leaving {
+fn vanish(in: prepass_io::VertexOutput) {
+#ifdef VERTEX_UVS_B
+    if in.uv_b.x > 0.5 {
         discard;
     }
+#endif
 }
 
 #ifdef PREPASS_FRAGMENT
 @fragment
 fn fragment(in: prepass_io::VertexOutput, @builtin(front_facing) is_front: bool) -> prepass_io::FragmentOutput {
     pbr_prepass_functions::prepass_alpha_discard(in);
-    vanish(in.world_position.xyz);
+    vanish(in);
     var out: prepass_io::FragmentOutput;
 #ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
     out.frag_depth = in.unclipped_depth;
@@ -95,6 +105,6 @@ fn fragment(in: prepass_io::VertexOutput, @builtin(front_facing) is_front: bool)
 @fragment
 fn fragment(in: prepass_io::VertexOutput) {
     pbr_prepass_functions::prepass_alpha_discard(in);
-    vanish(in.world_position.xyz);
+    vanish(in);
 }
 #endif
