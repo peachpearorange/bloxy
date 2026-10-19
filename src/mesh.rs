@@ -219,9 +219,9 @@ fn bent(cells: &impl Cells, inside: IVec3, out: IVec3, sunk: bool) -> Vec3 {
   (out.as_vec3() * LEANING - pull).normalize_or(out.as_vec3())
 }
 
-const SPREAD: i32 = 2;
+const SPREAD: i32 = 1;
 const LEVEL_REACH: i32 = 6;
-const RISE_LIMIT: f32 = 0.5;
+const RISE_LIMIT: f32 = 1.0;
 const WINDOW: i32 = 2 * SPREAD + 2;
 
 fn earthy(block: Block) -> bool { block.look() == Look::Opaque && block.softness() > 0.0 }
