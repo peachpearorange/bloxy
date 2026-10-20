@@ -528,6 +528,11 @@ fn fly(
       let footed = !swimming && !climbing && pilot.staggered <= 0.0;
       let Stride { at, mut velocity, landed, walled, lifted } =
         stride(&hulls, pilot.at, pilot.velocity, pilot.grounded, footed);
+      let belted = crate::conveyor::carry(&voxels, at);
+      let at = match pilot.grounded && footed && belted != Vec3::ZERO {
+        true => stride(&hulls, at, belted, true, true).at,
+        false => at
+      };
       let (at, landed, decked) = bodies.0.iter().fold(
         (at, landed, false),
         |(at, landed, decked), body| match body

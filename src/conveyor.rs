@@ -59,7 +59,7 @@ pub fn laid(near: impl Fn(IVec3) -> Option<Block>, at: IVec3, heading: IVec3) ->
 }
 
 const BELT_TOP: f32 = 3.0 / 16.0;
-const SPEED: f32 = 1.6;
+pub const SPEED: f32 = 1.6;
 const GAP: f32 = 0.3;
 const CENTRING: f32 = 3.0;
 const HOLD_AT: f32 = 0.8;
@@ -218,13 +218,62 @@ pub fn surface_at(voxels: &Voxels, cell: IVec3, point: Vec3) -> Option<f32> {
     .map(|(heading, slope)| surface(cell, heading, slope, point))
 }
 
+pub fn carry(voxels: &Voxels, feet: Vec3) -> Vec3 {
+  let cell = (feet + Vec3::Y * 0.05).floor().as_ivec3();
+  voxels.block(cell).and_then(belt).map_or(Vec3::ZERO, |(heading, _)| {
+    let toward = heading.as_vec3();
+    let offset = (feet - (cell.as_vec3() + Vec3::splat(0.5))).with_y(0.0);
+    let lateral = offset - toward * offset.dot(toward);
+    toward * SPEED - lateral * CENTRING
+  })
+}
+
+const NUDGE: f32 = 0.6;
+const CREATURE: crate::player::Bulk = crate::player::Bulk { half: 0.3, tall: 0.9 };
+
+fn nudged(voxels: &Voxels, at: Vec3, dt: f32) -> Vec3 {
+  let push = carry(voxels, at) * NUDGE * dt;
+  [0, 2].into_iter().fold(at, |at, axis| match push[axis] == 0.0 {
+    true => at,
+    false => crate::player::slide(voxels, CREATURE, at, axis, push[axis]).0
+  })
+}
+
+fn jostle(
+  time: Res<Time>,
+  voxels: Res<Voxels>,
+  mut beasts: Query<&mut crate::protocol::Beast>,
+  mut folk: Query<&mut crate::protocol::Folk>,
+  mut hoppers: Query<&mut crate::protocol::Hopper>
+) {
+  let dt = time.delta_secs().min(0.1);
+  for mut beast in beasts.iter_mut() {
+    let at = nudged(&voxels, beast.at, dt);
+    if at != beast.at {
+      beast.at = at
+    }
+  }
+  for mut person in folk.iter_mut().filter(|person| !person.aboard) {
+    let at = nudged(&voxels, person.at, dt);
+    if at != person.at {
+      person.at = at
+    }
+  }
+  for mut hopper in hoppers.iter_mut().filter(|hopper| !hopper.aloft) {
+    let at = nudged(&voxels, hopper.at, dt);
+    if at != hopper.at {
+      hopper.at = at
+    }
+  }
+}
+
 pub struct Conveying;
 
 impl Plugin for Conveying {
   fn build(&self, app: &mut App) {
     app.add_systems(
       Update,
-      (reshape, convey)
+      (reshape, convey, jostle)
         .chain()
         .before(crate::loose::Settling)
         .run_if(authority)
