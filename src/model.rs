@@ -259,6 +259,23 @@ const EMPTY_CHEST_BITS: &[Bit] = &[
   bit([15, 0, 11], [16, 9, 13], IRON)
 ];
 
+const TABLE_BITS: &[Bit] = &[
+  skin([0, 12, 0], [16, 16, 16], Tile::TableTop),
+  skin([2, 8, 2], [14, 12, 14], Tile::TableSide),
+  skin([1, 0, 1], [4, 12, 4], Tile::Planks),
+  skin([12, 0, 1], [15, 12, 4], Tile::Planks),
+  skin([1, 0, 12], [4, 12, 15], Tile::Planks),
+  skin([12, 0, 12], [15, 12, 15], Tile::Planks),
+  skin([2, 3, 2], [14, 4, 14], Tile::Planks)
+];
+
+const FURNACE_BITS: &[Bit] = &[
+  skin([0, 0, 0], [16, 1, 16], Tile::FurnaceTop),
+  skin([1, 1, 1], [15, 13, 15], Tile::FurnaceSide),
+  skin([0, 13, 0], [16, 14, 16], Tile::FurnaceTop),
+  skin([5, 14, 5], [11, 16, 11], Tile::FurnaceTop)
+];
+
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
     torch if torch.torch() => TORCH_BITS,
@@ -291,6 +308,8 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::Urn => URN_BITS,
     Block::Chest => CHEST_BITS,
     Block::EmptyChest => EMPTY_CHEST_BITS,
+    Block::CraftingTable => TABLE_BITS,
+    Block::Furnace => FURNACE_BITS,
     _ => &[]
   }
 }

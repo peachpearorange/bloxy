@@ -698,7 +698,15 @@ impl Block {
   pub fn spell(self) -> bool { Block::SPELLS.contains(&self) }
 
   pub fn furnished(self) -> bool {
-    matches!(self, Block::Brazier | Block::Urn | Block::Chest | Block::EmptyChest)
+    matches!(
+      self,
+      Block::Brazier
+        | Block::Urn
+        | Block::Chest
+        | Block::EmptyChest
+        | Block::CraftingTable
+        | Block::Furnace
+    )
   }
 
   pub const WALL_TORCHES: [(IVec3, Block); 4] = [
