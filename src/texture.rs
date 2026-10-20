@@ -1715,6 +1715,74 @@ fn glinting(art: &Art, palette: &Palette, glow: f32, x: u32, y: u32) -> Texel {
   }
 }
 
+const BAG: Art = [
+  "................",
+  ".....aaaaaa.....",
+  "....a......a....",
+  "....a......a....",
+  "..333333333333..",
+  ".32222222222221.",
+  ".32222222222221.",
+  ".3BBBBBBBBBBBB1.",
+  ".322222BB222221.",
+  ".322222BB222221.",
+  ".32222222222221.",
+  ".32222222222221.",
+  ".31111111111111.",
+  ".21111111111110.",
+  "..000000000000..",
+  "................"
+];
+
+const RIFT: Art = [
+  "................",
+  "................",
+  ".....333333.....",
+  "...3322222233...",
+  "..322aaaaaa221..",
+  "..32aabbbbaa21..",
+  ".32aabccccbaa21.",
+  ".32abccddccba21.",
+  ".32abccddccba21.",
+  ".32aabccccbaa21.",
+  "..32aabbbbaa21..",
+  "..122aaaaaa221..",
+  "...1122222211...",
+  ".....111111.....",
+  "................",
+  "................"
+];
+
+const PLATINUM: Palette =
+  [[0.42, 0.44, 0.48], [0.66, 0.69, 0.72], [0.83, 0.85, 0.87], [0.97, 0.98, 1.0]];
+const CANVAS: Palette =
+  [[0.42, 0.36, 0.24], [0.6, 0.53, 0.38], [0.74, 0.67, 0.5], [0.86, 0.8, 0.64]];
+const OILCLOTH: Palette =
+  [[0.1, 0.18, 0.12], [0.18, 0.3, 0.2], [0.27, 0.42, 0.28], [0.38, 0.54, 0.38]];
+const STRAP: Palette =
+  [[0.16, 0.12, 0.08], [0.26, 0.18, 0.1], [0.34, 0.24, 0.14], [0.44, 0.32, 0.2]];
+const RIVET: Palette =
+  [[0.3, 0.3, 0.32], [0.48, 0.48, 0.5], [0.62, 0.62, 0.65], [0.8, 0.8, 0.82]];
+const VOID: Palette =
+  [[0.32, 0.14, 0.55], [0.2, 0.06, 0.38], [0.08, 0.02, 0.16], [0.75, 0.55, 1.0]];
+
+fn rift(rim: &Palette, x: u32, y: u32) -> Texel {
+  match RIFT[y as usize].as_bytes()[x as usize] {
+    b'd' => Texel::rgb(0.75, 0.55, 1.0).glowing(1.4),
+    b'a' => inked(&RIFT, [rim, &VOID, &VOID], x, y).glowing(0.5),
+    _ => inked(&RIFT, [rim, &VOID, &VOID], x, y)
+  }
+}
+
+fn crusher(x: u32, y: u32) -> Texel {
+  let tooth = (x % 4).min(4 - x % 4) as i32 >= (y as i32 - 7).abs() / 2;
+  match (y < 3 || y > 12, tooth) {
+    (true, _) => brushed(STEEL, x, y),
+    (false, true) => Texel::rgb(0.62, 0.62, 0.66).scaled(0.9 + (x % 4) as f32 * 0.05),
+    (false, false) => Texel::rgb(0.06, 0.06, 0.07)
+  }
+}
+
 fn model_icon(block: Block, x: u32, y: u32) -> Texel {
   model::icon(block, x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |bit| {
     let Texel { color: [r, g, b, _], glow } = paint(bit.tile, x, y);
@@ -2050,6 +2118,18 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::BulbLit => bulb(true, x, y),
     Tile::Hazard => hazard(x, y),
     Tile::Rubber => rubber(x, y),
+    Tile::PlatinumOre => {
+      ore(x, y, [[0.6, 0.62, 0.66], [0.84, 0.86, 0.9], [1.0, 1.0, 1.0]], 0.15)
+    }
+    Tile::Platinum => glinting(&INGOT, &PLATINUM, 0.1, x, y),
+    Tile::PlatinumDust => cutout(&DUST, &PLATINUM, x, y),
+    Tile::Moonlace => model_icon(Block::Moonlace, x, y),
+    Tile::Crusher => crusher(x, y),
+    Tile::Satchel => inked(&BAG, [&CANVAS, &STRAP, &RIVET], x, y),
+    Tile::Rucksack => inked(&BAG, [&LEATHER, &STRAP, &RIVET], x, y),
+    Tile::ExpeditionPack => inked(&BAG, [&OILCLOTH, &LEATHER, &PLATINUM], x, y),
+    Tile::LesserRift => rift(&GLIMSTEEL, x, y),
+    Tile::GreaterRift => rift(&PLATINUM, x, y),
     Tile::GlimmerPink => model_icon(Block::GlimmerPink, x, y),
     Tile::GlimmerCyan => model_icon(Block::GlimmerCyan, x, y),
     Tile::GlimmerViolet => model_icon(Block::GlimmerViolet, x, y),

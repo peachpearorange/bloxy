@@ -176,7 +176,9 @@ fn found_world(mut commands: Commands) {
     generation,
     coffers,
     balloons,
-    works
+    works,
+    packs,
+    pockets
   } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
@@ -189,7 +191,9 @@ fn found_world(mut commands: Commands) {
     generation: Some(generate::GENERATION),
     coffers: default(),
     balloons: default(),
-    works: default()
+    works: default(),
+    packs: default(),
+    pockets: default()
   });
   let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
   if migrating {
@@ -245,6 +249,10 @@ fn found_world(mut commands: Commands) {
       .collect()
   ));
   commands.insert_resource(stock(&mut voxels));
+  commands.insert_resource(crate::chest::Hoards {
+    packs: packs.into_iter().collect(),
+    pockets: pockets.into_iter().collect()
+  });
   commands.insert_resource(crate::machine::settle(&mut voxels, match migrating {
     true => Vec::new(),
     false => works
@@ -471,6 +479,7 @@ fn ore(block: Block) -> u32 {
     Block::CopperOre | Block::TinOre | Block::IronOre => 2,
     Block::GoldOre => 5,
     Block::DiamondOre => 12,
+    Block::PlatinumOre => 8,
     Block::Lumen => 4,
     _ => 0
   }

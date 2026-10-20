@@ -44,7 +44,7 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     })
 }
 
-pub const GENERATION: u32 = 7;
+pub const GENERATION: u32 = 8;
 
 fn seeping(seed: u32, seep: IVec2, column: IVec2) -> bool {
   let ragged = 1.4 + unit(seed ^ 0x0115, column.x, 0, column.y) * 1.6;
@@ -191,14 +191,22 @@ struct Ore {
   radius: f32
 }
 
-const ORES: [Ore; 6] = [
+const ORES: [Ore; 7] = [
   Ore { block: Block::CoalOre, per_chunk: 22.0, depth: (5, 200), radius: 1.7 },
   Ore { block: Block::CopperOre, per_chunk: 14.0, depth: (20, 110), radius: 1.5 },
   Ore { block: Block::TinOre, per_chunk: 10.0, depth: (10, 90), radius: 1.4 },
   Ore { block: Block::IronOre, per_chunk: 12.0, depth: (5, 80), radius: 1.4 },
   Ore { block: Block::GoldOre, per_chunk: 3.0, depth: (5, 40), radius: 1.2 },
-  Ore { block: Block::DiamondOre, per_chunk: 1.5, depth: (5, 20), radius: 1.0 }
+  Ore { block: Block::DiamondOre, per_chunk: 1.5, depth: (5, 20), radius: 1.0 },
+  Ore { block: Block::PlatinumOre, per_chunk: 2.5, depth: (5, 32), radius: 1.1 }
 ];
+
+fn platinum_bearing(islands: &[Island], centre: Vec3) -> bool {
+  islands.iter().any(|island| {
+    matches!(island.kind, Kind::Peak | Kind::Frost)
+      && centre.xz().distance(island.centre) <= island.radius * 1.2
+  })
+}
 
 fn neighbours() -> impl Iterator<Item = IVec3> {
   (-1..=1)
@@ -466,8 +474,13 @@ fn bloom(seed: u32, x: i32, z: i32, ground: &Column) -> Option<Block> {
       (island.kind, ground.top),
       (Kind::Meadow | Kind::Woods | Kind::Peak, Block::Grass)
     ) && unit(seed ^ 0xF16, x, 6, z) < 0.01 * (0.2 + field * field * 2.0);
-    enchanted
-      .then_some(glimmer)
+    let moonlit = matches!(
+      (island.kind, ground.top),
+      (Kind::Frost, Block::Snow) | (Kind::Peak, Block::Snow | Block::Grass)
+    ) && unit(seed ^ 0xF17, x, 7, z) < 0.004;
+    moonlit
+      .then_some(Block::Moonlace)
+      .or(enchanted.then_some(glimmer))
       .or(
         sown
           .filter(|&(_, density)| {
@@ -609,7 +622,9 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
           other => other
         };
       }
-      for (ore, centre, radius) in veins(seed, key) {
+      for (ore, centre, radius) in veins(seed, key).filter(|&(ore, centre, _)| {
+        ore != Block::PlatinumOre || platinum_bearing(&islands, centre)
+      }) {
         let low = (centre - radius).floor().as_ivec3() - origin;
         let high = (centre + radius).ceil().as_ivec3() - origin;
         for y in low.max(IVec3::ZERO).y..=high.min(IVec3::splat(SIZE - 1)).y {

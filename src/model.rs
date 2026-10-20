@@ -527,6 +527,36 @@ const APOTHECARY_BITS: &[Bit] = &[
   skin([3, 10, 3], [13, 13, 13], Tile::Water)
 ];
 
+const MOONPETAL: [f32; 3] = [0.9, 0.94, 1.0];
+const MOONHEART: [f32; 3] = [0.6, 0.75, 1.0];
+
+const MOONLACE_BITS: &[Bit] = &[
+  bit([7, 0, 7], [8, 11, 8], STALK),
+  bit([8, 4, 7], [11, 5, 8], LEAF),
+  bit([4, 6, 7], [7, 7, 8], LEAF),
+  bit([8, 11, 7], [11, 12, 8], STALK),
+  bit([10, 8, 6], [12, 11, 9], MOONPETAL),
+  bit([10, 7, 7], [12, 8, 8], MOONHEART),
+  bit([4, 11, 7], [7, 12, 8], STALK),
+  bit([3, 8, 6], [5, 11, 9], MOONPETAL),
+  bit([3, 7, 7], [5, 8, 8], MOONHEART),
+  bit([6, 12, 6], [9, 15, 9], MOONPETAL),
+  bit([7, 11, 7], [8, 12, 8], MOONHEART)
+];
+
+const CRUSHER_BITS: &[Bit] = &[
+  skin([0, 0, 0], [16, 3, 16], Tile::Steel),
+  skin([1, 3, 1], [15, 10, 15], Tile::Casing),
+  skin([3, 4, 0], [13, 9, 1], Tile::Crusher),
+  skin([3, 4, 15], [13, 9, 16], Tile::Crusher),
+  skin([2, 10, 2], [14, 12, 14], Tile::Steel),
+  skin([3, 12, 3], [13, 15, 4], Tile::Steel),
+  skin([3, 12, 12], [13, 15, 13], Tile::Steel),
+  skin([3, 12, 4], [4, 15, 12], Tile::Steel),
+  skin([12, 12, 4], [13, 15, 12], Tile::Steel),
+  skin([15, 4, 5], [16, 8, 11], Tile::Coil)
+];
+
 pub const ACROSS: u16 = 0b11;
 
 pub fn links(block: Block, near: impl Fn(IVec3) -> Block) -> u16 {
@@ -841,6 +871,8 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::Plinth => PLINTH_BITS,
     Block::ConfluenceAltar => CONFLUENCE_ALTAR_BITS,
     Block::BloomFont => APOTHECARY_BITS,
+    Block::Moonlace => MOONLACE_BITS,
+    Block::Crusher => CRUSHER_BITS,
     _ => &[]
   }
 }

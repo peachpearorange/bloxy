@@ -170,6 +170,7 @@ pub fn design(block: Block) -> Design {
       Design { intake: Some((&[Liquid::Lifeblood], crate::arcana::ALTAR_MOST)), ..base }
     }
     Block::Emberbell => Design { hopper: 600.0, ..base },
+    Block::Crusher => Design { draws: 30.0, ..base },
     _ => base
   }
 }
@@ -195,6 +196,7 @@ pub fn carries(block: Block) -> bool {
       | Block::ItemDrain
       | Block::SteamEngine
       | Block::Fermenter
+      | Block::Crusher
   ) || block.conveyor()
 }
 
@@ -250,6 +252,28 @@ pub fn fuel(machine: Block, item: Block) -> Option<f32> {
   }
 }
 
+pub const CRUSH_TIME: f32 = 1.5;
+const CRUSHER_HOLDS: u16 = 64;
+
+pub fn crushed(item: Block) -> impl Iterator<Item = &'static crate::recipe::Recipe> {
+  crate::recipe::RECIPES.iter().filter(move |recipe| {
+    recipe.station == Some(Block::Crusher)
+      && recipe.inputs.first().is_some_and(|&(input, _)| input == item)
+  })
+}
+
+pub fn crushable(item: Block) -> bool {
+  crushed(item).any(|recipe| recipe.cost == crate::recipe::Cost::Free)
+}
+
+fn hoppered_room(state: &State, item: Block) -> u16 {
+  match state.item {
+    None => CRUSHER_HOLDS,
+    Some(held) if held.block == item => CRUSHER_HOLDS.saturating_sub(held.count),
+    Some(_) => 0
+  }
+}
+
 pub fn accepts(machine: Block, item: Block) -> bool {
   let Design { intake, outlet, .. } = design(machine);
   let carried = item.carrying().map(Liquid::of);
@@ -260,6 +284,7 @@ pub fn accepts(machine: Block, item: Block) -> bool {
     })
     || (item == Block::Bucket && (machine == Block::Tank || outlet.is_some()))
     || (machine == Block::CrimsonAltar && item == Block::RitualKnife)
+    || (machine == Block::Crusher && crushable(item))
 }
 
 pub fn panelled(block: Block) -> bool {
@@ -559,6 +584,7 @@ fn load(voxels: &mut Voxels, sky: Sky, at: IVec3, state: &State) -> Load {
     },
     Block::ElectricFurnace => drawing(state.charge < stores, Status::Full),
     Block::ElectricLamp | Block::ElectricLampLit => drawing(true, Status::Idle),
+    Block::Crusher => drawing(state.item.is_some(), Status::Empty),
     _ => Load::default()
   }
 }
@@ -669,6 +695,7 @@ fn labour(voxels: &mut Voxels, at: IVec3, state: &mut State, load: Load, supply:
       let crude = spill(&mut state.intake, (REFINED * work).min(free));
       pour(&mut state.outlet, Liquid::Diesel, crude * DIESEL_YIELD, room);
     }
+    Block::Crusher if running => state.charge += work,
     Block::ElectricFurnace if running => {
       state.charge = (state.charge + design(state.block).draws * work).min(stores)
     }
@@ -844,6 +871,12 @@ fn takes(
   match block {
     Block::EmptyChest => coffers.0.get(&at).is_none_or(|slots| room_for(slots, stack)),
     Block::Chest => coffers.0.get(&at).is_some_and(|slots| room_for(slots, stack)),
+    Block::Crusher => {
+      crushable(stack.block)
+        && states
+          .get(&at)
+          .is_some_and(|state| hoppered_room(state, stack.block) >= stack.count)
+    }
     machine => {
       fuel(machine, stack.block).zip(states.get(&at)).is_some_and(|(each, state)| {
         state.stock + each * f32::from(stack.count) <= design(machine).hopper
@@ -912,6 +945,14 @@ pub fn deliver(
             message: Altered { at: target, block: Block::Chest }
           });
         }
+      }
+      accepted
+    }
+    Block::Crusher => {
+      let accepted = takes(states, coffers, block, target, stack);
+      if accepted && let Some(state) = states.get_mut(&target) {
+        let count = state.item.map_or(0, |held| held.count) + stack.count;
+        state.item = Some(Stack { count, ..stack })
       }
       accepted
     }
@@ -1103,6 +1144,68 @@ fn empty(
   }
 }
 
+fn crush(
+  states: &mut HashMap<IVec3, State>,
+  coffers: &mut crate::chest::Coffers,
+  voxels: &mut Voxels,
+  changes: &mut MessageWriter<ToClients<Altered>>,
+  commands: &mut Commands
+) {
+  let crushers: Vec<IVec3> = ordered(
+    states
+      .iter()
+      .filter(|(_, state)| {
+        state.block == Block::Crusher
+          && state.charge >= CRUSH_TIME
+          && state.item.is_some()
+      })
+      .map(|(&at, _)| at)
+  );
+  for at in crushers {
+    let State { item, stock, .. } = states[&at];
+    if let Some(held) = item {
+      let roll = crate::noise::hash(0xC2u32, at.x, at.y * 131 + stock as i32, at.z) % 100;
+      let made: Vec<Stack> = crushed(held.block)
+        .filter(|recipe| match recipe.cost {
+          crate::recipe::Cost::Chance(percent) => roll < u32::from(percent),
+          _ => true
+        })
+        .map(|recipe| Stack::of(recipe.output.0, recipe.output.1))
+        .collect();
+      if let Some(state) = states.get_mut(&at) {
+        state.charge -= CRUSH_TIME;
+        state.stock = (state.stock + 1.0) % 1000.0;
+        state.item = (held.count > 1).then_some(Stack { count: held.count - 1, ..held })
+      }
+      for stack in made {
+        let handed = (0..SIDES.len()).any(|side| {
+          let target = at + SIDES[side];
+          let near = voxels.block(target).unwrap_or_default();
+          (near == Block::ItemPipe || matches!(near, Block::Chest | Block::EmptyChest))
+            && deliver(
+              states,
+              coffers,
+              voxels,
+              changes,
+              target,
+              side_of(-SIDES[side]),
+              stack
+            )
+        });
+        if !handed {
+          crate::loose::fling(
+            commands,
+            stack,
+            at.as_vec3() + Vec3::new(0.5, 1.1, 0.5),
+            Vec3::Y * 2.5,
+            0.5
+          )
+        }
+      }
+    }
+  }
+}
+
 fn step(
   voxels: &mut Voxels,
   sky: Sky,
@@ -1136,6 +1239,7 @@ fn step(
   drain(states, attached);
   empty(states, attached, coffers, voxels, changes, commands);
   ferry(states, coffers, voxels, changes, commands);
+  crush(states, coffers, voxels, changes, commands);
   plumb(states, attached);
   supplies
 }
@@ -1245,6 +1349,14 @@ fn tend(
       let Design { intake, outlet, hopper, .. } = design(block);
       let tank = block == Block::Tank;
       match (fuel(block, item), item.carrying().map(Liquid::of)) {
+        _ if block == Block::Crusher && crushable(item) => {
+          let moved = hoppered_room(state, item).min(stack.count);
+          let taken = (0..moved).take_while(|_| inventory.take(item)).count() as u16;
+          if taken > 0 {
+            let count = state.item.map_or(0, |held| held.count) + taken;
+            state.item = Some(Stack { count, ..Stack::of(item, 1) })
+          }
+        }
         _ if block == Block::FluidDrain && item == Block::CopperPipe => {
           if inventory.take(item) {
             state.block = Block::PipedDrain;

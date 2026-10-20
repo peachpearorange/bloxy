@@ -19,23 +19,82 @@ pub enum Handling {
   Withdraw(u8)
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Hoard {
+  Chest(IVec3),
+  Pack(u32),
+  Pocket(u32)
+}
+
+impl Default for Hoard {
+  fn default() -> Hoard { Hoard::Chest(IVec3::ZERO) }
+}
+
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
 pub struct Rummage {
-  pub at: IVec3,
+  pub at: Hoard,
   pub handling: Handling
 }
 
+#[derive(Message, Serialize, Deserialize, Clone, Copy)]
+pub struct Unpack(pub u8);
+
 #[derive(Message, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Opened {
-  pub at: IVec3,
+  pub at: Hoard,
+  pub kind: Block,
   pub slots: Vec<Option<Stack>>
 }
 
 #[derive(Resource, Default)]
 pub struct Coffers(pub HashMap<IVec3, Vec<Option<Stack>>>);
 
+#[derive(Resource, Default)]
+pub struct Hoards {
+  pub packs: HashMap<u32, Vec<Option<Stack>>>,
+  pub pockets: HashMap<u32, Vec<Option<Stack>>>
+}
+
+pub const POCKET: usize = 30;
+
+pub fn room(block: Block) -> usize {
+  match block {
+    Block::Satchel => 9,
+    Block::Rucksack => 18,
+    Block::ExpeditionPack => 27,
+    Block::LesserRift => 12,
+    Block::GreaterRift => POCKET,
+    _ => ROOM
+  }
+}
+
+fn rift_room(inventory: &Inventory) -> Option<(Block, usize)> {
+  inventory
+    .slots
+    .iter()
+    .flatten()
+    .filter(|stack| stack.block.rift())
+    .map(|stack| (stack.block, room(stack.block)))
+    .max_by_key(|&(_, room)| room)
+}
+
+fn carries_pack(inventory: &Inventory, id: u32) -> Option<Block> {
+  inventory
+    .slots
+    .iter()
+    .flatten()
+    .find(|stack| stack.block.pack() && stack.gear.and_then(|gear| gear.pack) == Some(id))
+    .map(|stack| stack.block)
+}
+
+fn fitted(slots: &mut Vec<Option<Stack>>, room: usize) {
+  if slots.len() < room {
+    slots.resize(room, None)
+  }
+}
+
 #[derive(Component)]
-struct Peeking(IVec3);
+struct Peeking(Hoard);
 
 #[derive(Resource, Default)]
 pub struct Coffer(pub Opened);
@@ -59,6 +118,14 @@ pub fn stash(slots: &mut [Option<Stack>], stack: Stack) -> Option<Stack> {
       None
     }
     (_, None) => Some(left)
+  }
+}
+
+fn moved(inventory: &Inventory, handling: Handling) -> Option<Stack> {
+  match handling {
+    Handling::Swap(_) => inventory.slots[CURSOR],
+    Handling::Deposit(slot) => inventory.slots.get(usize::from(slot)).copied().flatten(),
+    Handling::Withdraw(_) => None
   }
 }
 
@@ -162,10 +229,56 @@ fn open(
           slots
         })
         .clone();
+      commands.entity(player).insert(Peeking(Hoard::Chest(at)));
+      shown_to.write(ToClients {
+        targets: SendTargets::Single(client_id),
+        message: Opened { at: Hoard::Chest(at), kind: Block::Chest, slots }
+      });
+    }
+  }
+}
+
+fn unpack(
+  mut unpacks: MessageReader<FromClient<Unpack>>,
+  mut hoards: ResMut<Hoards>,
+  mut players: Query<(&Controller, (Entity, &mut Inventory))>,
+  mut shown_to: MessageWriter<ToClients<Opened>>,
+  mut commands: Commands
+) {
+  for &FromClient { client_id, message: Unpack(slot) } in unpacks.read() {
+    let account = players
+      .iter()
+      .find(|(controller, _)| controller.client == client_id)
+      .map(|(controller, _)| controller.account as u32);
+    let next = hoards.packs.keys().max().map_or(1, |most| most + 1);
+    if let Some(account) = account
+      && let Some((player, mut inventory)) = player_of(players.iter_mut(), client_id)
+      && let Some(stack) = inventory.slots.get(usize::from(slot)).copied().flatten()
+      && stack.block.portable()
+    {
+      let (at, kind, slots) = match stack.block.pack() {
+        true => {
+          let gear = stack.gear.unwrap_or_default();
+          let id = gear.pack.unwrap_or(next);
+          inventory.slots[usize::from(slot)] = Some(Stack {
+            gear: Some(crate::gear::Gear { pack: Some(id), ..gear }),
+            ..stack
+          });
+          let slots = hoards.packs.entry(id).or_default();
+          fitted(slots, room(stack.block));
+          (Hoard::Pack(id), stack.block, slots[..room(stack.block)].to_vec())
+        }
+        false => {
+          let (kind, room) = rift_room(&inventory).unwrap_or((stack.block, 0));
+          let slots = hoards.pockets.entry(account).or_default();
+          fitted(slots, POCKET);
+          (Hoard::Pocket(account), kind, slots[..room].to_vec())
+        }
+      };
       commands.entity(player).insert(Peeking(at));
       shown_to.write(ToClients {
         targets: SendTargets::Single(client_id),
-        message: Opened { at, slots }
+        message: Opened { at, kind, slots }
       });
     }
   }
@@ -175,29 +288,66 @@ fn rummage(
   mut rummages: MessageReader<FromClient<Rummage>>,
   mut voxels: ResMut<Voxels>,
   mut coffers: ResMut<Coffers>,
+  mut hoards: ResMut<Hoards>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
   peeking: Query<(&Controller, &Peeking)>,
   mut shown_to: MessageWriter<ToClients<Opened>>,
   mut changes: MessageWriter<ToClients<Altered>>
 ) {
   for &FromClient { client_id, message: Rummage { at, handling } } in rummages.read() {
-    if chest(voxels.ensure(at))
+    let account = players
+      .iter()
+      .find(|(controller, _)| controller.client == client_id)
+      .map(|(controller, _)| controller.account as u32);
+    if let Some(account) = account
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
-      && within_reach(avatar, at)
-      && let Some(slots) = coffers.0.get_mut(&at)
     {
-      handle(slots, &mut inventory, handling);
-      let block = shown(slots);
-      if voxels.ensure(at) != block {
-        voxels.set(at, block);
-        changes
-          .write(ToClients { targets: SendTargets::All, message: Altered { at, block } });
-      }
-      for (controller, _) in peeking.iter().filter(|(_, peeking)| peeking.0 == at) {
-        shown_to.write(ToClients {
-          targets: SendTargets::Single(controller.client),
-          message: Opened { at, slots: slots.clone() }
-        });
+      let carried =
+        moved(&inventory, handling).is_some_and(|stack| stack.block.portable());
+      let opened = match at {
+        Hoard::Chest(spot) => (chest(voxels.ensure(spot)) && within_reach(avatar, spot))
+          .then(|| {
+            coffers
+              .0
+              .get_mut(&spot)
+              .map(|slots| (Hoard::Chest(spot), Block::Chest, slots.len(), slots))
+          })
+          .flatten(),
+        Hoard::Pack(id) => {
+          carries_pack(&inventory, id).filter(|_| !carried).and_then(|kind| {
+            hoards
+              .packs
+              .get_mut(&id)
+              .map(|slots| (at, kind, room(kind).min(slots.len()), slots))
+          })
+        }
+        Hoard::Pocket(_) => {
+          rift_room(&inventory).filter(|_| !carried).and_then(|(kind, room)| {
+            hoards
+              .pockets
+              .get_mut(&account)
+              .map(|slots| (Hoard::Pocket(account), kind, room.min(slots.len()), slots))
+          })
+        }
+      };
+      if let Some((hoard, kind, room, slots)) = opened {
+        handle(&mut slots[..room], &mut inventory, handling);
+        if let Hoard::Chest(spot) = hoard {
+          let block = shown(slots);
+          if voxels.ensure(spot) != block {
+            voxels.set(spot, block);
+            changes.write(ToClients {
+              targets: SendTargets::All,
+              message: Altered { at: spot, block }
+            });
+          }
+        }
+        for (controller, _) in peeking.iter().filter(|(_, peeking)| peeking.0 == hoard) {
+          shown_to.write(ToClients {
+            targets: SendTargets::Single(controller.client),
+            message: Opened { at: hoard, kind, slots: slots[..room].to_vec() }
+          });
+        }
       }
     }
   }
@@ -223,10 +373,11 @@ impl Plugin for Chests {
   fn build(&self, app: &mut App) {
     app
       .init_resource::<Coffers>()
+      .init_resource::<Hoards>()
       .init_resource::<Coffer>()
       .add_systems(
         PreUpdate,
-        (open, rummage).chain().after(ServerSystems::Receive).run_if(authority)
+        (open, unpack, rummage).chain().after(ServerSystems::Receive).run_if(authority)
       )
       .add_systems(Update, peek.run_if(plays).run_if(resource_exists::<Menu>));
   }

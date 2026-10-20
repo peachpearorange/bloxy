@@ -268,6 +268,37 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
     });
 }
 
+#[derive(Component)]
+struct HoardTitle;
+
+fn fit_hoard(
+  coffer: Res<Coffer>,
+  mut slots: Query<(&Act, &mut Node)>,
+  mut titles: Query<&mut Text, With<HoardTitle>>
+) {
+  let room = coffer.0.slots.len();
+  for (act, mut node) in slots.iter_mut() {
+    if let &Act::Stash(index) = act {
+      let display = match usize::from(index) < room {
+        true => Display::Flex,
+        false => Display::None
+      };
+      if node.display != display {
+        node.display = display
+      }
+    }
+  }
+  let title = match coffer.0.kind {
+    rift if rift.rift() => "Pocket Rift",
+    kind => kind.name()
+  };
+  for mut text in titles.iter_mut() {
+    if text.0 != title {
+      text.0 = title.to_string()
+    }
+  }
+}
+
 pub fn chest_page(page: &mut ChildSpawnerCommands, palette: &Palette) {
   page
     .spawn(Node {
@@ -278,7 +309,7 @@ pub fn chest_page(page: &mut ChildSpawnerCommands, palette: &Palette) {
       ..default()
     })
     .with_children(|middle| {
-      middle.spawn(words("Chest", 20.0, INK));
+      middle.spawn((HoardTitle, words("Chest", 20.0, INK)));
       row(middle, (0..ROOM).map(Place::Chest), palette);
       middle.spawn((words("Backpack", 15.0, FAINT), Node {
         margin: UiRect::top(px(12)),
@@ -833,6 +864,22 @@ fn hint(
             )
           })
           .or_else(|| {
+            block.portable().then(|| {
+              let room = crate::chest::room(block);
+              match block.pack() {
+                true => format!(
+                  "{} - right-click to open: {room} slots that travel with the bag",
+                  block.name()
+                ),
+                false => format!(
+                  "{} - right-click to open your pocket of folded space: {room} slots, the \
+                   same from every rift you carry",
+                  block.name()
+                )
+              }
+            })
+          })
+          .or_else(|| {
             stack.gear.map(|_| {
               [gear::title(&stack)]
                 .into_iter()
@@ -1017,7 +1064,7 @@ impl Plugin for Crafting {
       .add_systems(Startup, tooltip.after(crate::stream::paint).run_if(plays))
       .add_systems(
         Update,
-        (obey, survey, fill, carry, catalogue, recipes, rewind, scroll, hint)
+        (obey, survey, fill, carry, catalogue, recipes, rewind, scroll, hint, fit_hoard)
           .chain()
           .run_if(plays)
       );

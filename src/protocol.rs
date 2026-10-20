@@ -579,6 +579,7 @@ impl Plugin for Protocol {
       .add_client_message::<crate::stance::Adopt>(Channel::Ordered)
       .add_client_message::<crate::stance::Lunge>(Channel::Ordered)
       .add_client_message::<crate::chest::Rummage>(Channel::Ordered)
+      .add_client_message::<crate::chest::Unpack>(Channel::Ordered)
       .add_server_message::<crate::chest::Opened>(Channel::Ordered)
       .replicate::<crate::balloon::Aerostat>()
       .add_client_message::<crate::balloon::Inflate>(Channel::Ordered)

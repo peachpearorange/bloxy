@@ -718,7 +718,7 @@ fn work(
     ResMut<crate::apparatus::Watching>,
     MessageWriter<crate::machine::Tend>
   ),
-  mut opens: MessageWriter<Open>,
+  (mut opens, mut unpacks): (MessageWriter<Open>, MessageWriter<crate::chest::Unpack>),
   (mut digs, mut puts, mut attunes, mut scoops, mut pours, mut shuffles): (
     MessageWriter<Dig>,
     MessageWriter<Put>,
@@ -905,6 +905,12 @@ fn work(
         }
         _ => menu.show(Tab::Inventory, time.elapsed_secs())
       }
+    } else if active
+      && buttons.just_pressed(MouseButton::Right)
+      && stack.is_some_and(|stack| stack.block.portable())
+    {
+      unpacks.write(crate::chest::Unpack(selected.0 as u8));
+      sounds.write(Sound::here(Cue::Creak));
     } else if active
       && buttons.just_pressed(MouseButton::Right)
       && let Some(stack) = stack.filter(|stack| {

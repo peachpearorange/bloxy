@@ -533,17 +533,33 @@ fn soak(
   commands: &mut Commands
 ) {
   let mana = holds(states[&at].intake, Liquid::Mana);
-  let found = lying.iter_mut().find_map(|(entity, loose)| {
-    rite_for(Block::ManaCistern, loose.block)
-      .filter(|_| loose.count > 0 && resting_in(loose, at))
-      .map(|recipe| (entity, loose, recipe))
-  });
-  let state = states.get_mut(&at).expect("pools have states");
+  let inside: Vec<usize> = (0..lying.len())
+    .filter(|&index| lying[index].1.count > 0 && resting_in(&lying[index].1, at))
+    .collect();
+  let have = |block: Block| -> u16 {
+    inside
+      .iter()
+      .filter(|&&index| lying[index].1.block == block)
+      .map(|&index| lying[index].1.count)
+      .sum()
+  };
+  let found = rites(Block::ManaCistern)
+    .filter_map(|recipe| {
+      recipe
+        .inputs
+        .iter()
+        .map(|&(block, count)| have(block) / count.max(1))
+        .min()
+        .filter(|&times| times > 0)
+        .map(|times| (recipe, times))
+    })
+    .max_by_key(|(recipe, _)| recipe.inputs.len());
+  let state = states.get_mut(&at).expect("cisterns have states");
   state.status = Status::Idle;
-  if let Some((entity, loose, recipe)) = found
+  if let Some((recipe, times)) = found
     && let Cost::Mana(cost) = recipe.cost
   {
-    let affordable = ((mana / cost as f32) as u16).min(loose.count);
+    let affordable = ((mana / cost as f32) as u16).min(times);
     state.status = match affordable > 0 {
       true => Status::Running,
       false => Status::NoMana
@@ -558,9 +574,19 @@ fn soak(
         Vec3::Y * 3.5,
         0.6
       );
-      loose.count -= affordable;
-      if loose.count == 0 {
-        commands.entity(*entity).despawn()
+      for &(block, count) in recipe.inputs {
+        let mut owed = count * affordable;
+        for &index in inside.iter() {
+          let (entity, loose) = &mut lying[index];
+          if loose.block == block && owed > 0 && loose.count > 0 {
+            let taken = owed.min(loose.count);
+            loose.count -= taken;
+            owed -= taken;
+            if loose.count == 0 {
+              commands.entity(*entity).despawn()
+            }
+          }
+        }
       }
     }
   }

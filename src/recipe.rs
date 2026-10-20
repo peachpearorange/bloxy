@@ -8,7 +8,8 @@ pub enum Cost {
   Free,
   Mana(u32),
   Lifeblood(u32),
-  Essence(&'static [(Aspect, u16)])
+  Essence(&'static [(Aspect, u16)]),
+  Chance(u8)
 }
 
 #[derive(Clone, Copy)]
@@ -21,14 +22,23 @@ pub struct Recipe {
 }
 
 impl Recipe {
-  pub fn rite(&self) -> bool { self.station.is_some_and(Block::arcane) }
+  pub fn rite(&self) -> bool {
+    self.station.is_some_and(|station| station.arcane() || station == Block::Crusher)
+  }
 
   pub fn how(&self) -> Option<String> {
     let first = self.inputs.first().map_or("it", |&(block, _)| block.name());
+    let all: Vec<&str> = self.inputs.iter().map(|&(block, _)| block.name()).collect();
     match (self.station, self.cost) {
       (Some(Block::ManaCistern), Cost::Mana(mana)) => {
-        Some(format!("Toss {first} into a Mana Cistern: {mana} mana each"))
+        Some(format!("Toss {} into a Mana Cistern: {mana} mana each", all.join(" and ")))
       }
+      (Some(Block::Crusher), Cost::Free) => {
+        Some(format!("Feed {first} to a powered Crusher"))
+      }
+      (Some(Block::Crusher), Cost::Chance(percent)) => Some(format!(
+        "A powered Crusher sometimes sifts this out of {first} ({percent}% each)"
+      )),
       (Some(Block::CrimsonAltar), Cost::Lifeblood(blood)) => {
         Some(format!("Set {first} on a Crimson Altar: {blood} lifeblood"))
       }
@@ -103,7 +113,18 @@ impl Recipe {
   ) -> Option<Inventory> {
     let mut after = inventory.clone();
     let (output, count) = self.output;
-    let gear = self.material.map(Gear::forged);
+    let carried = self
+      .inputs
+      .iter()
+      .filter(|&&(block, _)| output.pack() && block.pack())
+      .find_map(|&(block, _)| {
+        inventory.slots[..crate::protocol::SLOTS]
+          .iter()
+          .flatten()
+          .find(|stack| stack.block == block)
+      })
+      .and_then(|stack| stack.gear);
+    let gear = self.material.map(Gear::forged).or(carried);
     (self.housed(stations)
       && self.learned(spells)
       && self
@@ -267,6 +288,90 @@ const ARCANA: &[Recipe] = &[
     (Block::Feather, 4),
     Block::Cauldron,
     Cost::Essence(&[(Aspect::Air, 6), (Aspect::Magic, 2)])
+  ),
+  hand(&[(Block::Moonlace, 1), (Block::BoneDust, 1)], (Block::Moonlace, 2)),
+  furnace(&[(Block::PlatinumOre, 1), (Block::CoalOre, 1)], (Block::Platinum, 1)),
+  furnace(&[(Block::PlatinumDust, 2), (Block::CoalOre, 1)], (Block::Platinum, 2)),
+  table(
+    &[(Block::IronOre, 6), (Block::CopperCable, 2), (Block::DiamondOre, 1)],
+    (Block::Crusher, 1)
+  ),
+  rite(&[(Block::PlatinumOre, 1)], (Block::PlatinumDust, 2), Block::Crusher, Cost::Free),
+  rite(&[(Block::Cobblestone, 1)], (Block::Gravel, 1), Block::Crusher, Cost::Free),
+  rite(&[(Block::Gravel, 1)], (Block::Sand, 1), Block::Crusher, Cost::Free),
+  rite(&[(Block::Gravel, 1)], (Block::PlatinumDust, 1), Block::Crusher, Cost::Chance(6)),
+  rite(
+    &[(Block::GoldOre, 1), (Block::Moonlace, 1)],
+    (Block::Platinum, 1),
+    Block::ManaCistern,
+    Cost::Mana(5000)
+  ),
+  rite(
+    &[(Block::GoldOre, 1)],
+    (Block::Platinum, 1),
+    Block::CrimsonAltar,
+    Cost::Lifeblood(8000)
+  ),
+  rite(
+    &[(Block::GoldOre, 1)],
+    (Block::Platinum, 1),
+    Block::Cauldron,
+    Cost::Essence(&[(Aspect::Metal, 8), (Aspect::Order, 6)])
+  ),
+  table(
+    &[(Block::Wool, 4), (Block::Planks, 2), (Block::IronOre, 1)],
+    (Block::Satchel, 1)
+  ),
+  table(
+    &[(Block::Satchel, 1), (Block::IronOre, 4), (Block::Conveyor, 2)],
+    (Block::Rucksack, 1)
+  ),
+  table(
+    &[
+      (Block::Rucksack, 1),
+      (Block::Platinum, 3),
+      (Block::ElectricLamp, 1),
+      (Block::Conveyor, 2)
+    ],
+    (Block::ExpeditionPack, 1)
+  ),
+  table(
+    &[
+      (Block::Rucksack, 1),
+      (Block::Platinum, 1),
+      (Block::Hexbrass, 1),
+      (Block::ElectricLamp, 1)
+    ],
+    (Block::ExpeditionPack, 1)
+  ),
+  rite(
+    &[(Block::Glimsteel, 1), (Block::Tidepearl, 3)],
+    (Block::LesserRift, 1),
+    Block::ConfluenceAltar,
+    Cost::Mana(6000)
+  ),
+  rite(
+    &[(Block::Glimsteel, 1), (Block::Tidepearl, 1), (Block::BoundTablet, 1)],
+    (Block::LesserRift, 1),
+    Block::ConfluenceAltar,
+    Cost::Mana(3000)
+  ),
+  rite(
+    &[(Block::LesserRift, 1), (Block::Platinum, 2), (Block::Starheart, 1)],
+    (Block::GreaterRift, 1),
+    Block::ConfluenceAltar,
+    Cost::Mana(10000)
+  ),
+  rite(
+    &[
+      (Block::LesserRift, 1),
+      (Block::Platinum, 1),
+      (Block::Starheart, 1),
+      (Block::Hexbrass, 1)
+    ],
+    (Block::GreaterRift, 1),
+    Block::ConfluenceAltar,
+    Cost::Mana(6000)
   ),
   rite(
     &[(Block::Glimsteel, 1), (Block::Starheart, 1), (Block::Tidepearl, 1)],
@@ -511,4 +616,54 @@ pub fn craftable(
   spells: &[Block]
 ) -> bool {
   making(block).any(|(_, recipe)| recipe.ready(inventory, stations, spells))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn platinum_has_a_route_through_every_school() {
+    let stations: Vec<Option<Block>> =
+      making(Block::Platinum).map(|(_, recipe)| recipe.station).collect();
+    for station in
+      [Block::Furnace, Block::ManaCistern, Block::CrimsonAltar, Block::Cauldron]
+    {
+      assert!(stations.contains(&Some(station)), "no platinum from {station:?}")
+    }
+    assert!(
+      making(Block::PlatinumDust)
+        .any(|(_, recipe)| recipe.station == Some(Block::Crusher))
+    )
+  }
+
+  #[test]
+  fn an_upgraded_pack_keeps_its_contents() {
+    let mut inventory = Inventory::default();
+    inventory.slots[0] = Some(Stack {
+      block: Block::Satchel,
+      count: 1,
+      gear: Some(Gear { pack: Some(7), ..Gear::default() })
+    });
+    inventory.slots[1] = Some(Stack::of(Block::IronOre, 4));
+    inventory.slots[2] = Some(Stack::of(Block::Conveyor, 2));
+    let (_, recipe) = making(Block::Rucksack).next().unwrap();
+    let after = recipe.made(&inventory, &[Block::CraftingTable], &[]).unwrap();
+    let pack = after.slots.iter().flatten().find(|stack| stack.block == Block::Rucksack);
+    assert_eq!(pack.and_then(|stack| stack.gear).and_then(|gear| gear.pack), Some(7));
+    assert_eq!(after.count(Block::Satchel), 0)
+  }
+
+  #[test]
+  fn rituals_cannot_be_crafted_by_hand() {
+    let mut inventory = Inventory::default();
+    inventory.slots[0] = Some(Stack::of(Block::GoldOre, 4));
+    let everywhere =
+      [Block::ManaCistern, Block::CrimsonAltar, Block::Cauldron, Block::Crusher];
+    assert!(
+      making(Block::Platinum)
+        .filter(|(_, recipe)| recipe.rite())
+        .all(|(_, recipe)| recipe.made(&inventory, &everywhere, &[]).is_none())
+    )
+  }
 }

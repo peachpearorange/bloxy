@@ -23,7 +23,8 @@ pub enum Material {
   Mithril,
   Glimsteel,
   Verdantine,
-  Hexbrass
+  Hexbrass,
+  Platinum
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -33,7 +34,7 @@ pub struct Grit {
 }
 
 impl Material {
-  pub const ALL: [Material; 19] = [
+  pub const ALL: [Material; 20] = [
     Material::Wood,
     Material::Stone,
     Material::Granite,
@@ -52,7 +53,8 @@ impl Material {
     Material::Mithril,
     Material::Glimsteel,
     Material::Verdantine,
-    Material::Hexbrass
+    Material::Hexbrass,
+    Material::Platinum
   ];
 
   pub fn index(self) -> usize { self as usize }
@@ -77,7 +79,8 @@ impl Material {
       Material::Mithril => "Mithril",
       Material::Glimsteel => "Glimsteel",
       Material::Verdantine => "Verdantine",
-      Material::Hexbrass => "Hexbrass"
+      Material::Hexbrass => "Hexbrass",
+      Material::Platinum => "Platinum"
     }
   }
 
@@ -101,7 +104,8 @@ impl Material {
       Material::Mithril => (8, 9),
       Material::Glimsteel => (7, 7),
       Material::Verdantine => (10, 9),
-      Material::Hexbrass => (8, 7)
+      Material::Hexbrass => (8, 7),
+      Material::Platinum => (8, 6)
     };
     Grit { hardness, toughness }
   }
@@ -126,6 +130,7 @@ impl Material {
       Material::Glimsteel => Some(Block::Glimsteel),
       Material::Verdantine => Some(Block::Verdantine),
       Material::Hexbrass => Some(Block::Hexbrass),
+      Material::Platinum => Some(Block::Platinum),
       Material::Steel => None
     }
   }
@@ -196,6 +201,9 @@ impl Material {
       }
       Material::Hexbrass => {
         [[0.18, 0.08, 0.32], [0.34, 0.18, 0.56], [0.52, 0.34, 0.78], [0.8, 0.66, 0.98]]
+      }
+      Material::Platinum => {
+        [[0.42, 0.44, 0.48], [0.66, 0.69, 0.72], [0.83, 0.85, 0.87], [0.97, 0.98, 1.0]]
       }
     }
   }
@@ -432,12 +440,14 @@ pub const PERKS: usize = 3;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, Default)]
 pub struct Gear {
   pub material: Option<Material>,
-  pub perks: [Option<Perk>; PERKS]
+  pub perks: [Option<Perk>; PERKS],
+  #[serde(default)]
+  pub pack: Option<u32>
 }
 
 impl Gear {
   pub fn forged(material: Material) -> Gear {
-    Gear { material: Some(material), perks: [None; PERKS] }
+    Gear { material: Some(material), perks: [None; PERKS], pack: None }
   }
 
   pub fn perks(&self) -> impl Iterator<Item = Perk> + '_ {
@@ -552,7 +562,7 @@ pub fn found(seed: u32, salt: u32, tier: u8) -> Stack {
   for (slot, perk) in perks.iter_mut().zip(chosen) {
     *slot = Some(perk)
   }
-  Stack { block, count: 1, gear: Some(Gear { material, perks }) }
+  Stack { block, count: 1, gear: Some(Gear { material, perks, pack: None }) }
 }
 
 #[cfg(test)]

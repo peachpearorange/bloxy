@@ -223,7 +223,17 @@ pub enum Block {
   BoundTablet,
   Heartstone,
   RitualKnife,
-  WellspringSigil
+  WellspringSigil,
+  PlatinumOre,
+  Platinum,
+  PlatinumDust,
+  Moonlace,
+  Crusher,
+  Satchel,
+  Rucksack,
+  ExpeditionPack,
+  LesserRift,
+  GreaterRift
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -389,11 +399,21 @@ pub enum Tile {
   BoundTablet,
   Heartstone,
   RitualKnife,
-  WellspringSigil
+  WellspringSigil,
+  PlatinumOre,
+  Platinum,
+  PlatinumDust,
+  Moonlace,
+  Crusher,
+  Satchel,
+  Rucksack,
+  ExpeditionPack,
+  LesserRift,
+  GreaterRift
 }
 
 impl Tile {
-  pub const ALL: [Tile; 162] = [
+  pub const ALL: [Tile; 172] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -555,7 +575,17 @@ impl Tile {
     Tile::BoundTablet,
     Tile::Heartstone,
     Tile::RitualKnife,
-    Tile::WellspringSigil
+    Tile::WellspringSigil,
+    Tile::PlatinumOre,
+    Tile::Platinum,
+    Tile::PlatinumDust,
+    Tile::Moonlace,
+    Tile::Crusher,
+    Tile::Satchel,
+    Tile::Rucksack,
+    Tile::ExpeditionPack,
+    Tile::LesserRift,
+    Tile::GreaterRift
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -620,7 +650,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 206] = [
+  pub const ALL: [Block; 216] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -826,7 +856,17 @@ impl Block {
     Block::BoundTablet,
     Block::Heartstone,
     Block::RitualKnife,
-    Block::WellspringSigil
+    Block::WellspringSigil,
+    Block::PlatinumOre,
+    Block::Platinum,
+    Block::PlatinumDust,
+    Block::Moonlace,
+    Block::Crusher,
+    Block::Satchel,
+    Block::Rucksack,
+    Block::ExpeditionPack,
+    Block::LesserRift,
+    Block::GreaterRift
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -873,7 +913,18 @@ impl Block {
 
   pub fn trinket(self) -> bool {
     (Block::Glimsteel..=Block::WellspringSigil).contains(&self)
+      || matches!(self, Block::Platinum | Block::PlatinumDust)
+      || self.pack()
+      || self.rift()
   }
+
+  pub fn pack(self) -> bool {
+    matches!(self, Block::Satchel | Block::Rucksack | Block::ExpeditionPack)
+  }
+
+  pub fn rift(self) -> bool { matches!(self, Block::LesserRift | Block::GreaterRift) }
+
+  pub fn portable(self) -> bool { self.pack() || self.rift() }
 
   pub fn glimmer(self) -> bool {
     (Block::GlimmerPink..=Block::GlimmerGold).contains(&self)
@@ -933,6 +984,7 @@ impl Block {
   pub fn machine(self) -> bool {
     (Block::CopperPipe..=Block::ItemDrain).contains(&self)
       || self == Block::ItemPipe
+      || self == Block::Crusher
       || self.arcane()
   }
 
@@ -1035,6 +1087,7 @@ impl Block {
       Block::Balloon => 1,
       Block::Bed => 1,
       Block::RitualKnife | Block::WellspringSigil | Block::Heartstone => 1,
+      portable if portable.portable() => 1,
       gear if gear.forged() || gear.worn() => 1,
       Block::Bucket => 16,
       spell if spell.spell() => 16,
@@ -1129,6 +1182,7 @@ impl Block {
   pub fn plant(self) -> bool {
     (Block::Poppy..=Block::BrownMushroom).contains(&self)
       || self == Block::TallGrass
+      || self == Block::Moonlace
       || self.glimmer()
   }
 
@@ -1160,7 +1214,8 @@ impl Block {
       | Block::CopperOre
       | Block::TinOre
       | Block::GoldOre
-      | Block::DiamondOre => 0.6,
+      | Block::DiamondOre
+      | Block::PlatinumOre => 0.6,
       Block::Cobblestone
       | Block::GraniteCobble
       | Block::DioriteCobble
@@ -1243,7 +1298,7 @@ impl Block {
       pipe if pipe.pipe() || pipe == Block::CopperCable => 0.4,
       Block::ElectricLamp | Block::ElectricLampLit | Block::SolarPanel => 0.8,
       machine if machine.machine() => 2.0,
-      Block::DiamondOre | Block::GoldOre => 3.0,
+      Block::DiamondOre | Block::GoldOre | Block::PlatinumOre => 3.0,
       _ => 2.0
     }
   }
@@ -1467,7 +1522,17 @@ impl Block {
       Block::BoundTablet => "Bound Tablet",
       Block::Heartstone => "Heartstone",
       Block::RitualKnife => "Ritual Knife",
-      Block::WellspringSigil => "Wellspring Sigil"
+      Block::WellspringSigil => "Wellspring Sigil",
+      Block::PlatinumOre => "Platinum Ore",
+      Block::Platinum => "Platinum",
+      Block::PlatinumDust => "Platinum Dust",
+      Block::Moonlace => "Moonlace",
+      Block::Crusher => "Crusher",
+      Block::Satchel => "Satchel",
+      Block::Rucksack => "Riveted Rucksack",
+      Block::ExpeditionPack => "Expedition Pack",
+      Block::LesserRift => "Lesser Pocket Rift",
+      Block::GreaterRift => "Greater Pocket Rift"
     }
   }
 
@@ -1669,6 +1734,16 @@ impl Block {
       Block::Heartstone => all(Tile::Heartstone),
       Block::RitualKnife => all(Tile::RitualKnife),
       Block::WellspringSigil => all(Tile::WellspringSigil),
+      Block::PlatinumOre => all(Tile::PlatinumOre),
+      Block::Platinum => all(Tile::Platinum),
+      Block::PlatinumDust => all(Tile::PlatinumDust),
+      Block::Moonlace => all(Tile::Moonlace),
+      Block::Crusher => all(Tile::Crusher),
+      Block::Satchel => all(Tile::Satchel),
+      Block::Rucksack => all(Tile::Rucksack),
+      Block::ExpeditionPack => all(Tile::ExpeditionPack),
+      Block::LesserRift => all(Tile::LesserRift),
+      Block::GreaterRift => all(Tile::GreaterRift),
       Block::ElectricPump
       | Block::Refinery
       | Block::BiofuelGenerator
