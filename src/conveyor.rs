@@ -228,7 +228,7 @@ pub fn carry(voxels: &Voxels, feet: Vec3) -> Vec3 {
   })
 }
 
-const NUDGE: f32 = 0.6;
+const NUDGE: f32 = 1.0;
 const CREATURE: crate::player::Bulk = crate::player::Bulk { half: 0.3, tall: 0.9 };
 
 fn nudged(voxels: &Voxels, at: Vec3, dt: f32) -> Vec3 {
