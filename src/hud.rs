@@ -179,7 +179,7 @@ fn build(
                 rect: Some(Rect::new(0.0, 0.0, HEART_SIZE as f32, HEART_SIZE as f32)),
                 ..ImageNode::new(heart.clone())
               },
-              Node { width: px(22), height: px(22), ..default() }
+              Node { width: px(18), height: px(18), ..default() }
             ));
           }
         });
@@ -555,6 +555,7 @@ fn vitals(
   pilot: Option<Res<Pilot>>,
   healths: Query<&Health>,
   skills: Query<&crate::skill::Skills>,
+  ui_scale: Res<UiScale>,
   mut hearts: Query<(&Heart, &mut ImageNode, &mut Node)>,
   mut flash: Query<&mut BackgroundColor, With<Flash>>,
   mut was: Local<Option<u8>>,
@@ -573,7 +574,13 @@ fn vitals(
   *was = health;
   *redness = (*redness - time.delta_secs()).max(0.0);
   let points = health.unwrap_or(Health::FULL);
+  let texel = (ui_scale.0 * 2.0).round().max(1.0) / ui_scale.0;
+  let side = px(HEART_SIZE as f32 * texel);
   for (heart, mut image, mut node) in hearts.iter_mut() {
+    if node.width != side {
+      node.width = side;
+      node.height = side
+    }
     let display = if heart.0 < most.div_ceil(2) { Display::Flex } else { Display::None };
     if node.display != display {
       node.display = display

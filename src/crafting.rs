@@ -517,7 +517,7 @@ fn card(
     .chain(
       recipe
         .station
-        .filter(|_| !recipe.housed(nearby))
+        .filter(|_| !recipe.housed(nearby) && !recipe.rite())
         .map(|station| format!("a {} within reach", station.name()))
     )
     .chain(
@@ -559,7 +559,7 @@ fn card(
           false => station
         });
       }
-      if missing.is_empty() {
+      if missing.is_empty() && !recipe.rite() {
         button(row, "Craft", Act::Craft(index as u16))
       }
     });
@@ -571,7 +571,10 @@ fn card(
       FAINT
     ));
   }
-  if !missing.is_empty() {
+  if let Some(how) = recipe.how() {
+    parent.spawn(words(how, 13.0, FAINT));
+  }
+  if !missing.is_empty() && !recipe.rite() {
     parent.spawn(words(format!("Missing {}", missing.join(", ")), 13.0, SHORT));
   }
 }

@@ -1542,6 +1542,179 @@ fn hazard(x: u32, y: u32) -> Texel {
   }
 }
 
+const INGOT: Art = [
+  "................",
+  "................",
+  "................",
+  "................",
+  "................",
+  ".......33333....",
+  ".....333222333..",
+  "...3332222222221",
+  "..33222222222211",
+  ".322222222221110",
+  ".222222222211100",
+  ".111122222111000",
+  "..0011111110000.",
+  "....00011100....",
+  ".......000......",
+  "................"
+];
+
+const GEM: Art = [
+  "................",
+  "................",
+  "................",
+  "....33333333....",
+  "...3332222223...",
+  "..333222222221..",
+  ".33322222222211.",
+  ".22222222222110.",
+  "..222222222110..",
+  "...1222222110...",
+  "....12222110....",
+  ".....122110.....",
+  "......1210......",
+  ".......10.......",
+  "................",
+  "................"
+];
+
+const PEARL: Art = [
+  "................",
+  "................",
+  "................",
+  "......2222......",
+  "....22333222....",
+  "...2233322222...",
+  "...2333222221...",
+  "..222322222211..",
+  "..222222222211..",
+  "..222222222111..",
+  "...2222221111...",
+  "...1222211110...",
+  "....11111100....",
+  "......0000......",
+  "................",
+  "................"
+];
+
+const TABLET: Art = [
+  "................",
+  "................",
+  "................",
+  "..333333333333..",
+  "..322222222221..",
+  "..321111111121..",
+  "..321111111121..",
+  "..321111111121..",
+  "..321111111121..",
+  "..321111111121..",
+  "..321111111121..",
+  "..322222222221..",
+  "..111111111110..",
+  "...0000000000...",
+  "................",
+  "................"
+];
+
+const BOUND_TABLET: Art = [
+  "................",
+  "................",
+  "................",
+  "..AAAAAAAAAAAA..",
+  "..A2222222222A..",
+  "..A21111d11121..",
+  "..A2111dd11121..",
+  "..A211d1d11121..",
+  "..A21111d11121..",
+  "..A2111ddd1121..",
+  "..A21111111121..",
+  "..A2222222222A..",
+  "..BAAAAAAAAAAB..",
+  "...0000000000...",
+  "................",
+  "................"
+];
+
+const KNIFE: Art = [
+  "................",
+  "..............3.",
+  ".............32.",
+  "............321.",
+  "...........321..",
+  "..........321...",
+  ".........321....",
+  "........321.....",
+  ".......321......",
+  "..CC..321.......",
+  "..DCC321........",
+  "...DCC1.........",
+  "...bDCC.........",
+  "..bbaDCC........",
+  ".bba..DC........",
+  ".aa............."
+];
+
+const SIGIL: Art = [
+  "................",
+  ".....AAAAAA.....",
+  "...AABBBBBBAA...",
+  "..ABBaaaaaaBBA..",
+  "..ABaaaa3aaaBA..",
+  ".ABaaaa332aaaBA.",
+  ".ABaaa33322aaBA.",
+  ".ABaa3332221aBA.",
+  ".ABaa3322211aBA.",
+  ".ABaa3222111aBA.",
+  ".ABaaa22111aaBA.",
+  "..ABaaa110aaBA..",
+  "..ABBaaaaaaBBA..",
+  "...AABBBBBBAA...",
+  ".....AAAAAA.....",
+  "................"
+];
+
+const GLIMSTEEL: Palette =
+  [[0.1, 0.24, 0.5], [0.22, 0.46, 0.82], [0.42, 0.7, 0.98], [0.78, 0.92, 1.0]];
+const VERDANTINE: Palette =
+  [[0.08, 0.3, 0.08], [0.2, 0.55, 0.16], [0.4, 0.82, 0.3], [0.78, 1.0, 0.62]];
+const HEXBRASS: Palette =
+  [[0.18, 0.08, 0.32], [0.34, 0.18, 0.56], [0.52, 0.34, 0.78], [0.8, 0.66, 0.98]];
+const MITHRIL: Palette =
+  [[0.3, 0.36, 0.5], [0.52, 0.6, 0.78], [0.74, 0.8, 0.95], [0.94, 0.97, 1.0]];
+const STARHEART: Palette =
+  [[0.1, 0.4, 0.62], [0.28, 0.72, 0.95], [0.55, 0.9, 1.0], [0.88, 1.0, 1.0]];
+const TIDEPEARL: Palette =
+  [[0.06, 0.32, 0.42], [0.16, 0.56, 0.62], [0.36, 0.82, 0.84], [0.8, 1.0, 0.98]];
+const BLOOD: Palette =
+  [[0.22, 0.01, 0.02], [0.45, 0.03, 0.05], [0.7, 0.08, 0.1], [1.0, 0.45, 0.4]];
+const SLATE_GREY: Palette =
+  [[0.14, 0.15, 0.17], [0.3, 0.32, 0.35], [0.42, 0.44, 0.47], [0.56, 0.58, 0.6]];
+const WATER_DROP: Palette =
+  [[0.05, 0.2, 0.5], [0.12, 0.38, 0.8], [0.3, 0.6, 0.95], [0.75, 0.9, 1.0]];
+const MOONSTONE: [f32; 3] = [0.84, 0.84, 0.78];
+
+fn moonstone(x: u32, y: u32) -> Texel { smooth(&shades(MOONSTONE, STONE_SPREAD), x, y) }
+
+fn inlaid(x: u32, y: u32, rune: Texel, under: Texel) -> Texel {
+  let (dx, dy) = (x as i32 - 8, y as i32 - 8);
+  let ring = dx.abs().max(dy.abs()) == 5;
+  let cross =
+    (dx == 0 || dy == 0 || dx == dy || dx == -dy) && dx.abs() < 4 && dy.abs() < 4;
+  match ring || cross {
+    true => rune,
+    false => under
+  }
+}
+
+fn glinting(art: &Art, palette: &Palette, glow: f32, x: u32, y: u32) -> Texel {
+  match cutout(art, palette, x, y) {
+    texel if shade_of(art, x, y) == Some(3) => texel.glowing(glow),
+    texel => texel.glowing(glow * 0.3)
+  }
+}
+
 fn model_icon(block: Block, x: u32, y: u32) -> Texel {
   model::icon(block, x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |bit| {
     let Texel { color: [r, g, b, _], glow } = paint(bit.tile, x, y);
@@ -1877,6 +2050,43 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::BulbLit => bulb(true, x, y),
     Tile::Hazard => hazard(x, y),
     Tile::Rubber => rubber(x, y),
+    Tile::GlimmerPink => model_icon(Block::GlimmerPink, x, y),
+    Tile::GlimmerCyan => model_icon(Block::GlimmerCyan, x, y),
+    Tile::GlimmerViolet => model_icon(Block::GlimmerViolet, x, y),
+    Tile::GlimmerGold => model_icon(Block::GlimmerGold, x, y),
+    Tile::Sunsip => model_icon(Block::Sunsip, x, y),
+    Tile::Dewcup => model_icon(Block::Dewcup, x, y),
+    Tile::Emberbell => model_icon(Block::Emberbell, x, y),
+    Tile::Moonstone => moonstone(x, y),
+    Tile::Runework => {
+      inlaid(x, y, Texel::rgb(0.45, 0.85, 1.0).glowing(1.2), moonstone(x, y))
+    }
+    Tile::CrimsonRune => inlaid(
+      x,
+      y,
+      Texel::rgb(0.85, 0.08, 0.1).glowing(0.9),
+      smooth(&SLATE_GREY, x, y).scaled(0.7)
+    ),
+    Tile::Glimsteel => glinting(&INGOT, &GLIMSTEEL, 0.2, x, y),
+    Tile::Verdantine => glinting(&INGOT, &VERDANTINE, 0.45, x, y),
+    Tile::Hexbrass => cutout(&INGOT, &HEXBRASS, x, y),
+    Tile::MithrilIngot => glinting(&INGOT, &MITHRIL, 0.25, x, y),
+    Tile::Starheart => glinting(&GEM, &STARHEART, 0.6, x, y),
+    Tile::Tidepearl => glinting(&PEARL, &TIDEPEARL, 0.5, x, y),
+    Tile::Heartstone => glinting(&PEARL, &BLOOD, 0.5, x, y),
+    Tile::BareTablet => cutout(&TABLET, &SLATE_GREY, x, y),
+    Tile::BoundTablet => match inked(&BOUND_TABLET, [&SLATE_GREY, &BLOOD, &GILT], x, y) {
+      rune if BOUND_TABLET[y as usize].as_bytes()[x as usize] == b'd' => {
+        rune.glowing(0.6)
+      }
+      texel => texel
+    },
+    Tile::RitualKnife => inked(&KNIFE, [&GREY, &HAFT, &GILT], x, y),
+    Tile::WellspringSigil => match inked(&SIGIL, [&WATER_DROP, &SLATE_GREY, &GILT], x, y)
+    {
+      drop if shade_of(&SIGIL, x, y).is_some() => drop.glowing(0.25),
+      texel => texel
+    },
     Tile::Ring => match inked(&RING, [&CRIMSON, &GILT, &GILT], x, y) {
       gem if shade_of(&RING, x, y) == Some(3) => gem.glowing(0.4),
       texel => texel

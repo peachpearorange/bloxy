@@ -82,15 +82,32 @@ fn piped(links: u16, fill: f32) -> Vec<Span> {
     .collect()
 }
 
-fn tanked(fill: f32) -> Vec<Span> {
-  vec![(Vec3::new(0.08, 0.125, 0.08), Vec3::new(0.92, 0.125 + 0.75 * fill, 0.92))]
+fn basin(block: Block, runes: u32) -> Option<(f32, f32, f32, f32)> {
+  match block {
+    Block::Tank => Some((0.08, 0.125, 0.875, TANK)),
+    Block::ManaCistern => Some((2.0 / 16.0, 2.0 / 16.0, 7.5 / 16.0, crate::arcana::POOL)),
+    Block::Cauldron => Some((2.0 / 16.0, 3.0 / 16.0, 12.5 / 16.0, BUCKET)),
+    Block::CrimsonAltar => {
+      Some((1.0 / 16.0, 12.0 / 16.0, 14.5 / 16.0, crate::arcana::altar_room(runes)))
+    }
+    _ => None
+  }
+}
+
+fn tanked((side, floor, top, _): (f32, f32, f32, f32), fill: f32) -> Vec<Span> {
+  vec![(
+    Vec3::new(side, floor, side),
+    Vec3::new(1.0 - side, floor + (top - floor) * fill, 1.0 - side)
+  )]
 }
 
 #[derive(Resource)]
 struct Fittings {
   liquids: HashMap<Liquid, Handle<StandardMaterial>>,
   spills: HashMap<Liquid, Handle<bevy_hanabi::EffectAsset>>,
-  meshes: HashMap<(bool, u16, u8), Handle<Mesh>>,
+  meshes: HashMap<(Block, u16, u8), Handle<Mesh>>,
+  mote: Handle<Mesh>,
+  glows: HashMap<Liquid, Handle<StandardMaterial>>,
   steel: Handle<StandardMaterial>,
   hazard: Handle<StandardMaterial>,
   blade: Handle<StandardMaterial>,
@@ -159,9 +176,26 @@ fn furnish(
     (Vec3::new(-0.09, 0.0, -0.09), Vec3::new(0.09, 1.0, 0.09)),
     (Vec3::new(-0.14, 0.95, -0.34), Vec3::new(0.14, 1.2, 0.16))
   ]);
+  let glows = Liquid::ALL
+    .into_iter()
+    .map(|liquid| {
+      let color = liquid.color();
+      (
+        liquid,
+        materials.add(StandardMaterial {
+          base_color: color,
+          emissive: LinearRgba::from(color) * 4.0,
+          unlit: true,
+          ..default()
+        })
+      )
+    })
+    .collect();
   commands.insert_resource(Fittings {
     liquids,
     spills,
+    glows,
+    mote: meshes.add(Cuboid::from_length(0.07)),
     meshes: HashMap::new(),
     steel: materials.add(plain(Color::srgb(0.6, 0.62, 0.66), 0.45, 0.6)),
     hazard: materials.add(plain(Color::srgb(0.9, 0.7, 0.12), 0.6, 0.1)),
@@ -238,15 +272,18 @@ fn fill(
   if let Some(voxels) = voxels
     && let Some(mut fittings) = fittings
   {
-    for (entity, unit, mut filled) in
-      units.iter_mut().filter(|(_, unit, _)| pooled(unit.block))
-    {
-      let tank = unit.block == Block::Tank;
-      let (capacity, levels) =
-        bore(unit.block).map_or((TANK, TANK_LEVELS), |(capacity, _)| (capacity, LEVELS));
-      let links = match tank {
-        true => 0,
-        false => voxels.links(unit.at, unit.block)
+    for (entity, unit, mut filled) in units.iter_mut().filter(|(_, unit, _)| {
+      pooled(unit.block) || basin(unit.block, unit.stock).is_some()
+    }) {
+      let shape = basin(unit.block, unit.stock);
+      let (capacity, levels) = match (bore(unit.block), shape) {
+        (Some((capacity, _)), _) => (capacity, LEVELS),
+        (None, Some((.., capacity))) => (capacity, TANK_LEVELS),
+        _ => (TANK, TANK_LEVELS)
+      };
+      let links = match shape {
+        Some(_) => 0,
+        None => voxels.links(unit.at, unit.block)
       };
       let wanted = unit.intake.filter(|&(_, kept)| kept > 0).map(|(liquid, kept)| {
         (
@@ -264,11 +301,11 @@ fn fill(
           let fraction = f32::from(level) / levels;
           let mesh = fittings
             .meshes
-            .entry((tank, links, level))
+            .entry((unit.block, links, level))
             .or_insert_with(|| {
-              meshes.add(boxes(&match tank {
-                true => tanked(fraction),
-                false => piped(links, fraction)
+              meshes.add(boxes(&match shape {
+                Some(shape) => tanked(shape, fraction),
+                None => piped(links, fraction)
               }))
             })
             .clone();
@@ -414,6 +451,164 @@ fn ferry(
   }
 }
 
+#[derive(Component)]
+struct Displayed {
+  item: Option<(Block, Option<crate::gear::Material>)>,
+  shown: Option<Entity>
+}
+
+#[derive(Component)]
+struct Hovering(f32);
+
+fn perch(block: Block) -> f32 {
+  match block {
+    Block::Plinth => 13.0 / 16.0,
+    Block::CrimsonAltar => 12.0 / 16.0,
+    _ => 1.0
+  }
+}
+
+fn display(
+  palette: Option<Res<crate::stream::Palette>>,
+  mut looks: ResMut<crate::loose::Looks>,
+  mut meshes: ResMut<Assets<Mesh>>,
+  mut holders: Query<(Entity, &Unit, Option<&mut Displayed>)>,
+  mut commands: Commands
+) {
+  if let Some(palette) = palette {
+    for (entity, unit, displayed) in
+      holders.iter_mut().filter(|(_, unit, _)| unit.block.holder())
+    {
+      let wanted =
+        unit.item.map(|stack| (stack.block, stack.gear.and_then(|gear| gear.material)));
+      if displayed.as_ref().is_none_or(|displayed| displayed.item != wanted) {
+        if let Some(old) = displayed.and_then(|displayed| displayed.shown) {
+          commands.entity(old).despawn()
+        }
+        let shown = wanted.map(|(block, material)| {
+          let lift = match crate::loose::cubic(block) {
+            true => 0.05,
+            false => 0.2
+          };
+          commands
+            .spawn((
+              Hovering(perch(unit.block) + lift),
+              Mesh3d(looks.mesh(block, material, &mut meshes)),
+              MeshMaterial3d(palette.solid.clone()),
+              Transform::from_translation(Vec3::new(0.5, perch(unit.block) + lift, 0.5))
+                .with_scale(Vec3::splat(1.4)),
+              ChildOf(entity)
+            ))
+            .id()
+        });
+        commands.entity(entity).insert(Displayed { item: wanted, shown });
+      }
+    }
+  }
+}
+
+fn hover(time: Res<Time>, mut hovering: Query<(&Hovering, &mut Transform)>) {
+  let now = time.elapsed_secs();
+  for (&Hovering(height), mut transform) in hovering.iter_mut() {
+    transform.translation.y = height + (now * 2.0).sin() * 0.04;
+    transform.rotation = Quat::from_rotation_y(now * 0.8)
+  }
+}
+
+#[derive(Component)]
+struct Mote {
+  from: Vec3,
+  to: Vec3,
+  age: f32,
+  life: f32
+}
+
+fn sparkle(
+  time: Res<Time>,
+  fittings: Option<Res<Fittings>>,
+  units: Query<&Unit>,
+  mut commands: Commands,
+  mut clock: Local<f32>
+) {
+  *clock += time.delta_secs();
+  if let Some(fittings) = fittings
+    && *clock >= 0.3
+  {
+    *clock = 0.0;
+    let beat = (time.elapsed_secs() * 3.3) as u32;
+    let mut emit = |from: Vec3, to: Vec3, liquid: Liquid, life: f32| {
+      commands.spawn((
+        Mote { from, to, age: 0.0, life },
+        Mesh3d(fittings.mote.clone()),
+        MeshMaterial3d(fittings.glows[&liquid].clone()),
+        Transform::from_translation(from),
+        bevy::light::NotShadowCaster
+      ));
+    };
+    let top = |at: IVec3, height: f32| at.as_vec3() + Vec3::new(0.5, height, 0.5);
+    let jitter = |at: IVec3| {
+      let seed = (at.x * 73 + at.z * 37 + beat as i32 * 11) as f32;
+      Vec3::new(seed.sin() * 0.3, 0.0, seed.cos() * 0.3)
+    };
+    for unit in units.iter().filter(|unit| unit.status == Status::Running) {
+      match unit.block {
+        flower if flower.bloomer() => {
+          if let Some(pool) = unit.link
+            && (beat + unit.at.x as u32) % 2 == 0
+          {
+            emit(top(unit.at, 0.8), top(pool, 0.4), Liquid::Mana, 1.2)
+          }
+        }
+        Block::ManaCistern => {
+          emit(top(unit.at, 0.3) + jitter(unit.at), top(unit.at, 1.4), Liquid::Mana, 0.8)
+        }
+        Block::Cauldron => emit(
+          top(unit.at, 0.75) + jitter(unit.at) * 0.6,
+          top(unit.at, 1.3) + jitter(unit.at),
+          Liquid::Biofuel,
+          0.7
+        ),
+        Block::CrimsonAltar => emit(
+          top(unit.at, 0.9) + jitter(unit.at),
+          top(unit.at, 1.6),
+          Liquid::Lifeblood,
+          0.9
+        ),
+        Block::ConfluenceAltar => {
+          for pedestal in units.iter().filter(|near| {
+            let offset = near.at - unit.at;
+            near.block == Block::Plinth
+              && near.item.is_some()
+              && offset.x.abs() <= 3
+              && offset.z.abs() <= 3
+              && offset.y.abs() <= 1
+          }) {
+            emit(top(pedestal.at, 1.05), top(unit.at, 1.2), Liquid::Mana, 0.9)
+          }
+        }
+        _ => ()
+      }
+    }
+  }
+}
+
+fn drift(
+  time: Res<Time>,
+  mut motes: Query<(Entity, &mut Mote, &mut Transform)>,
+  mut commands: Commands
+) {
+  for (entity, mut mote, mut transform) in motes.iter_mut() {
+    mote.age += time.delta_secs();
+    let along = (mote.age / mote.life).min(1.0);
+    let arc = (along * std::f32::consts::PI).sin() * 0.5;
+    transform.translation = mote.from.lerp(mote.to, along) + Vec3::Y * arc;
+    transform.scale = Vec3::splat(1.0 - along * 0.6);
+    if along >= 1.0 {
+      commands.entity(entity).despawn()
+    }
+  }
+}
+
 const BEAM_SWING: f32 = 0.32;
 const STROKES: f32 = 1.4;
 const SPIN: f32 = 4.0;
@@ -479,6 +674,28 @@ fn help(block: Block) -> &'static str {
     Block::ItemDrain => {
       "Place it against a chest: it drops the chest's items out one by one."
     }
+    Block::Sunsip => {
+      "Makes mana under open sky by day and sends it to a mana cistern within 6 blocks."
+    }
+    Block::Dewcup => {
+      "Makes mana beside a water source and sends it to a mana cistern within 6 blocks."
+    }
+    Block::Emberbell => {
+      "Burns coal, charcoal, logs or planks (right-click it, or toss them beside it) into mana for a cistern within 6 blocks."
+    }
+    Block::ManaCistern => {
+      "Holds the mana that flowers send it. Toss iron ore, diamond ore, lumen or bone dust in to infuse them."
+    }
+    Block::Cauldron => {
+      "Fill it with water and set it over fire or lava. Items tossed in melt into essence; a catalyst tossed in uses the essence up."
+    }
+    Block::CrimsonAltar => {
+      "Right-click with a Ritual Knife to bleed into it; creatures slain nearby feed it too. Set an item on it to transmute it. Crimson runes around and below it hold more and work faster."
+    }
+    Block::Plinth => "Holds one item for an Confluence Altar within 3 blocks.",
+    Block::ConfluenceAltar => {
+      "Set a catalyst on it and ingredients on plinths around it: mana from cisterns within 8 blocks fuses them. A tool or wearable takes a charm."
+    }
     _ => ""
   }
 }
@@ -530,6 +747,143 @@ fn gauge(parent: &mut ChildSpawnerCommands, label: String, fraction: f32, color:
 
 fn buckets(amount: u32) -> String { format!("{:.1}", amount as f32 / BUCKET) }
 
+const MANA: Color = Color::srgb(0.35, 0.78, 1.0);
+const BLOODY: Color = Color::srgb(0.75, 0.1, 0.12);
+const ESSENCE: Color = Color::srgb(0.7, 0.45, 0.95);
+
+fn lexicon(parent: &mut ChildSpawnerCommands, block: Block) {
+  let lines: Vec<String> = crate::arcana::rites(block)
+    .map(|recipe| {
+      let inputs: Vec<&str> =
+        recipe.inputs.iter().map(|&(input, _)| input.name()).collect();
+      let (output, count) = recipe.output;
+      let cost = match recipe.cost {
+        crate::recipe::Cost::Mana(mana) => format!("{mana} mana"),
+        crate::recipe::Cost::Lifeblood(blood) => format!("{blood} lifeblood"),
+        crate::recipe::Cost::Essence(essence) => essence
+          .iter()
+          .map(|(aspect, count)| format!("{count} {}", aspect.name()))
+          .collect::<Vec<_>>()
+          .join(", "),
+        crate::recipe::Cost::Free => String::new()
+      };
+      format!("{} -> {} x{count} ({cost})", inputs.join(" + "), output.name())
+    })
+    .chain(crate::arcana::CHARMS.iter().filter(|_| block == Block::ConfluenceAltar).map(
+      |charm| {
+        let pedestals: Vec<&str> =
+          charm.pedestals.iter().map(|block| block.name()).collect();
+        format!(
+          "Tool or wearable + {} -> {} ({} mana)",
+          pedestals.join(" + "),
+          charm.virtue.line(charm.by),
+          charm.mana
+        )
+      }
+    ))
+    .collect();
+  if !lines.is_empty() {
+    parent.spawn((words("Recipes", 16.0, INK), Node {
+      margin: UiRect::top(px(8)),
+      ..default()
+    }));
+    for line in lines {
+      parent.spawn(words(line, 13.0, FAINT));
+    }
+  }
+}
+
+fn arcane(parent: &mut ChildSpawnerCommands, unit: &Unit) {
+  let held = |liquid: Liquid| {
+    unit.intake.filter(|&(kept, _)| kept == liquid).map_or(0, |(_, kept)| kept)
+  };
+  match unit.block {
+    flower if flower.bloomer() => {
+      gauge(
+        parent,
+        format!("Holding {} mana", unit.charge),
+        unit.charge as f32 / 1000.0,
+        MANA
+      );
+      if flower == Block::Emberbell {
+        gauge(
+          parent,
+          format!("Fuel: {} s of burning", unit.stock),
+          unit.stock as f32 / 600.0,
+          FUEL
+        )
+      }
+      if let Some(pool) = unit.link {
+        parent.spawn(words(
+          format!("Feeding the cistern at {} {} {}", pool.x, pool.y, pool.z),
+          15.0,
+          FAINT
+        ));
+      }
+    }
+    Block::ManaCistern => {
+      let mana = held(Liquid::Mana);
+      gauge(
+        parent,
+        format!("Mana: {mana} of {}", crate::arcana::POOL as u32),
+        mana as f32 / crate::arcana::POOL,
+        MANA
+      )
+    }
+    Block::Cauldron => {
+      let water = held(Liquid::Water);
+      gauge(
+        parent,
+        format!("Water: {} of 1 bucket", buckets(water)),
+        water as f32 / BUCKET,
+        Liquid::Water.color()
+      );
+      let essence: Vec<String> = crate::arcana::Aspect::ALL
+        .into_iter()
+        .filter(|&aspect| unit.essence[aspect as usize] > 0)
+        .map(|aspect| format!("{} {}", unit.essence[aspect as usize], aspect.name()))
+        .collect();
+      parent.spawn(words(
+        match essence.is_empty() {
+          true => "No essence yet".to_string(),
+          false => format!("Essence: {}", essence.join(", "))
+        },
+        15.0,
+        ESSENCE
+      ));
+    }
+    Block::CrimsonAltar => {
+      let (blood, room) =
+        (held(Liquid::Lifeblood), crate::arcana::altar_room(unit.stock));
+      gauge(
+        parent,
+        format!("Life essence: {blood} of {}", room as u32),
+        blood as f32 / room,
+        BLOODY
+      );
+      parent.spawn(words(format!("Crimson runes nearby: {}", unit.stock), 15.0, FAINT));
+    }
+    _ => ()
+  }
+  if unit.block.holder() {
+    parent.spawn(words(
+      unit.item.map_or("Holding nothing".to_string(), |stack| {
+        format!("Holding {}", crate::gear::title(&stack))
+      }),
+      15.0,
+      INK
+    ));
+    if unit.charge > 0 {
+      let color = match unit.block {
+        Block::CrimsonAltar => BLOODY,
+        _ => MANA
+      };
+      parent.spawn(words(format!("Poured in so far: {}", unit.charge), 15.0, color));
+    }
+  }
+  lexicon(parent, unit.block)
+}
+
 fn readout(parent: &mut ChildSpawnerCommands, unit: &Unit) {
   let Design { intake, outlet, stores, hopper, makes, draws } = design(unit.block);
   let tank = unit.block == Block::Tank;
@@ -538,73 +892,81 @@ fn readout(parent: &mut ChildSpawnerCommands, unit: &Unit) {
     Status::Running => RUNNING,
     _ => STALLED
   }));
-  let liquid = |parent: &mut ChildSpawnerCommands,
-                title: &str,
-                held: Option<(Liquid, u32)>,
-                room: f32| {
-    let (name, kept, color) = held.map_or(("empty", 0, FAINT), |(liquid, kept)| {
-      (liquid.name(), kept, liquid.color())
-    });
-    gauge(
-      parent,
-      format!("{title}: {name}, {} of {} buckets", buckets(kept), buckets(room as u32)),
-      kept as f32 / room,
-      color
-    )
-  };
-  if tank {
-    liquid(parent, "Holds", unit.intake, TANK)
-  }
-  if let Some((flowing, _)) = unit.intake.filter(|_| unit.block.drain()) {
-    parent.spawn(words(format!("Draining {}", flowing.name().to_lowercase()), 15.0, INK));
-  }
-  if let Some((_, room)) = intake {
-    liquid(parent, "In", unit.intake, room)
-  }
-  if let Some(room) = outlet {
-    liquid(parent, "Out", unit.outlet, room)
-  }
-  if hopper > 0.0 {
-    let label = match unit.block {
-      Block::SteamEngine => format!("Fuel: {} s of burning", unit.stock),
-      _ => format!(
-        "Fermenting: {} of {} buckets",
-        buckets(unit.stock),
-        buckets(hopper as u32)
+  if unit.block.arcane() {
+    arcane(parent, unit)
+  } else {
+    let liquid = |parent: &mut ChildSpawnerCommands,
+                  title: &str,
+                  held: Option<(Liquid, u32)>,
+                  room: f32| {
+      let (name, kept, color) = held.map_or(("empty", 0, FAINT), |(liquid, kept)| {
+        (liquid.name(), kept, liquid.color())
+      });
+      gauge(
+        parent,
+        format!("{title}: {name}, {} of {} buckets", buckets(kept), buckets(room as u32)),
+        kept as f32 / room,
+        color
       )
     };
-    gauge(parent, label, unit.stock as f32 / hopper, FUEL)
-  }
-  if stores > 0.0 {
-    let label = match unit.block {
-      Block::ElectricFurnace => format!(
-        "Charge: {} smelts ready (crafts furnace recipes without coal)",
-        unit.charge as f32 as u32 / crate::machine::SMELT as u32
-      ),
-      _ => format!("Stored: {} of {} kJ", unit.charge / 1000, stores as u32 / 1000)
-    };
-    gauge(parent, label, unit.charge as f32 / stores, POWER)
-  }
-  if makes > 0.0 || draws > 0.0 {
-    let line = match unit.power >= 0 {
-      true => format!("Making {} W (up to {} W)", unit.power, makes as u32),
-      false => format!("Using {} W", -unit.power)
-    };
-    parent.spawn(words(line, 15.0, INK));
-  }
-  if makes > 0.0 || draws > 0.0 || stores > 0.0 {
-    let grid = unit.grid;
-    parent.spawn(words(
-      format!(
-        "Grid: {} W made, {} W wanted, batteries {} of {} kJ",
-        grid.made,
-        grid.wanted,
-        grid.stored / 1000,
-        grid.room / 1000
-      ),
-      15.0,
-      FAINT
-    ));
+    if tank {
+      liquid(parent, "Holds", unit.intake, TANK)
+    }
+    if let Some((flowing, _)) = unit.intake.filter(|_| unit.block.drain()) {
+      parent.spawn(words(
+        format!("Draining {}", flowing.name().to_lowercase()),
+        15.0,
+        INK
+      ));
+    }
+    if let Some((_, room)) = intake {
+      liquid(parent, "In", unit.intake, room)
+    }
+    if let Some(room) = outlet {
+      liquid(parent, "Out", unit.outlet, room)
+    }
+    if hopper > 0.0 {
+      let label = match unit.block {
+        Block::SteamEngine => format!("Fuel: {} s of burning", unit.stock),
+        _ => format!(
+          "Fermenting: {} of {} buckets",
+          buckets(unit.stock),
+          buckets(hopper as u32)
+        )
+      };
+      gauge(parent, label, unit.stock as f32 / hopper, FUEL)
+    }
+    if stores > 0.0 {
+      let label = match unit.block {
+        Block::ElectricFurnace => format!(
+          "Charge: {} smelts ready (crafts furnace recipes without coal)",
+          unit.charge as f32 as u32 / crate::machine::SMELT as u32
+        ),
+        _ => format!("Stored: {} of {} kJ", unit.charge / 1000, stores as u32 / 1000)
+      };
+      gauge(parent, label, unit.charge as f32 / stores, POWER)
+    }
+    if makes > 0.0 || draws > 0.0 {
+      let line = match unit.power >= 0 {
+        true => format!("Making {} W (up to {} W)", unit.power, makes as u32),
+        false => format!("Using {} W", -unit.power)
+      };
+      parent.spawn(words(line, 15.0, INK));
+    }
+    if makes > 0.0 || draws > 0.0 || stores > 0.0 {
+      let grid = unit.grid;
+      parent.spawn(words(
+        format!(
+          "Grid: {} W made, {} W wanted, batteries {} of {} kJ",
+          grid.made,
+          grid.wanted,
+          grid.stored / 1000,
+          grid.room / 1000
+        ),
+        15.0,
+        FAINT
+      ));
+    }
   }
   parent.spawn((words(help(unit.block), 14.0, FAINT), Node {
     margin: UiRect::top(px(8)),
@@ -647,7 +1009,18 @@ impl Plugin for Apparatus {
       .add_systems(Startup, furnish.run_if(plays))
       .add_systems(
         Update,
-        (mount, fill, spill, ferry, animate, show.run_if(resource_exists::<Menu>))
+        (
+          mount,
+          fill,
+          spill,
+          ferry,
+          display,
+          hover,
+          sparkle,
+          drift,
+          animate,
+          show.run_if(resource_exists::<Menu>)
+        )
           .chain()
           .run_if(plays)
       );

@@ -1,16 +1,53 @@
-use crate::{block::Block,
+use crate::{arcana::Aspect,
+            block::Block,
             gear::{Gear, Material, heads},
             protocol::{Inventory, Stack}};
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Cost {
+  Free,
+  Mana(u32),
+  Lifeblood(u32),
+  Essence(&'static [(Aspect, u16)])
+}
 
 #[derive(Clone, Copy)]
 pub struct Recipe {
   pub inputs: &'static [(Block, u16)],
   pub output: (Block, u16),
   pub station: Option<Block>,
-  pub material: Option<Material>
+  pub material: Option<Material>,
+  pub cost: Cost
 }
 
 impl Recipe {
+  pub fn rite(&self) -> bool { self.station.is_some_and(Block::arcane) }
+
+  pub fn how(&self) -> Option<String> {
+    let first = self.inputs.first().map_or("it", |&(block, _)| block.name());
+    match (self.station, self.cost) {
+      (Some(Block::ManaCistern), Cost::Mana(mana)) => {
+        Some(format!("Toss {first} into a Mana Cistern: {mana} mana each"))
+      }
+      (Some(Block::CrimsonAltar), Cost::Lifeblood(blood)) => {
+        Some(format!("Set {first} on a Crimson Altar: {blood} lifeblood"))
+      }
+      (Some(Block::Cauldron), Cost::Essence(essence)) => Some(format!(
+        "Toss {first} into a heated Steeping Cauldron holding {}",
+        essence
+          .iter()
+          .map(|(aspect, count)| format!("{count} {}", aspect.name()))
+          .collect::<Vec<_>>()
+          .join(", ")
+      )),
+      (Some(Block::ConfluenceAltar), Cost::Mana(mana)) => Some(format!(
+        "Set {first} on a Confluence Altar, the rest on plinths around it: {mana} mana \
+         from cisterns nearby"
+      )),
+      _ => None
+    }
+  }
+
   pub fn electric(&self, stations: &[Block]) -> bool {
     self.station == Some(Block::Furnace) && stations.contains(&Block::ElectricFurnace)
   }
@@ -37,8 +74,9 @@ impl Recipe {
   }
 
   pub fn housed(&self, stations: &[Block]) -> bool {
-    self.station.is_none_or(|station| stations.contains(&station))
-      || self.electric(stations)
+    !self.rite()
+      && (self.station.is_none_or(|station| stations.contains(&station))
+        || self.electric(stations))
   }
 
   pub fn learned(&self, spells: &[Block]) -> bool {
@@ -78,16 +116,176 @@ impl Recipe {
 }
 
 const fn hand(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
-  Recipe { inputs, output, station: None, material: None }
+  Recipe { inputs, output, station: None, material: None, cost: Cost::Free }
 }
 
 const fn table(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
-  Recipe { inputs, output, station: Some(Block::CraftingTable), material: None }
+  Recipe {
+    inputs,
+    output,
+    station: Some(Block::CraftingTable),
+    material: None,
+    cost: Cost::Free
+  }
 }
 
 const fn furnace(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
-  Recipe { inputs, output, station: Some(Block::Furnace), material: None }
+  Recipe {
+    inputs,
+    output,
+    station: Some(Block::Furnace),
+    material: None,
+    cost: Cost::Free
+  }
 }
+
+const fn bloom_font(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
+  Recipe {
+    inputs,
+    output,
+    station: Some(Block::BloomFont),
+    material: None,
+    cost: Cost::Free
+  }
+}
+
+const fn rite(
+  inputs: &'static [(Block, u16)],
+  output: (Block, u16),
+  station: Block,
+  cost: Cost
+) -> Recipe {
+  Recipe { inputs, output, station: Some(station), material: None, cost }
+}
+
+const ARCANA: &[Recipe] = &[
+  hand(&[(Block::GlimmerPink, 1), (Block::BoneDust, 1)], (Block::GlimmerPink, 2)),
+  hand(&[(Block::GlimmerCyan, 1), (Block::BoneDust, 1)], (Block::GlimmerCyan, 2)),
+  hand(&[(Block::GlimmerViolet, 1), (Block::BoneDust, 1)], (Block::GlimmerViolet, 2)),
+  hand(&[(Block::GlimmerGold, 1), (Block::BoneDust, 1)], (Block::GlimmerGold, 2)),
+  table(&[(Block::Cobblestone, 6), (Block::GlimmerViolet, 1)], (Block::BloomFont, 1)),
+  bloom_font(
+    &[(Block::GlimmerGold, 2), (Block::Dandelion, 1), (Block::Daisy, 1)],
+    (Block::Sunsip, 1)
+  ),
+  bloom_font(
+    &[(Block::GlimmerCyan, 2), (Block::Cornflower, 1), (Block::Cod, 1)],
+    (Block::Dewcup, 1)
+  ),
+  bloom_font(
+    &[(Block::GlimmerPink, 2), (Block::Poppy, 1), (Block::CoalOre, 1)],
+    (Block::Emberbell, 1)
+  ),
+  bloom_font(
+    &[(Block::Stone, 6), (Block::GlimmerViolet, 2), (Block::Glass, 1)],
+    (Block::ManaCistern, 1)
+  ),
+  bloom_font(&[(Block::Stone, 4), (Block::GlimmerCyan, 1)], (Block::Plinth, 1)),
+  table(
+    &[(Block::Lumen, 2), (Block::Stone, 4), (Block::Starheart, 1)],
+    (Block::ConfluenceAltar, 1)
+  ),
+  furnace(&[(Block::IronOre, 6), (Block::CoalOre, 1)], (Block::Cauldron, 1)),
+  table(
+    &[
+      (Block::Stone, 6),
+      (Block::Furnace, 1),
+      (Block::GoldOre, 1),
+      (Block::DiamondOre, 1)
+    ],
+    (Block::CrimsonAltar, 1)
+  ),
+  table(&[(Block::IronOre, 2), (Block::Planks, 1)], (Block::RitualKnife, 1)),
+  table(&[(Block::BareTablet, 1), (Block::Stone, 4)], (Block::CrimsonRune, 2)),
+  table(
+    &[(Block::BoundTablet, 1), (Block::WaterBucket, 1), (Block::Glass, 2)],
+    (Block::WellspringSigil, 1)
+  ),
+  rite(
+    &[(Block::IronOre, 1)],
+    (Block::Glimsteel, 1),
+    Block::ManaCistern,
+    Cost::Mana(1000)
+  ),
+  rite(
+    &[(Block::DiamondOre, 1)],
+    (Block::Starheart, 1),
+    Block::ManaCistern,
+    Cost::Mana(4000)
+  ),
+  rite(&[(Block::Lumen, 1)], (Block::Tidepearl, 1), Block::ManaCistern, Cost::Mana(2500)),
+  rite(
+    &[(Block::BoneDust, 1)],
+    (Block::ArcaneDust, 1),
+    Block::ManaCistern,
+    Cost::Mana(800)
+  ),
+  rite(
+    &[(Block::Stone, 1)],
+    (Block::BareTablet, 1),
+    Block::CrimsonAltar,
+    Cost::Lifeblood(1000)
+  ),
+  rite(
+    &[(Block::BareTablet, 1)],
+    (Block::BoundTablet, 1),
+    Block::CrimsonAltar,
+    Cost::Lifeblood(2500)
+  ),
+  rite(
+    &[(Block::DiamondOre, 1)],
+    (Block::Heartstone, 1),
+    Block::CrimsonAltar,
+    Cost::Lifeblood(5000)
+  ),
+  rite(
+    &[(Block::IronOre, 1)],
+    (Block::Hexbrass, 1),
+    Block::Cauldron,
+    Cost::Essence(&[(Aspect::Metal, 4), (Aspect::Magic, 4)])
+  ),
+  rite(
+    &[(Block::Glass, 1)],
+    (Block::Lumen, 1),
+    Block::Cauldron,
+    Cost::Essence(&[(Aspect::Magic, 6), (Aspect::Order, 4)])
+  ),
+  rite(
+    &[(Block::BoneDust, 1)],
+    (Block::OakSapling, 1),
+    Block::Cauldron,
+    Cost::Essence(&[(Aspect::Growth, 8)])
+  ),
+  rite(
+    &[(Block::Charcoal, 1)],
+    (Block::CoalOre, 1),
+    Block::Cauldron,
+    Cost::Essence(&[(Aspect::Fire, 4), (Aspect::Earth, 4)])
+  ),
+  rite(
+    &[(Block::Wool, 1)],
+    (Block::Feather, 4),
+    Block::Cauldron,
+    Cost::Essence(&[(Aspect::Air, 6), (Aspect::Magic, 2)])
+  ),
+  rite(
+    &[(Block::Glimsteel, 1), (Block::Starheart, 1), (Block::Tidepearl, 1)],
+    (Block::Verdantine, 1),
+    Block::ConfluenceAltar,
+    Cost::Mana(6000)
+  ),
+  rite(
+    &[
+      (Block::Verdantine, 1),
+      (Block::Hexbrass, 1),
+      (Block::BoundTablet, 1),
+      (Block::Heartstone, 1)
+    ],
+    (Block::MithrilIngot, 1),
+    Block::ConfluenceAltar,
+    Cost::Mana(12000)
+  )
+];
 
 const BASICS: &[Recipe] = &[
   hand(&[(Block::Log, 1)], (Block::Planks, 4)),
@@ -278,7 +476,8 @@ fn forge(tool: Block, material: Material) -> Option<Recipe> {
         true => Block::Furnace,
         false => Block::CraftingTable
       }),
-      material: Some(material)
+      material: Some(material),
+      cost: Cost::Free
     }
   })
 }
@@ -286,6 +485,7 @@ fn forge(tool: Block, material: Material) -> Option<Recipe> {
 pub static RECIPES: std::sync::LazyLock<Vec<Recipe>> = std::sync::LazyLock::new(|| {
   BASICS
     .iter()
+    .chain(ARCANA)
     .copied()
     .chain(Block::TOOLS.into_iter().flat_map(|tool| {
       Material::ALL.into_iter().filter_map(move |material| forge(tool, material))

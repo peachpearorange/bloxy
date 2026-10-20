@@ -409,6 +409,124 @@ const LIT_LAMP_BITS: &[Bit] = &[
   skin([6, 13, 6], [10, 14, 10], Tile::Steel)
 ];
 
+const fn glimmer(petal: [f32; 3], heart: [f32; 3]) -> [Bit; 8] {
+  [
+    bit([7, 0, 7], [8, 9, 8], STALK),
+    bit([8, 3, 7], [10, 4, 8], LEAF),
+    bit([5, 5, 7], [7, 6, 8], LEAF),
+    bit([6, 9, 6], [10, 10, 10], petal),
+    bit([5, 10, 7], [11, 12, 9], petal),
+    bit([7, 10, 5], [9, 12, 11], petal),
+    bit([6, 12, 6], [10, 13, 10], petal),
+    bit([7, 13, 7], [9, 14, 9], heart)
+  ]
+}
+
+const GLIMMER_PINK_BITS: [Bit; 8] = glimmer([0.98, 0.42, 0.72], [1.0, 0.82, 0.9]);
+const GLIMMER_CYAN_BITS: [Bit; 8] = glimmer([0.25, 0.85, 0.92], [0.82, 1.0, 1.0]);
+const GLIMMER_VIOLET_BITS: [Bit; 8] = glimmer([0.6, 0.32, 0.95], [0.9, 0.8, 1.0]);
+const GLIMMER_GOLD_BITS: [Bit; 8] = glimmer([1.0, 0.78, 0.2], [1.0, 0.96, 0.7]);
+
+const SEEDHEAD: [f32; 3] = [0.5, 0.3, 0.1];
+const HYDRANGEA: [f32; 3] = [0.35, 0.55, 1.0];
+const HYDRANGEA_PALE: [f32; 3] = [0.6, 0.8, 1.0];
+const ORANGE: [f32; 3] = [1.0, 0.45, 0.08];
+
+const DAYBLOOM_BITS: &[Bit] = &[
+  bit([7, 0, 7], [9, 9, 9], STALK),
+  bit([9, 3, 7], [12, 4, 9], LEAF),
+  bit([4, 5, 7], [7, 6, 9], LEAF),
+  bit([4, 9, 7], [12, 15, 8], YELLOW),
+  bit([5, 8, 7], [11, 16, 8], YELLOW),
+  bit([3, 10, 7], [13, 14, 8], YELLOW),
+  bit([6, 10, 6], [10, 14, 7], SEEDHEAD)
+];
+
+const HYDROANGEA_BITS: &[Bit] = &[
+  bit([7, 0, 7], [9, 6, 9], STALK),
+  bit([4, 2, 7], [7, 3, 9], LEAF),
+  bit([9, 3, 7], [12, 4, 9], LEAF),
+  bit([4, 6, 4], [9, 10, 9], HYDRANGEA),
+  bit([8, 7, 7], [12, 11, 12], HYDRANGEA_PALE),
+  bit([6, 9, 8], [10, 13, 11], HYDRANGEA),
+  bit([5, 10, 5], [8, 12, 8], HYDRANGEA_PALE)
+];
+
+const ENDOFLAME_BITS: &[Bit] = &[
+  bit([7, 0, 7], [9, 6, 9], STALK),
+  bit([4, 2, 7], [7, 3, 9], LEAF),
+  bit([9, 3, 7], [12, 4, 9], LEAF),
+  bit([5, 6, 5], [11, 9, 11], RED_PETAL),
+  bit([6, 9, 6], [10, 12, 10], ORANGE),
+  skin([7, 12, 7], [9, 15, 9], Tile::Flame)
+];
+
+const RED_PETAL: [f32; 3] = [0.8, 0.12, 0.06];
+
+const POOL_BITS: &[Bit] = &[
+  skin([0, 0, 0], [16, 2, 16], Tile::Moonstone),
+  skin([0, 2, 0], [16, 8, 2], Tile::Moonstone),
+  skin([0, 2, 14], [16, 8, 16], Tile::Moonstone),
+  skin([0, 2, 2], [2, 8, 14], Tile::Moonstone),
+  skin([14, 2, 2], [16, 8, 14], Tile::Moonstone)
+];
+
+const CAULDRON: [f32; 3] = [0.5, 0.5, 0.55];
+
+const CAULDRON_BITS: &[Bit] = &[
+  bit([1, 0, 1], [4, 3, 4], IRON),
+  bit([12, 0, 1], [15, 3, 4], IRON),
+  bit([1, 0, 12], [4, 3, 15], IRON),
+  bit([12, 0, 12], [15, 3, 15], IRON),
+  tinted([1, 2, 1], [15, 3, 15], Tile::Steel, CAULDRON),
+  tinted([1, 3, 1], [15, 13, 2], Tile::Steel, CAULDRON),
+  tinted([1, 3, 14], [15, 13, 15], Tile::Steel, CAULDRON),
+  tinted([1, 3, 2], [2, 13, 14], Tile::Steel, CAULDRON),
+  tinted([14, 3, 2], [15, 13, 14], Tile::Steel, CAULDRON),
+  bit([0, 13, 0], [16, 14, 2], IRON),
+  bit([0, 13, 14], [16, 14, 16], IRON),
+  bit([0, 13, 2], [2, 14, 14], IRON),
+  bit([14, 13, 2], [16, 14, 14], IRON)
+];
+
+const CRIMSON_ALTAR_BITS: &[Bit] = &[
+  skin([0, 0, 0], [16, 3, 16], Tile::AncientBrick),
+  skin([2, 3, 2], [14, 10, 14], Tile::CrimsonRune),
+  skin([0, 10, 0], [16, 12, 16], Tile::AncientBrick),
+  skin([0, 12, 0], [16, 15, 1], Tile::AncientBrick),
+  skin([0, 12, 15], [16, 15, 16], Tile::AncientBrick),
+  skin([0, 12, 1], [1, 15, 15], Tile::AncientBrick),
+  skin([15, 12, 1], [16, 15, 15], Tile::AncientBrick)
+];
+
+const PLINTH_BITS: &[Bit] = &[
+  skin([3, 0, 3], [13, 2, 13], Tile::Moonstone),
+  skin([5, 2, 5], [11, 11, 11], Tile::Moonstone),
+  skin([4, 4, 4], [12, 5, 12], Tile::Runework),
+  skin([3, 11, 3], [13, 13, 13], Tile::Moonstone)
+];
+
+const CONFLUENCE_ALTAR_BITS: &[Bit] = &[
+  skin([0, 0, 0], [16, 3, 16], Tile::Moonstone),
+  skin([2, 3, 2], [14, 10, 14], Tile::Runework),
+  skin([1, 10, 1], [15, 13, 15], Tile::Moonstone),
+  skin([1, 13, 1], [3, 16, 3], Tile::Lumen),
+  skin([13, 13, 1], [15, 16, 3], Tile::Lumen),
+  skin([1, 13, 13], [3, 16, 15], Tile::Lumen),
+  skin([13, 13, 13], [15, 16, 15], Tile::Lumen)
+];
+
+const APOTHECARY_BITS: &[Bit] = &[
+  skin([3, 0, 3], [13, 2, 13], Tile::Moonstone),
+  skin([6, 2, 6], [10, 8, 10], Tile::Moonstone),
+  skin([2, 8, 2], [14, 10, 14], Tile::Moonstone),
+  skin([2, 10, 2], [14, 14, 3], Tile::Moonstone),
+  skin([2, 10, 13], [14, 14, 14], Tile::Moonstone),
+  skin([2, 10, 3], [3, 14, 13], Tile::Moonstone),
+  skin([13, 10, 3], [14, 14, 13], Tile::Moonstone),
+  skin([3, 10, 3], [13, 13, 13], Tile::Water)
+];
+
 pub const ACROSS: u16 = 0b11;
 
 pub fn links(block: Block, near: impl Fn(IVec3) -> Block) -> u16 {
@@ -710,6 +828,19 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::ConveyorUpEast | Block::ConveyorDownWest => &RAMP_EAST_BITS,
     Block::ConveyorUpSouth | Block::ConveyorDown => &RAMP_SOUTH_BITS,
     Block::ConveyorUpWest | Block::ConveyorDownEast => &RAMP_WEST_BITS,
+    Block::GlimmerPink => &GLIMMER_PINK_BITS,
+    Block::GlimmerCyan => &GLIMMER_CYAN_BITS,
+    Block::GlimmerViolet => &GLIMMER_VIOLET_BITS,
+    Block::GlimmerGold => &GLIMMER_GOLD_BITS,
+    Block::Sunsip => DAYBLOOM_BITS,
+    Block::Dewcup => HYDROANGEA_BITS,
+    Block::Emberbell => ENDOFLAME_BITS,
+    Block::ManaCistern => POOL_BITS,
+    Block::Cauldron => CAULDRON_BITS,
+    Block::CrimsonAltar => CRIMSON_ALTAR_BITS,
+    Block::Plinth => PLINTH_BITS,
+    Block::ConfluenceAltar => CONFLUENCE_ALTAR_BITS,
+    Block::BloomFont => APOTHECARY_BITS,
     _ => &[]
   }
 }

@@ -799,9 +799,18 @@ fn pour(
       && guarded(&claims, &mut notices, client_id, account, at)
       && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
-      && inventory.take(fluid.bucket())
+      && let sigil = fluid == crate::block::Fluid::Water
+      && inventory
+        .slots
+        .get(usize::from(avatar.hand))
+        .copied()
+        .flatten()
+        .is_some_and(|stack| stack.block == Block::WellspringSigil)
+      && (sigil || inventory.take(fluid.bucket()))
     {
-      inventory.add(Block::Bucket);
+      if !sigil {
+        inventory.add(Block::Bucket);
+      }
       voxels.set(at, fluid.source());
       flows.stir(at, time.elapsed_secs() + fluid.delay());
       changes.write(ToClients {

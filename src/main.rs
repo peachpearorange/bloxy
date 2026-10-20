@@ -4,6 +4,7 @@ mod account;
 #[cfg(not(target_arch = "wasm32"))]
 mod admin;
 mod apparatus;
+mod arcana;
 mod audio;
 mod authority;
 mod balloon;
@@ -311,7 +312,7 @@ fn main() {
       audio::Sounds,
       machine::Machines
     ))
-    .add_plugins(conveyor::Conveying)
+    .add_plugins((conveyor::Conveying, arcana::Arcana))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
   app.add_plugins((net::server::ServerNet, admin::Admin));

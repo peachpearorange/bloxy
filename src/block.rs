@@ -198,7 +198,32 @@ pub enum Block {
   ConveyorDown,
   ConveyorDownEast,
   ConveyorDownSouth,
-  ConveyorDownWest
+  ConveyorDownWest,
+  GlimmerPink,
+  GlimmerCyan,
+  GlimmerViolet,
+  GlimmerGold,
+  BloomFont,
+  Sunsip,
+  Dewcup,
+  Emberbell,
+  ManaCistern,
+  Cauldron,
+  CrimsonAltar,
+  Plinth,
+  ConfluenceAltar,
+  CrimsonRune,
+  Glimsteel,
+  Starheart,
+  Tidepearl,
+  Verdantine,
+  Hexbrass,
+  MithrilIngot,
+  BareTablet,
+  BoundTablet,
+  Heartstone,
+  RitualKnife,
+  WellspringSigil
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -343,11 +368,32 @@ pub enum Tile {
   BulbLit,
   Hazard,
   Tar,
-  Rubber
+  Rubber,
+  GlimmerPink,
+  GlimmerCyan,
+  GlimmerViolet,
+  GlimmerGold,
+  Sunsip,
+  Dewcup,
+  Emberbell,
+  Moonstone,
+  Runework,
+  CrimsonRune,
+  Glimsteel,
+  Starheart,
+  Tidepearl,
+  Verdantine,
+  Hexbrass,
+  MithrilIngot,
+  BareTablet,
+  BoundTablet,
+  Heartstone,
+  RitualKnife,
+  WellspringSigil
 }
 
 impl Tile {
-  pub const ALL: [Tile; 141] = [
+  pub const ALL: [Tile; 162] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -488,7 +534,28 @@ impl Tile {
     Tile::BulbLit,
     Tile::Hazard,
     Tile::Tar,
-    Tile::Rubber
+    Tile::Rubber,
+    Tile::GlimmerPink,
+    Tile::GlimmerCyan,
+    Tile::GlimmerViolet,
+    Tile::GlimmerGold,
+    Tile::Sunsip,
+    Tile::Dewcup,
+    Tile::Emberbell,
+    Tile::Moonstone,
+    Tile::Runework,
+    Tile::CrimsonRune,
+    Tile::Glimsteel,
+    Tile::Starheart,
+    Tile::Tidepearl,
+    Tile::Verdantine,
+    Tile::Hexbrass,
+    Tile::MithrilIngot,
+    Tile::BareTablet,
+    Tile::BoundTablet,
+    Tile::Heartstone,
+    Tile::RitualKnife,
+    Tile::WellspringSigil
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -553,7 +620,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 181] = [
+  pub const ALL: [Block; 206] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -734,7 +801,32 @@ impl Block {
     Block::ConveyorDown,
     Block::ConveyorDownEast,
     Block::ConveyorDownSouth,
-    Block::ConveyorDownWest
+    Block::ConveyorDownWest,
+    Block::GlimmerPink,
+    Block::GlimmerCyan,
+    Block::GlimmerViolet,
+    Block::GlimmerGold,
+    Block::BloomFont,
+    Block::Sunsip,
+    Block::Dewcup,
+    Block::Emberbell,
+    Block::ManaCistern,
+    Block::Cauldron,
+    Block::CrimsonAltar,
+    Block::Plinth,
+    Block::ConfluenceAltar,
+    Block::CrimsonRune,
+    Block::Glimsteel,
+    Block::Starheart,
+    Block::Tidepearl,
+    Block::Verdantine,
+    Block::Hexbrass,
+    Block::MithrilIngot,
+    Block::BareTablet,
+    Block::BoundTablet,
+    Block::Heartstone,
+    Block::RitualKnife,
+    Block::WellspringSigil
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -771,12 +863,31 @@ impl Block {
         | Block::LizardClaw
         | Block::Candle
     ) || self.fish()
+      || self.trinket()
       || self.spell()
       || self.forged()
       || self.worn()
   }
 
   pub const TOOLS: [Block; 4] = [Block::Pickaxe, Block::Axe, Block::Shovel, Block::Sword];
+
+  pub fn trinket(self) -> bool {
+    (Block::Glimsteel..=Block::WellspringSigil).contains(&self)
+  }
+
+  pub fn glimmer(self) -> bool {
+    (Block::GlimmerPink..=Block::GlimmerGold).contains(&self)
+  }
+
+  pub fn bloomer(self) -> bool { (Block::Sunsip..=Block::Emberbell).contains(&self) }
+
+  pub fn arcane(self) -> bool { (Block::Sunsip..=Block::ConfluenceAltar).contains(&self) }
+
+  pub fn vessel(self) -> bool { matches!(self, Block::ManaCistern | Block::Cauldron) }
+
+  pub fn holder(self) -> bool {
+    matches!(self, Block::CrimsonAltar | Block::Plinth | Block::ConfluenceAltar)
+  }
 
   pub fn forged(self) -> bool { Block::TOOLS.contains(&self) }
 
@@ -810,6 +921,7 @@ impl Block {
         | Block::EmptyChest
         | Block::CraftingTable
         | Block::Furnace
+        | Block::BloomFont
     ) || self.machine()
   }
 
@@ -819,7 +931,9 @@ impl Block {
   pub fn pipe(self) -> bool { Block::PIPES.contains(&self) }
 
   pub fn machine(self) -> bool {
-    (Block::CopperPipe..=Block::ItemDrain).contains(&self) || self == Block::ItemPipe
+    (Block::CopperPipe..=Block::ItemDrain).contains(&self)
+      || self == Block::ItemPipe
+      || self.arcane()
   }
 
   pub fn conveyor(self) -> bool {
@@ -920,6 +1034,7 @@ impl Block {
       Block::WaterBucket | Block::LavaBucket | Block::Boat | Block::FishingRod => 1,
       Block::Balloon => 1,
       Block::Bed => 1,
+      Block::RitualKnife | Block::WellspringSigil | Block::Heartstone => 1,
       gear if gear.forged() || gear.worn() => 1,
       Block::Bucket => 16,
       spell if spell.spell() => 16,
@@ -947,7 +1062,10 @@ impl Block {
   pub fn sign(self) -> bool { Block::SIGNS.iter().any(|&(_, sign)| sign == self) }
 
   pub fn station(self) -> bool {
-    matches!(self, Block::CraftingTable | Block::Furnace | Block::ElectricFurnace)
+    matches!(
+      self,
+      Block::CraftingTable | Block::Furnace | Block::ElectricFurnace | Block::BloomFont
+    )
   }
 
   pub fn liquid(self) -> Option<(Fluid, u8)> {
@@ -1004,10 +1122,14 @@ impl Block {
       || self.ladder()
       || self.bed()
       || self.conveyor()
+      || self.bloomer()
+      || self.vessel()
   }
 
   pub fn plant(self) -> bool {
-    (Block::Poppy..=Block::BrownMushroom).contains(&self) || self == Block::TallGrass
+    (Block::Poppy..=Block::BrownMushroom).contains(&self)
+      || self == Block::TallGrass
+      || self.glimmer()
   }
 
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
@@ -1048,7 +1170,11 @@ impl Block {
       | Block::MossyBrick
       | Block::CrackedBrick
       | Block::Wool => 0.4,
-      Block::Ice | Block::Lumen | Block::AncientBrick | Block::CarvedStone => 0.25,
+      Block::Ice
+      | Block::Lumen
+      | Block::AncientBrick
+      | Block::CarvedStone
+      | Block::CrimsonRune => 0.25,
       _ => 0.0
     }
   }
@@ -1087,6 +1213,8 @@ impl Block {
       | Block::CarvedStone => 3.0,
       Block::Lumen => 2.2,
       sign if sign.sign() => 0.6,
+      vessel if vessel.vessel() => 1.5,
+      flower if flower.bloomer() => 0.3,
       ladder if ladder.ladder() => 0.5,
       belt if belt.conveyor() => 0.5,
       bed if bed.bed() => 0.4,
@@ -1314,7 +1442,32 @@ impl Block {
       | Block::ConveyorDown
       | Block::ConveyorDownEast
       | Block::ConveyorDownSouth
-      | Block::ConveyorDownWest => "Conveyor Belt"
+      | Block::ConveyorDownWest => "Conveyor Belt",
+      Block::GlimmerPink => "Pink Glimmerpetal",
+      Block::GlimmerCyan => "Cyan Glimmerpetal",
+      Block::GlimmerViolet => "Violet Glimmerpetal",
+      Block::GlimmerGold => "Golden Glimmerpetal",
+      Block::BloomFont => "Bloom Font",
+      Block::Sunsip => "Sunsip",
+      Block::Dewcup => "Dewcup",
+      Block::Emberbell => "Emberbell",
+      Block::ManaCistern => "Mana Cistern",
+      Block::Cauldron => "Cauldron",
+      Block::CrimsonAltar => "Crimson Altar",
+      Block::Plinth => "Offering Plinth",
+      Block::ConfluenceAltar => "Confluence Altar",
+      Block::CrimsonRune => "Crimson Rune",
+      Block::Glimsteel => "Glimsteel",
+      Block::Starheart => "Starheart",
+      Block::Tidepearl => "Tidepearl",
+      Block::Verdantine => "Verdantine",
+      Block::Hexbrass => "Hexbrass",
+      Block::MithrilIngot => "Mithril Ingot",
+      Block::BareTablet => "Bare Tablet",
+      Block::BoundTablet => "Bound Tablet",
+      Block::Heartstone => "Heartstone",
+      Block::RitualKnife => "Ritual Knife",
+      Block::WellspringSigil => "Wellspring Sigil"
     }
   }
 
@@ -1491,6 +1644,31 @@ impl Block {
       | Block::ConveyorDownEast
       | Block::ConveyorDownSouth
       | Block::ConveyorDownWest => all(Tile::Rubber),
+      Block::GlimmerPink => all(Tile::GlimmerPink),
+      Block::GlimmerCyan => all(Tile::GlimmerCyan),
+      Block::GlimmerViolet => all(Tile::GlimmerViolet),
+      Block::GlimmerGold => all(Tile::GlimmerGold),
+      Block::BloomFont => all(Tile::Moonstone),
+      Block::Sunsip => all(Tile::Sunsip),
+      Block::Dewcup => all(Tile::Dewcup),
+      Block::Emberbell => all(Tile::Emberbell),
+      Block::ManaCistern => all(Tile::Moonstone),
+      Block::Cauldron => all(Tile::Steel),
+      Block::CrimsonAltar => all(Tile::CrimsonRune),
+      Block::Plinth => all(Tile::Moonstone),
+      Block::ConfluenceAltar => all(Tile::Runework),
+      Block::CrimsonRune => [Tile::CrimsonRune, Tile::CrimsonRune, Tile::Slate],
+      Block::Glimsteel => all(Tile::Glimsteel),
+      Block::Starheart => all(Tile::Starheart),
+      Block::Tidepearl => all(Tile::Tidepearl),
+      Block::Verdantine => all(Tile::Verdantine),
+      Block::Hexbrass => all(Tile::Hexbrass),
+      Block::MithrilIngot => all(Tile::MithrilIngot),
+      Block::BareTablet => all(Tile::BareTablet),
+      Block::BoundTablet => all(Tile::BoundTablet),
+      Block::Heartstone => all(Tile::Heartstone),
+      Block::RitualKnife => all(Tile::RitualKnife),
+      Block::WellspringSigil => all(Tile::WellspringSigil),
       Block::ElectricPump
       | Block::Refinery
       | Block::BiofuelGenerator

@@ -20,7 +20,10 @@ pub enum Material {
   Diamond,
   Lumen,
   Steel,
-  Mithril
+  Mithril,
+  Glimsteel,
+  Verdantine,
+  Hexbrass
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -30,7 +33,7 @@ pub struct Grit {
 }
 
 impl Material {
-  pub const ALL: [Material; 16] = [
+  pub const ALL: [Material; 19] = [
     Material::Wood,
     Material::Stone,
     Material::Granite,
@@ -46,7 +49,10 @@ impl Material {
     Material::Diamond,
     Material::Lumen,
     Material::Steel,
-    Material::Mithril
+    Material::Mithril,
+    Material::Glimsteel,
+    Material::Verdantine,
+    Material::Hexbrass
   ];
 
   pub fn index(self) -> usize { self as usize }
@@ -68,7 +74,10 @@ impl Material {
       Material::Diamond => "Diamond",
       Material::Lumen => "Lumen",
       Material::Steel => "Ancient Steel",
-      Material::Mithril => "Mithril"
+      Material::Mithril => "Mithril",
+      Material::Glimsteel => "Glimsteel",
+      Material::Verdantine => "Verdantine",
+      Material::Hexbrass => "Hexbrass"
     }
   }
 
@@ -89,7 +98,10 @@ impl Material {
       Material::Diamond => (9, 4),
       Material::Lumen => (7, 1),
       Material::Steel => (7, 8),
-      Material::Mithril => (8, 9)
+      Material::Mithril => (8, 9),
+      Material::Glimsteel => (7, 7),
+      Material::Verdantine => (10, 9),
+      Material::Hexbrass => (8, 7)
     };
     Grit { hardness, toughness }
   }
@@ -110,7 +122,11 @@ impl Material {
       Material::Gold => Some(Block::GoldOre),
       Material::Diamond => Some(Block::DiamondOre),
       Material::Lumen => Some(Block::Lumen),
-      Material::Steel | Material::Mithril => None
+      Material::Mithril => Some(Block::MithrilIngot),
+      Material::Glimsteel => Some(Block::Glimsteel),
+      Material::Verdantine => Some(Block::Verdantine),
+      Material::Hexbrass => Some(Block::Hexbrass),
+      Material::Steel => None
     }
   }
 
@@ -172,10 +188,24 @@ impl Material {
       Material::Mithril => {
         [[0.3, 0.36, 0.5], [0.52, 0.6, 0.78], [0.74, 0.8, 0.95], [0.94, 0.97, 1.0]]
       }
+      Material::Glimsteel => {
+        [[0.1, 0.24, 0.5], [0.22, 0.46, 0.82], [0.42, 0.7, 0.98], [0.78, 0.92, 1.0]]
+      }
+      Material::Verdantine => {
+        [[0.08, 0.3, 0.08], [0.2, 0.55, 0.16], [0.4, 0.82, 0.3], [0.78, 1.0, 0.62]]
+      }
+      Material::Hexbrass => {
+        [[0.18, 0.08, 0.32], [0.34, 0.18, 0.56], [0.52, 0.34, 0.78], [0.8, 0.66, 0.98]]
+      }
     }
   }
 
-  pub fn glows(self) -> bool { matches!(self, Material::Lumen | Material::Mithril) }
+  pub fn glows(self) -> bool {
+    matches!(
+      self,
+      Material::Lumen | Material::Mithril | Material::Glimsteel | Material::Verdantine
+    )
+  }
 
   pub fn suits(self, tool: Block) -> bool {
     let Grit { hardness, toughness } = self.grit();

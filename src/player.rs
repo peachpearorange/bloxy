@@ -727,10 +727,12 @@ fn work(
     MessageWriter<Pour>,
     MessageWriter<Shuffle>
   ),
-  (boats, folk, balloons): (
+  (boats, folk, balloons, units, keys): (
     Query<&Vessel>,
     Query<&Folk>,
-    Query<&crate::balloon::Aerostat>
+    Query<&crate::balloon::Aerostat>,
+    Query<&crate::machine::Unit>,
+    Res<ButtonInput<KeyCode>>
   ),
   (mut inscription, signs, mut rests, mut pokes, mut swings, mut sounds): (
     ResMut<Inscription>,
@@ -883,11 +885,19 @@ fn work(
           sounds.write(Sound::at(Cue::Creak, hit.at.as_vec3() + 0.5));
         }
         machine if crate::machine::panelled(machine) => {
-          match stack.filter(|stack| crate::machine::accepts(machine, stack.block)) {
-            Some(_) => {
+          let holding = units
+            .iter()
+            .find(|unit| unit.at == hit.at)
+            .is_some_and(|unit| unit.item.is_some());
+          let peeking = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+          let tended = stack
+            .is_some_and(|stack| crate::machine::accepts(machine, stack.block))
+            || (machine.holder() && (holding || stack.is_some()));
+          match tended && !peeking {
+            true => {
               tends.write(crate::machine::Tend { at: hit.at, slot: selected.0 as u8 });
             }
-            None => {
+            false => {
               watching.0 = Some(hit.at);
               menu.show(Tab::Machine, time.elapsed_secs())
             }
@@ -898,12 +908,19 @@ fn work(
     } else if active
       && buttons.just_pressed(MouseButton::Right)
       && let Some(stack) = stack.filter(|stack| {
-        matches!(stack.block, Block::Bucket | Block::WaterBucket | Block::LavaBucket)
+        matches!(
+          stack.block,
+          Block::Bucket | Block::WaterBucket | Block::LavaBucket | Block::WellspringSigil
+        )
       })
       && let Some(hit) =
         voxels.cast_for(eye, toward, REACH, |block| block.targetable() || block.fluid())
     {
-      match stack.block.carrying() {
+      match stack
+        .block
+        .carrying()
+        .or((stack.block == Block::WellspringSigil).then_some(crate::block::Fluid::Water))
+      {
         None => {
           if hit.block.liquid().is_some_and(|(_, level)| level == 0) {
             scoops.write(Scoop(hit.at));

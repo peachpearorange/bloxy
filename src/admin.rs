@@ -30,6 +30,7 @@ bloxy admin: one command per connection, coordinates are block x y z (y up, sea 
   fill X1 Y1 Z1 X2 Y2 Z2 BLOCK  fill a box (at most 65536 blocks)
   stash X Y Z BLOCK [COUNT]     put items into the chest at a spot (made a chest if it isn't)
   peek X Y Z                    what the chest at a spot holds
+  offer X Y Z BLOCK             set an item on the pedestal or altar at a spot
   column X Z                    the blocks of one column, top down, as runs
   top X Z R                     top-down text map of the surface, radius R (<= 64), with a legend
   layer X Y Z R                 text map of the horizontal slice at height Y, radius R (<= 64)
@@ -351,6 +352,22 @@ fn run(world: &mut World, line: &str) -> Result<String, String> {
       world.resource_mut::<Voxels>().ensure(at);
       place(world, at, block);
       Ok(format!("set {} {} {} to {block:?}", at.x, at.y, at.z))
+    }
+    Some("offer") => {
+      let (at, block) = (spot(rest)?, block_named(rest.get(3).ok_or("missing block")?)?);
+      let mut works = world.resource_mut::<crate::machine::Works>();
+      match works.states.get_mut(&at).filter(|state| state.block.holder()) {
+        Some(state) => {
+          state.item = Some(crate::protocol::Stack::of(block, 1));
+          state.done = false;
+          state.charge = 0.0;
+          Ok(format!(
+            "set {block:?} on the {:?} at {} {} {}",
+            state.block, at.x, at.y, at.z
+          ))
+        }
+        None => Err("no pedestal or altar there".into())
+      }
     }
     Some("peek") => {
       let at = spot(rest)?;

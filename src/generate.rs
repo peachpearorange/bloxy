@@ -44,7 +44,7 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     })
 }
 
-pub const GENERATION: u32 = 6;
+pub const GENERATION: u32 = 7;
 
 fn seeping(seed: u32, seep: IVec2, column: IVec2) -> bool {
   let ragged = 1.4 + unit(seed ^ 0x0115, column.x, 0, column.y) * 1.6;
@@ -459,11 +459,22 @@ fn bloom(seed: u32, x: i32, z: i32, ground: &Column) -> Option<Block> {
       }
       _ => None
     };
-    sown
-      .filter(|&(_, density)| {
-        unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
-      })
-      .map(|(block, _)| block)
+    let glimmer =
+      [Block::GlimmerPink, Block::GlimmerCyan, Block::GlimmerViolet, Block::GlimmerGold]
+        [(hash(seed ^ 0xF15, x.div_euclid(9), 1, z.div_euclid(9)) % 4) as usize];
+    let enchanted = matches!(
+      (island.kind, ground.top),
+      (Kind::Meadow | Kind::Woods | Kind::Peak, Block::Grass)
+    ) && unit(seed ^ 0xF16, x, 6, z) < 0.01 * (0.2 + field * field * 2.0);
+    enchanted
+      .then_some(glimmer)
+      .or(
+        sown
+          .filter(|&(_, density)| {
+            unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
+          })
+          .map(|(block, _)| block)
+      )
       .or_else(|| {
         let lush = match (island.kind, ground.top) {
           (Kind::Meadow, Block::Grass) => 0.45,

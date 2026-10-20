@@ -20,12 +20,21 @@ pub enum Liquid {
   Lava,
   Crude,
   Diesel,
-  Biofuel
+  Biofuel,
+  Mana,
+  Lifeblood
 }
 
 impl Liquid {
-  pub const ALL: [Liquid; 5] =
-    [Liquid::Water, Liquid::Lava, Liquid::Crude, Liquid::Diesel, Liquid::Biofuel];
+  pub const ALL: [Liquid; 7] = [
+    Liquid::Water,
+    Liquid::Lava,
+    Liquid::Crude,
+    Liquid::Diesel,
+    Liquid::Biofuel,
+    Liquid::Mana,
+    Liquid::Lifeblood
+  ];
 
   pub fn name(self) -> &'static str {
     match self {
@@ -33,7 +42,9 @@ impl Liquid {
       Liquid::Lava => "Lava",
       Liquid::Crude => "Crude Oil",
       Liquid::Diesel => "Diesel",
-      Liquid::Biofuel => "Biofuel"
+      Liquid::Biofuel => "Biofuel",
+      Liquid::Mana => "Mana",
+      Liquid::Lifeblood => "Lifeblood"
     }
   }
 
@@ -43,7 +54,9 @@ impl Liquid {
       Liquid::Lava => Color::srgb(1.0, 0.42, 0.08),
       Liquid::Crude => Color::srgb(0.07, 0.05, 0.04),
       Liquid::Diesel => Color::srgb(0.86, 0.62, 0.16),
-      Liquid::Biofuel => Color::srgb(0.42, 0.72, 0.16)
+      Liquid::Biofuel => Color::srgb(0.42, 0.72, 0.16),
+      Liquid::Mana => Color::srgb(0.35, 0.78, 1.0),
+      Liquid::Lifeblood => Color::srgb(0.55, 0.02, 0.05)
     }
   }
 
@@ -51,6 +64,8 @@ impl Liquid {
     match self {
       Liquid::Lava => 6.0,
       Liquid::Biofuel => 0.15,
+      Liquid::Mana => 1.6,
+      Liquid::Lifeblood => 0.4,
       _ => 0.0
     }
   }
@@ -147,6 +162,14 @@ pub fn design(block: Block) -> Design {
     Block::ElectricFurnace => Design { draws: 50.0, stores: 4.0 * SMELT, ..base },
     Block::ElectricLamp | Block::ElectricLampLit => Design { draws: 2.0, ..base },
     Block::PipedDrain => Design { outlet: Some(PIPED_DRAIN), ..base },
+    Block::ManaCistern => {
+      Design { intake: Some((&[Liquid::Mana], crate::arcana::POOL)), ..base }
+    }
+    Block::Cauldron => Design { intake: Some((&[Liquid::Water], BUCKET)), ..base },
+    Block::CrimsonAltar => {
+      Design { intake: Some((&[Liquid::Lifeblood], crate::arcana::ALTAR_MOST)), ..base }
+    }
+    Block::Emberbell => Design { hopper: 600.0, ..base },
     _ => base
   }
 }
@@ -219,9 +242,9 @@ pub fn biomass(block: Block) -> Option<f32> {
   }
 }
 
-fn fuel(machine: Block, item: Block) -> Option<f32> {
+pub fn fuel(machine: Block, item: Block) -> Option<f32> {
   match machine {
-    Block::SteamEngine => burns(item),
+    Block::SteamEngine | Block::Emberbell => burns(item),
     Block::Fermenter => biomass(item),
     _ => None
   }
@@ -236,6 +259,7 @@ pub fn accepts(machine: Block, item: Block) -> bool {
       machine == Block::Tank || intake.is_some_and(|(taken, _)| taken.contains(&liquid))
     })
     || (item == Block::Bucket && (machine == Block::Tank || outlet.is_some()))
+    || (machine == Block::CrimsonAltar && item == Block::RitualKnife)
 }
 
 pub fn panelled(block: Block) -> bool {
@@ -261,7 +285,14 @@ pub enum Status {
   Dark,
   Unloaded,
   Detached,
-  Drained
+  Drained,
+  Unbound,
+  NoHeat,
+  NoMana,
+  NoBlood,
+  Empty,
+  Unknown,
+  Finished
 }
 
 impl Status {
@@ -279,7 +310,14 @@ impl Status {
       Status::Dark => "No sunlight",
       Status::Unloaded => "Nothing to power",
       Status::Detached => "Not against a container",
-      Status::Drained => "Nothing left to drain"
+      Status::Drained => "Nothing left to drain",
+      Status::Unbound => "No mana cistern within 6 blocks",
+      Status::NoHeat => "Needs fire or lava beneath it",
+      Status::NoMana => "Waiting for mana from cisterns nearby",
+      Status::NoBlood => "Waiting for lifeblood",
+      Status::Empty => "Nothing set on it",
+      Status::Unknown => "Nothing to make from this",
+      Status::Finished => "Done: right-click to take it"
     }
   }
 }
@@ -302,7 +340,17 @@ pub struct State {
   pub stock: f32,
   pub charge: f32,
   #[serde(default)]
-  pub parcel: Option<Parcel>
+  pub parcel: Option<Parcel>,
+  #[serde(default)]
+  pub item: Option<Stack>,
+  #[serde(default)]
+  pub essence: [u16; crate::arcana::ASPECTS],
+  #[serde(default)]
+  pub done: bool,
+  #[serde(skip)]
+  pub status: Status,
+  #[serde(skip)]
+  pub link: Option<IVec3>
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -324,7 +372,10 @@ pub struct Unit {
   pub power: i32,
   pub grid: Grid,
   pub status: Status,
-  pub parcel: Option<Parcel>
+  pub parcel: Option<Parcel>,
+  pub item: Option<Stack>,
+  pub essence: [u16; crate::arcana::ASPECTS],
+  pub link: Option<IVec3>
 }
 
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
@@ -374,13 +425,13 @@ impl Works {
   }
 }
 
-fn amount(held: Held) -> f32 { held.map_or(0.0, |(_, amount)| amount) }
+pub fn amount(held: Held) -> f32 { held.map_or(0.0, |(_, amount)| amount) }
 
-fn holds(held: Held, liquid: Liquid) -> f32 {
+pub fn holds(held: Held, liquid: Liquid) -> f32 {
   held.filter(|&(kept, _)| kept == liquid).map_or(0.0, |(_, amount)| amount)
 }
 
-fn pour(held: &mut Held, liquid: Liquid, offered: f32, room: f32) -> f32 {
+pub fn pour(held: &mut Held, liquid: Liquid, offered: f32, room: f32) -> f32 {
   let moved = match *held {
     Some((kept, _)) if kept != liquid => 0.0,
     _ => offered.min(room - amount(*held)).max(0.0)
@@ -391,14 +442,14 @@ fn pour(held: &mut Held, liquid: Liquid, offered: f32, room: f32) -> f32 {
   moved
 }
 
-fn spill(held: &mut Held, wanted: f32) -> f32 {
+pub fn spill(held: &mut Held, wanted: f32) -> f32 {
   let moved = wanted.min(amount(*held)).max(0.0);
   *held =
     held.map(|(liquid, kept)| (liquid, kept - moved)).filter(|&(_, kept)| kept > 0.01);
   moved
 }
 
-fn ordered(cells: impl IntoIterator<Item = IVec3>) -> Vec<IVec3> {
+pub fn ordered(cells: impl IntoIterator<Item = IVec3>) -> Vec<IVec3> {
   let mut cells: Vec<IVec3> = cells.into_iter().collect();
   cells.sort_by_key(|at| (at.x, at.y, at.z));
   cells
@@ -428,7 +479,7 @@ fn groups(cells: &HashSet<IVec3>) -> Vec<Vec<IVec3>> {
     .0
 }
 
-fn source(voxels: &mut Voxels, at: IVec3) -> Option<Liquid> {
+pub fn source(voxels: &mut Voxels, at: IVec3) -> Option<Liquid> {
   SIDES.into_iter().find_map(|side| {
     voxels
       .ensure(at + side)
@@ -438,7 +489,7 @@ fn source(voxels: &mut Voxels, at: IVec3) -> Option<Liquid> {
   })
 }
 
-fn sunlight(hour: f32) -> f32 {
+pub fn sunlight(hour: f32) -> f32 {
   let arc = (hour - 6.0) / 12.0 * std::f32::consts::PI;
   arc.sin().max(0.0)
 }
@@ -753,7 +804,11 @@ fn unit(at: IVec3, state: &State, load: Load, supply: Supply, fixed: bool) -> Un
     power: power.round() as i32,
     grid: supply.grid,
     parcel: state.parcel,
+    item: state.item,
+    essence: state.essence,
+    link: state.link,
     status: match () {
+      () if state.block.arcane() => state.status,
       () if state.block.drain() && !fixed => Status::Detached,
       () if state.block.drain()
         && state.intake.is_none()
@@ -769,6 +824,8 @@ fn unit(at: IVec3, state: &State, load: Load, supply: Supply, fixed: bool) -> Un
     }
   }
 }
+
+pub const TICK_SECONDS: f32 = TICK;
 
 pub const PARCEL_SPEED: f32 = 2.5;
 
@@ -1107,9 +1164,10 @@ fn run(
       .filter(|&at| voxels.ensure(at).held() != works.states[&at].block.held())
       .collect();
     for at in gone {
-      if let Some(Parcel { stack, .. }) =
-        works.states.get(&at).and_then(|state| state.parcel)
-      {
+      let carried = works.states.get(&at).and_then(|state| {
+        state.parcel.map(|parcel| parcel.stack).into_iter().chain(state.item).next()
+      });
+      if let Some(stack) = carried {
         crate::loose::fling(
           &mut commands,
           stack,
@@ -1252,6 +1310,9 @@ pub fn settle(voxels: &mut Voxels, saved: Vec<(IVec3, State)>) -> Works {
   Works { states, units: HashMap::new() }
 }
 
+#[derive(SystemSet, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Running;
+
 pub struct Machines;
 
 impl Plugin for Machines {
@@ -1262,7 +1323,11 @@ impl Plugin for Machines {
       .init_resource::<Works>()
       .add_systems(
         Update,
-        (install, tend, run).chain().run_if(authority).run_if(resource_exists::<Voxels>)
+        (install, tend, run)
+          .chain()
+          .in_set(Running)
+          .run_if(authority)
+          .run_if(resource_exists::<Voxels>)
       );
   }
 }
