@@ -28,6 +28,8 @@ bloxy admin: one command per connection, coordinates are block x y z (y up, sea 
   get X Y Z                     the block at a spot
   set X Y Z BLOCK               place a block (any Block name, e.g. Stone, OakSign, Air)
   fill X1 Y1 Z1 X2 Y2 Z2 BLOCK  fill a box (at most 65536 blocks)
+  stash X Y Z BLOCK [COUNT]     put items into the chest at a spot (made a chest if it isn't)
+  peek X Y Z                    what the chest at a spot holds
   column X Z                    the blocks of one column, top down, as runs
   top X Z R                     top-down text map of the surface, radius R (<= 64), with a legend
   layer X Y Z R                 text map of the horizontal slice at height Y, radius R (<= 64)
@@ -349,6 +351,43 @@ fn run(world: &mut World, line: &str) -> Result<String, String> {
       world.resource_mut::<Voxels>().ensure(at);
       place(world, at, block);
       Ok(format!("set {} {} {} to {block:?}", at.x, at.y, at.z))
+    }
+    Some("peek") => {
+      let at = spot(rest)?;
+      let held: Vec<String> = world
+        .resource::<crate::chest::Coffers>()
+        .0
+        .get(&at)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|stack| format!("{} {:?}", stack.count, stack.block))
+        .collect();
+      Ok(match held.is_empty() {
+        true => "empty".into(),
+        false => held.join(", ")
+      })
+    }
+    Some("stash") => {
+      let (at, block) = (spot(rest)?, block_named(rest.get(3).ok_or("missing block")?)?);
+      let count: u16 = rest.get(4).map_or(Ok(1), |word| number(Some(word)))?;
+      world.resource_mut::<Voxels>().ensure(at);
+      let slots = world
+        .resource_mut::<crate::chest::Coffers>()
+        .0
+        .entry(at)
+        .or_insert_with(|| vec![None; crate::chest::ROOM])
+        .clone();
+      let mut slots = slots;
+      let left = (0..count.div_ceil(block.stack().max(1))).fold(0u16, |left, round| {
+        let each = (count - round * block.stack()).min(block.stack());
+        left
+          + crate::chest::stash(&mut slots, crate::protocol::Stack::of(block, each))
+            .map_or(0, |stack| stack.count)
+      });
+      world.resource_mut::<crate::chest::Coffers>().0.insert(at, slots);
+      place(world, at, Block::Chest);
+      Ok(format!("stashed {} {block:?} at {} {} {}", count - left, at.x, at.y, at.z))
     }
     Some("fill") => {
       let (from, to) = (spot(rest)?, spot(rest.get(3..).unwrap_or_default())?);

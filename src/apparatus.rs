@@ -333,6 +333,87 @@ fn spill(
   }
 }
 
+#[derive(Component)]
+struct Ferried {
+  parcel: Option<(Block, u8, u8)>,
+  shown: f32,
+  item: Option<Entity>
+}
+
+const PARCEL_SCALE: f32 = 0.85;
+
+fn path(from: u8, to: u8, progress: f32) -> Vec3 {
+  let middle = Vec3::splat(0.5);
+  let face = |side: u8| middle + crate::machine::SIDES[usize::from(side)].as_vec3() * 0.5;
+  match progress < 0.5 {
+    true => face(from).lerp(middle, progress * 2.0),
+    false => middle.lerp(face(to), progress * 2.0 - 1.0)
+  }
+}
+
+fn ferry(
+  time: Res<Time>,
+  palette: Option<Res<crate::stream::Palette>>,
+  mut looks: ResMut<crate::loose::Looks>,
+  mut meshes: ResMut<Assets<Mesh>>,
+  mut pipes: Query<(Entity, &Unit, Option<&mut Ferried>)>,
+  mut transforms: Query<&mut Transform, Without<Unit>>,
+  mut commands: Commands
+) {
+  if let Some(palette) = palette {
+    for (entity, unit, ferried) in
+      pipes.iter_mut().filter(|(_, unit, _)| unit.block == Block::ItemPipe)
+    {
+      let wanted = unit.parcel.map(|parcel| (parcel.stack.block, parcel.from, parcel.to));
+      match ferried {
+        Some(mut ferried) if ferried.parcel == wanted => {
+          if let Some(parcel) = unit.parcel
+            && let Some(item) = ferried.item
+          {
+            ferried.shown = (ferried.shown
+              + crate::machine::PARCEL_SPEED * time.delta_secs())
+            .min(1.0)
+            .max(parcel.progress);
+            if let Ok(mut transform) = transforms.get_mut(item) {
+              let lift = match crate::loose::cubic(parcel.stack.block) {
+                true => Vec3::Y * crate::loose::SIZE * PARCEL_SCALE / 2.0,
+                false => Vec3::ZERO
+              };
+              transform.translation = path(parcel.from, parcel.to, ferried.shown) - lift
+            }
+          }
+        }
+        ferried => {
+          if let Some(old) = ferried.as_ref().and_then(|ferried| ferried.item) {
+            commands.entity(old).despawn()
+          }
+          let item = unit.parcel.map(|parcel| {
+            let material = parcel.stack.gear.and_then(|gear| gear.material);
+            commands
+              .spawn((
+                Mesh3d(looks.mesh(parcel.stack.block, material, &mut meshes)),
+                MeshMaterial3d(palette.solid.clone()),
+                Transform::from_translation(path(
+                  parcel.from,
+                  parcel.to,
+                  parcel.progress
+                ))
+                .with_scale(Vec3::splat(PARCEL_SCALE)),
+                ChildOf(entity)
+              ))
+              .id()
+          });
+          commands.entity(entity).insert(Ferried {
+            parcel: wanted,
+            shown: unit.parcel.map_or(0.0, |parcel| parcel.progress),
+            item
+          });
+        }
+      }
+    }
+  }
+}
+
 const BEAM_SWING: f32 = 0.32;
 const STROKES: f32 = 1.4;
 const SPIN: f32 = 4.0;
@@ -566,7 +647,7 @@ impl Plugin for Apparatus {
       .add_systems(Startup, furnish.run_if(plays))
       .add_systems(
         Update,
-        (mount, fill, spill, animate, show.run_if(resource_exists::<Menu>))
+        (mount, fill, spill, ferry, animate, show.run_if(resource_exists::<Menu>))
           .chain()
           .run_if(plays)
       );

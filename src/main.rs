@@ -18,6 +18,7 @@ mod chest;
 mod claim;
 mod condition;
 mod console;
+mod conveyor;
 mod crafting;
 mod crumble;
 mod death;
@@ -310,6 +311,7 @@ fn main() {
       audio::Sounds,
       machine::Machines
     ))
+    .add_plugins(conveyor::Conveying)
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
   app.add_plugins((net::server::ServerNet, admin::Admin));

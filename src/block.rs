@@ -185,7 +185,20 @@ pub enum Block {
   ElectricLampLit,
   FluidDrain,
   PipedDrain,
-  ItemDrain
+  ItemDrain,
+  ItemPipe,
+  Conveyor,
+  ConveyorEast,
+  ConveyorSouth,
+  ConveyorWest,
+  ConveyorUp,
+  ConveyorUpEast,
+  ConveyorUpSouth,
+  ConveyorUpWest,
+  ConveyorDown,
+  ConveyorDownEast,
+  ConveyorDownSouth,
+  ConveyorDownWest
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -329,11 +342,12 @@ pub enum Tile {
   Bulb,
   BulbLit,
   Hazard,
-  Tar
+  Tar,
+  Rubber
 }
 
 impl Tile {
-  pub const ALL: [Tile; 140] = [
+  pub const ALL: [Tile; 141] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -473,7 +487,8 @@ impl Tile {
     Tile::Bulb,
     Tile::BulbLit,
     Tile::Hazard,
-    Tile::Tar
+    Tile::Tar,
+    Tile::Rubber
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -538,7 +553,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 168] = [
+  pub const ALL: [Block; 181] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -706,7 +721,20 @@ impl Block {
     Block::ElectricLampLit,
     Block::FluidDrain,
     Block::PipedDrain,
-    Block::ItemDrain
+    Block::ItemDrain,
+    Block::ItemPipe,
+    Block::Conveyor,
+    Block::ConveyorEast,
+    Block::ConveyorSouth,
+    Block::ConveyorWest,
+    Block::ConveyorUp,
+    Block::ConveyorUpEast,
+    Block::ConveyorUpSouth,
+    Block::ConveyorUpWest,
+    Block::ConveyorDown,
+    Block::ConveyorDownEast,
+    Block::ConveyorDownSouth,
+    Block::ConveyorDownWest
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -790,7 +818,13 @@ impl Block {
 
   pub fn pipe(self) -> bool { Block::PIPES.contains(&self) }
 
-  pub fn machine(self) -> bool { (Block::CopperPipe..=Block::ItemDrain).contains(&self) }
+  pub fn machine(self) -> bool {
+    (Block::CopperPipe..=Block::ItemDrain).contains(&self) || self == Block::ItemPipe
+  }
+
+  pub fn conveyor(self) -> bool {
+    (Block::Conveyor..=Block::ConveyorDownWest).contains(&self)
+  }
 
   pub fn drain(self) -> bool {
     matches!(self, Block::FluidDrain | Block::PipedDrain | Block::ItemDrain)
@@ -874,6 +908,7 @@ impl Block {
       (.., true) => Block::Torch,
       _ if self == Block::ElectricLampLit => Block::ElectricLamp,
       _ if self == Block::PipedDrain => Block::FluidDrain,
+      _ if self.conveyor() => Block::Conveyor,
       _ => self
     }
   }
@@ -963,7 +998,12 @@ impl Block {
   ];
 
   pub fn modelled(self) -> bool {
-    self.plant() || self.torch() || self.sign() || self.ladder() || self.bed()
+    self.plant()
+      || self.torch()
+      || self.sign()
+      || self.ladder()
+      || self.bed()
+      || self.conveyor()
   }
 
   pub fn plant(self) -> bool {
@@ -1048,6 +1088,7 @@ impl Block {
       Block::Lumen => 2.2,
       sign if sign.sign() => 0.6,
       ladder if ladder.ladder() => 0.5,
+      belt if belt.conveyor() => 0.5,
       bed if bed.bed() => 0.4,
       model if model.modelled() => 0.05,
       leaves if leaves.leafy() => 0.3,
@@ -1260,7 +1301,20 @@ impl Block {
       Block::ElectricLamp | Block::ElectricLampLit => "Electric Lamp",
       Block::FluidDrain => "Fluid Drain",
       Block::PipedDrain => "Piped Fluid Drain",
-      Block::ItemDrain => "Item Drain"
+      Block::ItemDrain => "Item Drain",
+      Block::ItemPipe => "Item Pipe",
+      Block::Conveyor
+      | Block::ConveyorEast
+      | Block::ConveyorSouth
+      | Block::ConveyorWest
+      | Block::ConveyorUp
+      | Block::ConveyorUpEast
+      | Block::ConveyorUpSouth
+      | Block::ConveyorUpWest
+      | Block::ConveyorDown
+      | Block::ConveyorDownEast
+      | Block::ConveyorDownSouth
+      | Block::ConveyorDownWest => "Conveyor Belt"
     }
   }
 
@@ -1424,7 +1478,19 @@ impl Block {
       Block::ElectricLamp => all(Tile::Bulb),
       Block::ElectricLampLit => all(Tile::BulbLit),
       Block::FluidDrain | Block::PipedDrain => all(Tile::Copper),
-      Block::ItemDrain => all(Tile::Steel),
+      Block::ItemDrain | Block::ItemPipe => all(Tile::Steel),
+      Block::Conveyor
+      | Block::ConveyorEast
+      | Block::ConveyorSouth
+      | Block::ConveyorWest
+      | Block::ConveyorUp
+      | Block::ConveyorUpEast
+      | Block::ConveyorUpSouth
+      | Block::ConveyorUpWest
+      | Block::ConveyorDown
+      | Block::ConveyorDownEast
+      | Block::ConveyorDownSouth
+      | Block::ConveyorDownWest => all(Tile::Rubber),
       Block::ElectricPump
       | Block::Refinery
       | Block::BiofuelGenerator

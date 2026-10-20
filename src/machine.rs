@@ -163,8 +163,25 @@ pub fn wired(block: Block) -> bool {
   block == Block::CopperCable || draws > 0.0 || makes > 0.0 || stores > 0.0
 }
 
+pub fn carries(block: Block) -> bool {
+  matches!(
+    block,
+    Block::ItemPipe
+      | Block::Chest
+      | Block::EmptyChest
+      | Block::ItemDrain
+      | Block::SteamEngine
+      | Block::Fermenter
+  ) || block.conveyor()
+}
+
+pub fn side_of(toward: IVec3) -> usize {
+  SIDES.iter().position(|&side| side == toward).unwrap_or(0)
+}
+
 pub fn joins(block: Block, neighbour: Block) -> bool {
-  ((block.pipe() || block == Block::PipedDrain) && plumbed(neighbour))
+  (block == Block::ItemPipe && carries(neighbour))
+    || ((block.pipe() || block == Block::PipedDrain) && plumbed(neighbour))
     || (block == Block::CopperCable && wired(neighbour))
 }
 
@@ -222,7 +239,11 @@ pub fn accepts(machine: Block, item: Block) -> bool {
 }
 
 pub fn panelled(block: Block) -> bool {
-  block.machine() && !block.pipe() && block != Block::CopperCable && !block.station()
+  block.machine()
+    && !block.pipe()
+    && block != Block::CopperCable
+    && block != Block::ItemPipe
+    && !block.station()
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
@@ -265,13 +286,23 @@ impl Status {
 
 pub type Held = Option<(Liquid, f32)>;
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub struct Parcel {
+  pub stack: Stack,
+  pub from: u8,
+  pub to: u8,
+  pub progress: f32
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
 pub struct State {
   pub block: Block,
   pub intake: Held,
   pub outlet: Held,
   pub stock: f32,
-  pub charge: f32
+  pub charge: f32,
+  #[serde(default)]
+  pub parcel: Option<Parcel>
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -292,7 +323,8 @@ pub struct Unit {
   pub charge: u32,
   pub power: i32,
   pub grid: Grid,
-  pub status: Status
+  pub status: Status,
+  pub parcel: Option<Parcel>
 }
 
 #[derive(Message, Serialize, Deserialize, Clone, Copy)]
@@ -720,6 +752,7 @@ fn unit(at: IVec3, state: &State, load: Load, supply: Supply, fixed: bool) -> Un
     charge: state.charge as u32,
     power: power.round() as i32,
     grid: supply.grid,
+    parcel: state.parcel,
     status: match () {
       () if state.block.drain() && !fixed => Status::Detached,
       () if state.block.drain()
@@ -733,6 +766,175 @@ fn unit(at: IVec3, state: &State, load: Load, supply: Supply, fixed: bool) -> Un
       () if idle_maker && supply.grid.wanted == 0 => Status::Unloaded,
       () if stocked => Status::Running,
       () => load.status
+    }
+  }
+}
+
+pub const PARCEL_SPEED: f32 = 2.5;
+
+fn room_for(slots: &[Option<Stack>], stack: Stack) -> bool {
+  let mut trial = slots.to_vec();
+  crate::chest::stash(&mut trial, stack).is_none()
+}
+
+fn takes(
+  states: &HashMap<IVec3, State>,
+  coffers: &crate::chest::Coffers,
+  block: Block,
+  at: IVec3,
+  stack: Stack
+) -> bool {
+  match block {
+    Block::EmptyChest => coffers.0.get(&at).is_none_or(|slots| room_for(slots, stack)),
+    Block::Chest => coffers.0.get(&at).is_some_and(|slots| room_for(slots, stack)),
+    machine => {
+      fuel(machine, stack.block).zip(states.get(&at)).is_some_and(|(each, state)| {
+        state.stock + each * f32::from(stack.count) <= design(machine).hopper
+      })
+    }
+  }
+}
+
+fn route(
+  voxels: &Voxels,
+  states: &HashMap<IVec3, State>,
+  coffers: &crate::chest::Coffers,
+  at: IVec3,
+  from: usize,
+  stack: Stack,
+  turn: usize
+) -> usize {
+  let sides: Vec<(usize, Block)> = (0..SIDES.len())
+    .map(|offset| (offset + turn) % SIDES.len())
+    .filter(|&side| side != from)
+    .map(|side| (side, voxels.block(at + SIDES[side]).unwrap_or_default()))
+    .collect();
+  sides
+    .iter()
+    .find(|&&(side, near)| takes(states, coffers, near, at + SIDES[side], stack))
+    .or_else(|| {
+      sides.iter().find(|&&(_, near)| near == Block::ItemPipe || near.conveyor())
+    })
+    .map_or(from, |&(side, _)| side)
+}
+
+pub fn deliver(
+  states: &mut HashMap<IVec3, State>,
+  coffers: &mut crate::chest::Coffers,
+  voxels: &mut Voxels,
+  changes: &mut MessageWriter<ToClients<Altered>>,
+  target: IVec3,
+  toward: usize,
+  stack: Stack
+) -> bool {
+  let block = voxels.ensure(target);
+  match block {
+    Block::ItemPipe => {
+      let turn = states.get(&target).map_or(0, |state| state.stock as usize);
+      let to = route(voxels, states, coffers, target, toward, stack, turn);
+      states
+        .get_mut(&target)
+        .filter(|state| state.parcel.is_none())
+        .map(|state| {
+          state.stock = (state.stock + 1.0) % 64.0;
+          state.parcel =
+            Some(Parcel { stack, from: toward as u8, to: to as u8, progress: 0.0 })
+        })
+        .is_some()
+    }
+    Block::Chest | Block::EmptyChest => {
+      let accepted = takes(states, coffers, block, target, stack);
+      if accepted {
+        let slots =
+          coffers.0.entry(target).or_insert_with(|| vec![None; crate::chest::ROOM]);
+        crate::chest::stash(slots, stack);
+        if block == Block::EmptyChest {
+          voxels.set(target, Block::Chest);
+          changes.write(ToClients {
+            targets: SendTargets::All,
+            message: Altered { at: target, block: Block::Chest }
+          });
+        }
+      }
+      accepted
+    }
+    machine => {
+      let accepted = takes(states, coffers, machine, target, stack);
+      if accepted
+        && let Some(each) = fuel(machine, stack.block)
+        && let Some(state) = states.get_mut(&target)
+      {
+        state.stock += each * f32::from(stack.count)
+      }
+      accepted
+    }
+  }
+}
+
+fn onto_belt(
+  voxels: &Voxels,
+  commands: &mut Commands,
+  from: IVec3,
+  belt: IVec3,
+  stack: Stack
+) {
+  let edge = (from.as_vec3() + belt.as_vec3()) / 2.0 + Vec3::splat(0.5);
+  let point = match belt.y == from.y {
+    true => edge.lerp(belt.as_vec3() + Vec3::splat(0.5), 0.3),
+    false => belt.as_vec3() + Vec3::splat(0.5)
+  };
+  let top = crate::conveyor::surface_at(voxels, belt, point).unwrap_or(point.y);
+  crate::loose::fling(commands, stack, point.with_y(top + 0.02), Vec3::ZERO, 0.5)
+}
+
+fn ferry(
+  states: &mut HashMap<IVec3, State>,
+  coffers: &mut crate::chest::Coffers,
+  voxels: &mut Voxels,
+  changes: &mut MessageWriter<ToClients<Altered>>,
+  commands: &mut Commands
+) {
+  let pipes: Vec<IVec3> =
+    ordered(states.iter().filter(|(_, state)| state.parcel.is_some()).map(|(&at, _)| at));
+  for at in pipes {
+    if let Some(Parcel { stack, from, to, progress }) = states[&at].parcel {
+      let progress = (progress + PARCEL_SPEED * TICK).min(1.0);
+      let exit = usize::from(to);
+      let target = at + SIDES[exit];
+      let near = voxels.block(target).unwrap_or_default();
+      let arrived = progress >= 1.0;
+      let handed = arrived
+        && match near.conveyor() {
+          true => {
+            onto_belt(voxels, commands, at, target, stack);
+            true
+          }
+          false => deliver(
+            states,
+            coffers,
+            voxels,
+            changes,
+            target,
+            side_of(-SIDES[exit]),
+            stack
+          )
+        };
+      let waiting = arrived && !handed && near == Block::ItemPipe;
+      let turn = states[&at].stock as usize;
+      let parcel = match (handed, arrived && !waiting) {
+        (true, _) => None,
+        (false, true) => Some(Parcel {
+          stack,
+          from: to,
+          to: route(voxels, states, coffers, at, exit, stack, turn + 1) as u8,
+          progress: 0.0
+        }),
+        (false, false) => Some(Parcel { stack, from, to, progress })
+      };
+      if let Some(state) = states.get_mut(&at) {
+        state.parcel = parcel;
+        state.stock = (state.stock + 1.0) % 64.0
+      }
     }
   }
 }
@@ -781,23 +983,58 @@ fn empty(
     {
       state.stock = (state.stock + TICK).min(ITEM_EVERY);
       state.charge = 0.0;
-      if state.stock >= ITEM_EVERY
+      let due = state.stock >= ITEM_EVERY;
+      let pipes: Vec<usize> = (0..SIDES.len())
+        .filter(|&side| at + SIDES[side] != container)
+        .filter(|&side| voxels.block(at + SIDES[side]) == Some(Block::ItemPipe))
+        .collect();
+      let free = pipes.iter().copied().find(|&side| {
+        states.get(&(at + SIDES[side])).is_some_and(|pipe| pipe.parcel.is_none())
+      });
+      let outlet = match (pipes.is_empty(), free) {
+        (true, _) => Some(None),
+        (false, Some(side)) => Some(Some(side)),
+        (false, None) => None
+      };
+      if due
+        && let Some(outlet) = outlet
         && let Some(slots) = coffers.0.get_mut(&container)
         && let Some(slot) = slots.iter_mut().find(|slot| slot.is_some())
         && let Some(stack) = *slot
       {
-        state.stock = 0.0;
-        state.charge = 1.0;
         *slot = (stack.count > 1).then_some(Stack { count: stack.count - 1, ..stack });
+        let emptied = slots.iter().all(Option::is_none);
+        let one = Stack { count: 1, ..stack };
+        if let Some(state) = states.get_mut(&at) {
+          state.stock = 0.0;
+          state.charge = 1.0
+        }
         let away = (at - container).as_vec3();
-        crate::loose::fling(
-          commands,
-          Stack { count: 1, ..stack },
-          at.as_vec3() + Vec3::splat(0.5) + away * 0.3,
-          away * 1.5 + Vec3::Y,
-          0.5
-        );
-        if slots.iter().all(Option::is_none) && voxels.ensure(container) == Block::Chest {
+        let middle = at.as_vec3() + Vec3::splat(0.5);
+        match (outlet, voxels.block(at - IVec3::Y).is_some_and(Block::conveyor)) {
+          (Some(side), _) => {
+            deliver(
+              states,
+              coffers,
+              voxels,
+              changes,
+              at + SIDES[side],
+              side_of(-SIDES[side]),
+              one
+            );
+          }
+          (None, true) => {
+            crate::loose::fling(commands, one, middle - Vec3::Y * 0.9, Vec3::ZERO, 0.5)
+          }
+          (None, false) => crate::loose::fling(
+            commands,
+            one,
+            middle + away * 0.7,
+            away * 1.5 + Vec3::Y,
+            0.5
+          )
+        }
+        if emptied && voxels.ensure(container) == Block::Chest {
           voxels.set(container, Block::EmptyChest);
           changes.write(ToClients {
             targets: SendTargets::All,
@@ -841,6 +1078,7 @@ fn step(
   }
   drain(states, attached);
   empty(states, attached, coffers, voxels, changes, commands);
+  ferry(states, coffers, voxels, changes, commands);
   plumb(states, attached);
   supplies
 }
@@ -869,6 +1107,17 @@ fn run(
       .filter(|&at| voxels.ensure(at).held() != works.states[&at].block.held())
       .collect();
     for at in gone {
+      if let Some(Parcel { stack, .. }) =
+        works.states.get(&at).and_then(|state| state.parcel)
+      {
+        crate::loose::fling(
+          &mut commands,
+          stack,
+          at.as_vec3() + Vec3::splat(0.5),
+          Vec3::Y,
+          0.5
+        )
+      }
       works.states.remove(&at);
       if let Some(entity) = works.units.remove(&at) {
         commands.entity(entity).despawn()

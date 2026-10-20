@@ -286,6 +286,7 @@ const RED: [f32; 3] = [1.5, 0.45, 0.4];
 const BIO: [f32; 3] = [0.62, 1.15, 0.5];
 const AMBER: [f32; 3] = [1.35, 1.0, 0.42];
 const SOOTY: [f32; 3] = [0.55, 0.55, 0.6];
+const BRASS: [f32; 3] = [1.3, 1.05, 0.55];
 
 const TANK_BITS: &[Bit] = &[
   skin([0, 0, 0], [16, 2, 16], Tile::Copper),
@@ -524,26 +525,50 @@ fn ringed(block: Block) -> Bit {
     Block::IronPipe => skin([0; 3], [0; 3], Tile::Steel),
     Block::GoldPipe => tinted([0; 3], [0; 3], Tile::Steel, GOLDEN),
     Block::DiamondPipe => tinted([0; 3], [0; 3], Tile::Steel, DIAMOND),
+    Block::ItemPipe => tinted([0; 3], [0; 3], Tile::Steel, BRASS),
     _ => skin([0; 3], [0; 3], Tile::Copper)
   }
+}
+
+fn hoop(
+  axis: usize,
+  (from, to): (u8, u8),
+  (thin, thick): (u8, u8)
+) -> [([u8; 3], [u8; 3]); 4] {
+  let (first, second) = ((axis + 1) % 3, (axis + 2) % 3);
+  let bar = |(a_low, a_high): (u8, u8), (b_low, b_high): (u8, u8)| {
+    let (mut low, mut high) = ([0; 3], [0; 3]);
+    (low[axis], high[axis]) = (from, to);
+    (low[first], high[first]) = (a_low, a_high);
+    (low[second], high[second]) = (b_low, b_high);
+    (low, high)
+  };
+  let (outer, inner) = ((thin - 1, thick + 1), (thin, thick));
+  [
+    bar((thin - 1, thin), outer),
+    bar((thick, thick + 1), outer),
+    bar(inner, (thin - 1, thin)),
+    bar(inner, (thick, thick + 1))
+  ]
 }
 
 fn piping(block: Block, links: u16) -> Vec<Bit> {
   let ring = ringed(block);
   let made = |(low, high): ([u8; 3], [u8; 3]), like: Bit| Bit { low, high, ..like };
   let glass = skin([0; 3], [0; 3], Tile::PipeGlass);
-  std::iter::once(made(([6; 3], [10; 3]), glass))
+  let (thin, thick) = match block {
+    Block::ItemPipe => (5, 11),
+    _ => (6, 10)
+  };
+  std::iter::once(made(([thin; 3], [thick; 3]), glass))
     .chain((0..6).filter(|index| ends(links) & (1 << index) != 0).flat_map(|index| {
       let axis = index / 2;
-      let part = |(from, to, thin, thick), like| {
-        let (low, high) = along(axis, from, to, thin, thick);
-        made(arm(index, low, high), like)
-      };
-      [
-        part((10, 16, 6, 10), glass),
-        part((14, 16, 5, 11), ring),
-        part((10, 11, 5, 11), ring)
-      ]
+      let flipped = |(low, high)| made(arm(index, low, high), ring);
+      let (low, high) = along(axis, thick, 16, thin, thick);
+      std::iter::once(made(arm(index, low, high), glass))
+        .chain(hoop(axis, (14, 16), (thin, thick)).map(flipped))
+        .chain(hoop(axis, (thick, thick + 1), (thin, thick)).map(flipped))
+        .collect::<Vec<_>>()
     }))
     .collect()
 }
@@ -580,11 +605,53 @@ pub fn shape(block: Block, links: u16) -> std::borrow::Cow<'static, [Bit]> {
         )
         .collect()
     ),
-    pipe if pipe.pipe() => std::borrow::Cow::Owned(piping(block, links)),
+    pipe if pipe.pipe() || pipe == Block::ItemPipe => {
+      std::borrow::Cow::Owned(piping(block, links))
+    }
     Block::CopperCable => std::borrow::Cow::Owned(wiring(links)),
     _ => std::borrow::Cow::Borrowed(bits(block))
   }
 }
+
+const CHEVRON: [f32; 3] = [0.95, 0.75, 0.2];
+
+const FLAT_BELT_BITS: [Bit; 9] = [
+  skin([0, 0, 0], [16, 1, 16], Tile::Steel),
+  skin([1, 1, 0], [15, 3, 16], Tile::Rubber),
+  skin([0, 1, 0], [1, 4, 16], Tile::Steel),
+  skin([15, 1, 0], [16, 4, 16], Tile::Steel),
+  bit([7, 3, 5], [9, 4, 7], CHEVRON),
+  bit([5, 3, 7], [7, 4, 9], CHEVRON),
+  bit([9, 3, 7], [11, 4, 9], CHEVRON),
+  bit([3, 3, 9], [5, 4, 11], CHEVRON),
+  bit([11, 3, 9], [13, 4, 11], CHEVRON)
+];
+
+const fn ramp() -> [Bit; 16] {
+  let mut bits = [skin([0; 3], [0; 3], Tile::Rubber); 16];
+  let mut step = 0;
+  while step < 8 {
+    let (near, far) = (16 - 2 * (step + 1), 16 - 2 * step);
+    bits[step as usize] = skin([1, 0, near], [15, 2 * step + 3, far], Tile::Rubber);
+    step += 1
+  }
+  let mut rail = 0;
+  while rail < 4 {
+    let (near, far, top) = (16 - 4 * (rail + 1), 16 - 4 * rail, 4 * rail + 5);
+    bits[8 + rail as usize] = skin([0, 0, near], [1, top, far], Tile::Steel);
+    bits[12 + rail as usize] = skin([15, 0, near], [16, top, far], Tile::Steel);
+    rail += 1
+  }
+  bits
+}
+
+const RAMP_BITS: [Bit; 16] = ramp();
+const FLAT_EAST_BITS: [Bit; 9] = turned(FLAT_BELT_BITS, 1);
+const FLAT_SOUTH_BITS: [Bit; 9] = turned(FLAT_BELT_BITS, 2);
+const FLAT_WEST_BITS: [Bit; 9] = turned(FLAT_BELT_BITS, 3);
+const RAMP_EAST_BITS: [Bit; 16] = turned(RAMP_BITS, 1);
+const RAMP_SOUTH_BITS: [Bit; 16] = turned(RAMP_BITS, 2);
+const RAMP_WEST_BITS: [Bit; 16] = turned(RAMP_BITS, 3);
 
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
@@ -635,6 +702,14 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::ElectricFurnace => ELECTRIC_FURNACE_BITS,
     Block::ElectricLamp => LAMP_BITS,
     Block::ElectricLampLit => LIT_LAMP_BITS,
+    Block::Conveyor => &FLAT_BELT_BITS,
+    Block::ConveyorEast => &FLAT_EAST_BITS,
+    Block::ConveyorSouth => &FLAT_SOUTH_BITS,
+    Block::ConveyorWest => &FLAT_WEST_BITS,
+    Block::ConveyorUp | Block::ConveyorDownSouth => &RAMP_BITS,
+    Block::ConveyorUpEast | Block::ConveyorDownWest => &RAMP_EAST_BITS,
+    Block::ConveyorUpSouth | Block::ConveyorDown => &RAMP_SOUTH_BITS,
+    Block::ConveyorUpWest | Block::ConveyorDownEast => &RAMP_WEST_BITS,
     _ => &[]
   }
 }

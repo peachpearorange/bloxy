@@ -1526,6 +1526,15 @@ fn bulb(lit: bool, x: u32, y: u32) -> Texel {
   }
 }
 
+fn rubber(x: u32, y: u32) -> Texel {
+  let rib = y % 4 == 0;
+  let wear = lattice(0x0D1, 4, x, y) * 0.25;
+  match rib {
+    true => Texel::rgb(0.2, 0.2, 0.21),
+    false => Texel::rgb(0.09, 0.09, 0.1).scaled(0.9 + wear)
+  }
+}
+
 fn hazard(x: u32, y: u32) -> Texel {
   match (x + y) / 4 % 2 == 0 {
     true => Texel::rgb(0.92, 0.72, 0.1).scaled(0.9 + lattice(0x0C1, 4, x, y) * 0.15),
@@ -1867,6 +1876,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::Bulb => bulb(false, x, y),
     Tile::BulbLit => bulb(true, x, y),
     Tile::Hazard => hazard(x, y),
+    Tile::Rubber => rubber(x, y),
     Tile::Ring => match inked(&RING, [&CRIMSON, &GILT, &GILT], x, y) {
       gem if shade_of(&RING, x, y) == Some(3) => gem.glowing(0.4),
       texel => texel

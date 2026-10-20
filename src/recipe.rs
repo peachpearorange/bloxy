@@ -253,7 +253,12 @@ const BASICS: &[Recipe] = &[
     (Block::ElectricLamp, 2)
   ),
   table(&[(Block::CopperPipe, 1), (Block::IronOre, 1)], (Block::FluidDrain, 1)),
-  table(&[(Block::IronOre, 2), (Block::Planks, 1)], (Block::ItemDrain, 1))
+  table(&[(Block::IronOre, 2), (Block::Planks, 1)], (Block::ItemDrain, 1)),
+  table(&[(Block::Glass, 2), (Block::IronOre, 1)], (Block::ItemPipe, 4)),
+  table(
+    &[(Block::IronOre, 2), (Block::Wool, 2), (Block::Planks, 1)],
+    (Block::Conveyor, 8)
+  )
 ];
 
 fn forge(tool: Block, material: Material) -> Option<Recipe> {

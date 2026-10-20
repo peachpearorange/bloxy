@@ -33,6 +33,23 @@ pub struct Tumble {
   age: f32
 }
 
+impl Tumble {
+  pub fn rising(&self) -> bool { self.velocity.y > 0.5 }
+
+  pub fn hold(&mut self) {
+    self.velocity = Vec3::ZERO;
+    self.age = 0.0
+  }
+
+  pub fn carry(&mut self, velocity: Vec3) {
+    self.velocity = velocity;
+    self.age = 0.0
+  }
+}
+
+#[derive(SystemSet, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Settling;
+
 pub fn fling(commands: &mut Commands, stack: Stack, at: Vec3, velocity: Vec3, wait: f32) {
   let Stack { block, count, gear } = stack;
   commands.spawn((Replicated, Loose { block, count, at, gear }, Tumble {
@@ -94,7 +111,7 @@ fn toss(
 fn tumble(
   time: Res<Time>,
   mut voxels: ResMut<Voxels>,
-  mut loose: Query<(Entity, &mut Loose, &mut Tumble)>,
+  mut loose: Query<(Entity, &mut Loose, &mut Tumble), Without<crate::conveyor::Riding>>,
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -139,7 +156,7 @@ fn tumble(
 
 fn gather(
   mut players: Query<(&Avatar, &mut Inventory), With<Controller>>,
-  mut loose: Query<(Entity, &mut Loose, &Tumble)>,
+  mut loose: Query<(Entity, &mut Loose, &Tumble), Without<crate::conveyor::Riding>>,
   mut commands: Commands
 ) {
   for (entity, mut loose, _) in
@@ -207,7 +224,7 @@ impl Looks {
       .entry((block, made))
       .or_insert_with(|| {
         meshes.add(match (cubic(block), made) {
-          (true, _) if block.furnished() => figurine(block),
+          (true, _) if block.furnished() || block.conveyor() => figurine(block),
           (true, _) => cube(block),
           (false, Some(material)) => sliver(forged_slot(block, material)),
           (false, None) => sliver(block.tiles()[1].index())
@@ -376,7 +393,9 @@ fn sliver(slot: u32) -> Mesh {
 }
 
 pub fn cubic(block: Block) -> bool {
-  matches!(block.look(), Look::Opaque | Look::Cutout | Look::Log) || block.furnished()
+  matches!(block.look(), Look::Opaque | Look::Cutout | Look::Log)
+    || block.furnished()
+    || block.conveyor()
 }
 
 fn show(
@@ -434,6 +453,7 @@ impl Plugin for Litter {
         Update,
         (tumble, gather, land)
           .chain()
+          .in_set(Settling)
           .run_if(authority)
           .run_if(resource_exists::<Voxels>)
       )
