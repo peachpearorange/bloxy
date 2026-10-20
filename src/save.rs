@@ -35,7 +35,9 @@ pub struct World {
   #[serde(default)]
   pub coffers: Vec<(IVec3, Vec<Option<crate::protocol::Stack>>)>,
   #[serde(default)]
-  pub balloons: Vec<(Vec3, f32, f32, u8)>
+  pub balloons: Vec<(Vec3, f32, f32, u8)>,
+  #[serde(default)]
+  pub works: Vec<(IVec3, crate::machine::State)>
 }
 
 pub fn load() -> Option<World> {
@@ -67,7 +69,7 @@ fn store(
   (boats, balloons): (Query<&Vessel>, Query<&crate::balloon::Aerostat>),
   signs: Query<&Sign>,
   claims: Query<(&Claim, &Holding)>,
-  coffers: Res<crate::chest::Coffers>,
+  (coffers, works): (Res<crate::chest::Coffers>, Res<crate::machine::Works>),
   altered: Query<
     (),
     Or<(
@@ -97,6 +99,7 @@ fn store(
     || dormant.is_changed()
     || accounts.is_changed()
     || coffers.is_changed()
+    || works.is_changed()
     || !altered.is_empty()
     || released.read().count() > 0;
   *since += time.delta_secs();
@@ -134,7 +137,8 @@ fn store(
       balloons: balloons
         .iter()
         .map(|aerostat| (aerostat.at, aerostat.yaw, aerostat.fuel, aerostat.pattern))
-        .collect()
+        .collect(),
+      works: works.states.iter().map(|(&at, &state)| (at, state)).collect()
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

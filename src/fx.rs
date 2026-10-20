@@ -189,6 +189,46 @@ fn poof() -> EffectAsset {
     .render(ParticleTextureModifier::new(slot))
 }
 
+pub fn spill(color: Vec4, glowing: bool) -> EffectAsset {
+  let writer = ExprWriter::new();
+  let position = SetPositionSphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    radius: writer.lit(0.04).expr(),
+    dimension: ShapeDimension::Volume
+  };
+  let wobble = (writer.rand(VectorType::VEC3F) * writer.lit(2.0) - writer.lit(1.0))
+    * writer.lit(Vec3::new(0.25, 0.1, 0.25));
+  let velocity = SetAttributeModifier::new(
+    Attribute::VELOCITY,
+    (wobble + writer.lit(Vec3::NEG_Y * 0.4)).expr()
+  );
+  let age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+  let lifetime = SetAttributeModifier::new(
+    Attribute::LIFETIME,
+    writer.lit(0.5).uniform(writer.lit(0.8)).expr()
+  );
+  let fall = AccelModifier::new(writer.lit(Vec3::NEG_Y * 9.0).expr());
+  let slot = writer.lit(0u32).expr();
+  let mut module = writer.finish();
+  module.add_texture_slot("dot");
+  EffectAsset::new(128, SpawnerSettings::rate(64.0.into()), module)
+    .with_simulation_space(SimulationSpace::Global)
+    .with_alpha_mode(if glowing { Blending::Add } else { Blending::Blend })
+    .init(position)
+    .init(velocity)
+    .init(age)
+    .init(lifetime)
+    .update(fall)
+    .render(ColorOverLifetimeModifier::new(Gradient::from_keys([
+      (0.0, color),
+      (0.7, color),
+      (1.0, color.with_w(0.0))
+    ])))
+    .render(size(0.11, 0.06))
+    .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
+    .render(ParticleTextureModifier::new(slot))
+}
+
 #[derive(Clone, Copy)]
 pub enum Drift {
   Rise,

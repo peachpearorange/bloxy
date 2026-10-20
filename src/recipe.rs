@@ -11,11 +11,25 @@ pub struct Recipe {
 }
 
 impl Recipe {
-  pub fn missing(&self, inventory: &Inventory) -> Vec<(Block, u32)> {
+  pub fn electric(&self, stations: &[Block]) -> bool {
+    self.station == Some(Block::Furnace) && stations.contains(&Block::ElectricFurnace)
+  }
+
+  pub fn needs(&self, stations: &[Block]) -> Vec<(Block, u16)> {
+    let electric = self.electric(stations);
     self
       .inputs
       .iter()
-      .map(|&(block, need)| {
+      .copied()
+      .filter(|&(block, _)| !(electric && block == Block::CoalOre))
+      .collect()
+  }
+
+  pub fn missing(&self, inventory: &Inventory, stations: &[Block]) -> Vec<(Block, u32)> {
+    self
+      .needs(stations)
+      .into_iter()
+      .map(|(block, need)| {
         (block, u32::from(need).saturating_sub(inventory.count(block)))
       })
       .filter(|&(_, short)| short > 0)
@@ -24,6 +38,7 @@ impl Recipe {
 
   pub fn housed(&self, stations: &[Block]) -> bool {
     self.station.is_none_or(|station| stations.contains(&station))
+      || self.electric(stations)
   }
 
   pub fn learned(&self, spells: &[Block]) -> bool {
@@ -37,7 +52,9 @@ impl Recipe {
     stations: &[Block],
     spells: &[Block]
   ) -> bool {
-    self.housed(stations) && self.learned(spells) && self.missing(inventory).is_empty()
+    self.housed(stations)
+      && self.learned(spells)
+      && self.missing(inventory, stations).is_empty()
   }
 
   pub fn made(
@@ -51,7 +68,10 @@ impl Recipe {
     let gear = self.material.map(Gear::forged);
     (self.housed(stations)
       && self.learned(spells)
-      && self.inputs.iter().all(|&(block, need)| (0..need).all(|_| after.take(block)))
+      && self
+        .needs(stations)
+        .into_iter()
+        .all(|(block, need)| (0..need).all(|_| after.take(block)))
       && after.gain(Stack { block: output, count, gear }) == 0)
       .then_some(after)
   }
@@ -130,7 +150,110 @@ const BASICS: &[Recipe] = &[
   hand(&[(Block::ArcaneDust, 3)], (Block::SpellIceStorm, 1)),
   hand(&[(Block::BoneDust, 2)], (Block::SpellAnimate, 1)),
   hand(&[(Block::Candle, 2)], (Block::SpellGuardian, 1)),
-  hand(&[(Block::LizardClaw, 2)], (Block::SpellInvisibility, 1))
+  hand(&[(Block::LizardClaw, 2)], (Block::SpellInvisibility, 1)),
+  furnace(
+    &[(Block::CopperOre, 1), (Block::Glass, 2), (Block::CoalOre, 1)],
+    (Block::CopperPipe, 4)
+  ),
+  furnace(
+    &[(Block::CopperPipe, 4), (Block::IronOre, 1), (Block::CoalOre, 1)],
+    (Block::IronPipe, 4)
+  ),
+  furnace(
+    &[(Block::IronPipe, 4), (Block::GoldOre, 1), (Block::CoalOre, 1)],
+    (Block::GoldPipe, 4)
+  ),
+  table(&[(Block::GoldPipe, 4), (Block::DiamondOre, 1)], (Block::DiamondPipe, 4)),
+  table(
+    &[(Block::CopperPipe, 2), (Block::Glass, 4), (Block::CopperOre, 2)],
+    (Block::Tank, 1)
+  ),
+  table(&[(Block::CopperOre, 1), (Block::Wool, 1)], (Block::CopperCable, 8)),
+  table(
+    &[(Block::CopperCable, 2), (Block::IronOre, 2), (Block::TinOre, 2)],
+    (Block::Battery, 1)
+  ),
+  table(
+    &[(Block::CopperPipe, 2), (Block::IronOre, 3), (Block::CopperCable, 2)],
+    (Block::ElectricPump, 1)
+  ),
+  table(
+    &[
+      (Block::IronOre, 8),
+      (Block::CopperPipe, 4),
+      (Block::CopperCable, 2),
+      (Block::Planks, 4)
+    ],
+    (Block::Pumpjack, 1)
+  ),
+  table(
+    &[
+      (Block::CopperPipe, 4),
+      (Block::IronOre, 6),
+      (Block::Bricks, 4),
+      (Block::Glass, 2),
+      (Block::CopperCable, 2)
+    ],
+    (Block::Refinery, 1)
+  ),
+  table(
+    &[(Block::Planks, 8), (Block::CopperPipe, 1), (Block::IronOre, 1)],
+    (Block::Fermenter, 1)
+  ),
+  table(
+    &[
+      (Block::Bricks, 6),
+      (Block::CopperOre, 4),
+      (Block::CopperPipe, 2),
+      (Block::IronOre, 2)
+    ],
+    (Block::SteamEngine, 1)
+  ),
+  table(
+    &[
+      (Block::IronOre, 4),
+      (Block::CopperCable, 4),
+      (Block::CopperPipe, 2),
+      (Block::Glass, 1)
+    ],
+    (Block::BiofuelGenerator, 1)
+  ),
+  table(
+    &[
+      (Block::IronOre, 8),
+      (Block::CopperCable, 4),
+      (Block::CopperPipe, 2),
+      (Block::GoldOre, 1)
+    ],
+    (Block::DieselGenerator, 1)
+  ),
+  table(
+    &[
+      (Block::Basalt, 6),
+      (Block::IronOre, 4),
+      (Block::CopperPipe, 2),
+      (Block::CopperCable, 4)
+    ],
+    (Block::GeothermalGenerator, 1)
+  ),
+  table(
+    &[(Block::Glass, 4), (Block::TinOre, 2), (Block::CopperCable, 2)],
+    (Block::SolarPanel, 1)
+  ),
+  table(
+    &[(Block::IronOre, 6), (Block::Planks, 6), (Block::Wool, 4), (Block::CopperCable, 2)],
+    (Block::WindTurbine, 1)
+  ),
+  table(
+    &[(Block::Furnace, 1), (Block::CopperCable, 4), (Block::IronOre, 2)],
+    (Block::ElectricFurnace, 1)
+  ),
+  table(
+    &[(Block::Glass, 2), (Block::CopperCable, 1), (Block::IronOre, 1)],
+    (Block::ElectricLamp, 2)
+  ),
+  table(&[(Block::CopperPipe, 1), (Block::IronOre, 1)], (Block::FluidDrain, 1)),
+  table(&[(Block::IronOre, 2), (Block::Planks, 1)], (Block::ItemDrain, 1))
 ];
 
 fn forge(tool: Block, material: Material) -> Option<Recipe> {

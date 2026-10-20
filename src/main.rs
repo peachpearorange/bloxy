@@ -3,6 +3,7 @@
 mod account;
 #[cfg(not(target_arch = "wasm32"))]
 mod admin;
+mod apparatus;
 mod audio;
 mod authority;
 mod balloon;
@@ -42,6 +43,7 @@ mod identity;
 mod island;
 mod local;
 mod loose;
+mod machine;
 mod menu;
 mod mesh;
 mod minimap;
@@ -305,7 +307,8 @@ fn main() {
       spell::Spells,
       stance::Stances,
       summon::Summoning,
-      audio::Sounds
+      audio::Sounds,
+      machine::Machines
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
@@ -341,7 +344,8 @@ fn main() {
         plate::Plates,
         chat::Chat,
         ghost::Ghosts,
-        far::Distance
+        far::Distance,
+        apparatus::Apparatus
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

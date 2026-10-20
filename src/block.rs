@@ -161,7 +161,31 @@ pub enum Block {
   WallTorchEast,
   WallTorchSouth,
   WallTorchWest,
-  Balloon
+  Balloon,
+  OilSeep,
+  CopperPipe,
+  IronPipe,
+  GoldPipe,
+  DiamondPipe,
+  Tank,
+  CopperCable,
+  Battery,
+  ElectricPump,
+  Pumpjack,
+  Refinery,
+  Fermenter,
+  SteamEngine,
+  BiofuelGenerator,
+  DieselGenerator,
+  GeothermalGenerator,
+  SolarPanel,
+  WindTurbine,
+  ElectricFurnace,
+  ElectricLamp,
+  ElectricLampLit,
+  FluidDrain,
+  PipedDrain,
+  ItemDrain
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -291,11 +315,25 @@ pub enum Tile {
   Belt,
   Boots,
   Ring,
-  Balloon
+  Balloon,
+  Copper,
+  Steel,
+  PipeGlass,
+  Casing,
+  Grille,
+  Solar,
+  Cable,
+  OilSeep,
+  Cells,
+  Coil,
+  Bulb,
+  BulbLit,
+  Hazard,
+  Tar
 }
 
 impl Tile {
-  pub const ALL: [Tile; 126] = [
+  pub const ALL: [Tile; 140] = [
     Tile::Stone,
     Tile::Cobblestone,
     Tile::Dirt,
@@ -421,7 +459,21 @@ impl Tile {
     Tile::Belt,
     Tile::Boots,
     Tile::Ring,
-    Tile::Balloon
+    Tile::Balloon,
+    Tile::Copper,
+    Tile::Steel,
+    Tile::PipeGlass,
+    Tile::Casing,
+    Tile::Grille,
+    Tile::Solar,
+    Tile::Cable,
+    Tile::OilSeep,
+    Tile::Cells,
+    Tile::Coil,
+    Tile::Bulb,
+    Tile::BulbLit,
+    Tile::Hazard,
+    Tile::Tar
   ];
 
   pub fn index(self) -> u32 { self as u32 }
@@ -486,7 +538,7 @@ pub enum Look {
 }
 
 impl Block {
-  pub const ALL: [Block; 144] = [
+  pub const ALL: [Block; 168] = [
     Block::Air,
     Block::Stone,
     Block::Cobblestone,
@@ -630,7 +682,31 @@ impl Block {
     Block::WallTorchEast,
     Block::WallTorchSouth,
     Block::WallTorchWest,
-    Block::Balloon
+    Block::Balloon,
+    Block::OilSeep,
+    Block::CopperPipe,
+    Block::IronPipe,
+    Block::GoldPipe,
+    Block::DiamondPipe,
+    Block::Tank,
+    Block::CopperCable,
+    Block::Battery,
+    Block::ElectricPump,
+    Block::Pumpjack,
+    Block::Refinery,
+    Block::Fermenter,
+    Block::SteamEngine,
+    Block::BiofuelGenerator,
+    Block::DieselGenerator,
+    Block::GeothermalGenerator,
+    Block::SolarPanel,
+    Block::WindTurbine,
+    Block::ElectricFurnace,
+    Block::ElectricLamp,
+    Block::ElectricLampLit,
+    Block::FluidDrain,
+    Block::PipedDrain,
+    Block::ItemDrain
   ];
 
   pub const ROCKS: [(Block, Block); 6] = [
@@ -706,7 +782,18 @@ impl Block {
         | Block::EmptyChest
         | Block::CraftingTable
         | Block::Furnace
-    )
+    ) || self.machine()
+  }
+
+  pub const PIPES: [Block; 4] =
+    [Block::CopperPipe, Block::IronPipe, Block::GoldPipe, Block::DiamondPipe];
+
+  pub fn pipe(self) -> bool { Block::PIPES.contains(&self) }
+
+  pub fn machine(self) -> bool { (Block::CopperPipe..=Block::ItemDrain).contains(&self) }
+
+  pub fn drain(self) -> bool {
+    matches!(self, Block::FluidDrain | Block::PipedDrain | Block::ItemDrain)
   }
 
   pub const WALL_TORCHES: [(IVec3, Block); 4] = [
@@ -720,7 +807,9 @@ impl Block {
     self == Block::Torch || Block::WALL_TORCHES.iter().any(|&(_, torch)| torch == self)
   }
 
-  pub fn lit(self) -> bool { self.torch() || self == Block::Brazier }
+  pub fn lit(self) -> bool {
+    self.torch() || self == Block::Brazier || self == Block::ElectricLampLit
+  }
 
   pub const FISH: [Block; 4] =
     [Block::Cod, Block::Salmon, Block::TropicalFish, Block::Pufferfish];
@@ -783,6 +872,8 @@ impl Block {
       (true, ..) => Block::Ladder,
       (_, true, _) => Block::Bed,
       (.., true) => Block::Torch,
+      _ if self == Block::ElectricLampLit => Block::ElectricLamp,
+      _ if self == Block::PipedDrain => Block::FluidDrain,
       _ => self
     }
   }
@@ -820,7 +911,9 @@ impl Block {
 
   pub fn sign(self) -> bool { Block::SIGNS.iter().any(|&(_, sign)| sign == self) }
 
-  pub fn station(self) -> bool { matches!(self, Block::CraftingTable | Block::Furnace) }
+  pub fn station(self) -> bool {
+    matches!(self, Block::CraftingTable | Block::Furnace | Block::ElectricFurnace)
+  }
 
   pub fn liquid(self) -> Option<(Fluid, u8)> {
     match self {
@@ -939,6 +1032,7 @@ impl Block {
       && self != Block::Bedrock
       && !self.waystone()
       && self != Block::Chest
+      && self != Block::OilSeep
   }
 
   pub fn seconds_to_break(self) -> f32 {
@@ -977,6 +1071,9 @@ impl Block {
       Block::Wool => 0.5,
       Block::CraftingTable => 1.5,
       Block::Furnace => 2.5,
+      pipe if pipe.pipe() || pipe == Block::CopperCable => 0.4,
+      Block::ElectricLamp | Block::ElectricLampLit | Block::SolarPanel => 0.8,
+      machine if machine.machine() => 2.0,
       Block::DiamondOre | Block::GoldOre => 3.0,
       _ => 2.0
     }
@@ -1140,7 +1237,30 @@ impl Block {
       | Block::WallTorchEast
       | Block::WallTorchSouth
       | Block::WallTorchWest => "Torch",
-      Block::Balloon => "Hot Air Balloon"
+      Block::Balloon => "Hot Air Balloon",
+      Block::OilSeep => "Oil Seep",
+      Block::CopperPipe => "Copper Pipe",
+      Block::IronPipe => "Iron Pipe",
+      Block::GoldPipe => "Gold Pipe",
+      Block::DiamondPipe => "Diamond Pipe",
+      Block::Tank => "Tank",
+      Block::CopperCable => "Copper Cable",
+      Block::Battery => "Battery",
+      Block::ElectricPump => "Electric Pump",
+      Block::Pumpjack => "Pumpjack",
+      Block::Refinery => "Refinery",
+      Block::Fermenter => "Fermenter",
+      Block::SteamEngine => "Steam Engine",
+      Block::BiofuelGenerator => "Biofuel Generator",
+      Block::DieselGenerator => "Diesel Generator",
+      Block::GeothermalGenerator => "Geothermal Generator",
+      Block::SolarPanel => "Solar Panel",
+      Block::WindTurbine => "Wind Turbine",
+      Block::ElectricFurnace => "Electric Furnace",
+      Block::ElectricLamp | Block::ElectricLampLit => "Electric Lamp",
+      Block::FluidDrain => "Fluid Drain",
+      Block::PipedDrain => "Piped Fluid Drain",
+      Block::ItemDrain => "Item Drain"
     }
   }
 
@@ -1290,7 +1410,25 @@ impl Block {
       | Block::WallTorchEast
       | Block::WallTorchSouth
       | Block::WallTorchWest => all(Tile::Torch),
-      Block::Balloon => all(Tile::Balloon)
+      Block::Balloon => all(Tile::Balloon),
+      Block::OilSeep => [Tile::OilSeep, Tile::Tar, Tile::Tar],
+      Block::CopperPipe | Block::Tank | Block::CopperCable => all(Tile::Copper),
+      Block::IronPipe | Block::GoldPipe | Block::DiamondPipe => all(Tile::Steel),
+      Block::Battery => all(Tile::Cells),
+      Block::SolarPanel => [Tile::Solar, Tile::Steel, Tile::Steel],
+      Block::Pumpjack => all(Tile::Hazard),
+      Block::Fermenter => all(Tile::Planks),
+      Block::SteamEngine => all(Tile::Copper),
+      Block::GeothermalGenerator | Block::DieselGenerator => all(Tile::Grille),
+      Block::ElectricFurnace => all(Tile::Coil),
+      Block::ElectricLamp => all(Tile::Bulb),
+      Block::ElectricLampLit => all(Tile::BulbLit),
+      Block::FluidDrain | Block::PipedDrain => all(Tile::Copper),
+      Block::ItemDrain => all(Tile::Steel),
+      Block::ElectricPump
+      | Block::Refinery
+      | Block::BiofuelGenerator
+      | Block::WindTurbine => all(Tile::Casing)
     }
   }
 }

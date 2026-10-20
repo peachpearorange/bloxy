@@ -704,7 +704,12 @@ fn work(
   inventories: Query<&Inventory>,
   skills: Query<&Skills>,
   mut voxels: Option<ResMut<Voxels>>,
-  (mut aim, hulls): (ResMut<Aim>, Res<Hulls>),
+  (mut aim, hulls, mut watching, mut tends): (
+    ResMut<Aim>,
+    Res<Hulls>,
+    ResMut<crate::apparatus::Watching>,
+    MessageWriter<crate::machine::Tend>
+  ),
   mut opens: MessageWriter<Open>,
   (mut digs, mut puts, mut attunes, mut scoops, mut pours, mut shuffles): (
     MessageWriter<Dig>,
@@ -741,8 +746,13 @@ fn work(
             .map(|block| (distance, Hit { at, normal, block }))
         });
         let loose = cubic.filter(|hit| !hit.block.solid()).and_then(|hit| {
-          let (low, high) = crate::model::bounds(hit.block, voxels.seed, hit.at)
-            .unwrap_or((hit.at.as_vec3(), hit.at.as_vec3() + 1.0));
+          let (low, high) = crate::model::bounds(
+            hit.block,
+            voxels.seed,
+            hit.at,
+            voxels.links(hit.at, hit.block)
+          )
+          .unwrap_or((hit.at.as_vec3(), hit.at.as_vec3() + 1.0));
           crate::hull::entry(eye, toward, low, high).map(|distance| (distance, hit))
         });
         match (smooth, loose) {
@@ -827,13 +837,20 @@ fn work(
     {
       shuffles.write(Shuffle { from: slot as u8, to: selected.0 as u8 });
     }
-    let used = aim.hit.as_ref().filter(|hit| {
-      hit.block.waystone()
-        || hit.block.station()
-        || hit.block.sign()
-        || hit.block.bed()
-        || matches!(hit.block, Block::Chest | Block::EmptyChest)
-    });
+    let used = aim
+      .hit
+      .as_ref()
+      .filter(|hit| {
+        hit.block.waystone()
+          || hit.block.station()
+          || hit.block.sign()
+          || hit.block.bed()
+          || matches!(hit.block, Block::Chest | Block::EmptyChest)
+          || crate::machine::panelled(hit.block)
+      })
+      .filter(|hit| {
+        stack.is_none_or(|stack| !crate::machine::container(stack.block, hit.block))
+      });
     if active
       && buttons.just_pressed(MouseButton::Right)
       && let Some(hit) = used
@@ -856,6 +873,17 @@ fn work(
         Block::Chest | Block::EmptyChest => {
           opens.write(Open(hit.at));
           sounds.write(Sound::at(Cue::Creak, hit.at.as_vec3() + 0.5));
+        }
+        machine if crate::machine::panelled(machine) => {
+          match stack.filter(|stack| crate::machine::accepts(machine, stack.block)) {
+            Some(_) => {
+              tends.write(crate::machine::Tend { at: hit.at, slot: selected.0 as u8 });
+            }
+            None => {
+              watching.0 = Some(hit.at);
+              menu.show(Tab::Machine, time.elapsed_secs())
+            }
+          }
         }
         _ => menu.show(Tab::Inventory, time.elapsed_secs())
       }

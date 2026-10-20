@@ -620,7 +620,9 @@ fn builders(
       };
       let light = sky(local);
       let torch = torchlight(origin.as_vec3() + local.as_vec3() + 0.5);
-      for &Bit { low, high, color: [r, g, b], tile } in model::bits(block).iter() {
+      let links = model::links(block, |side| padded.get(local + side));
+      for &Bit { low, high, color: [r, g, b], tile } in model::shape(block, links).iter()
+      {
         let (low, high) =
           (Vec3::from(low.map(f32::from)), Vec3::from(high.map(f32::from)));
         let hue = LinearRgba::from_f32_array(lit(

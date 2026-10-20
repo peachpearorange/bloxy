@@ -276,6 +276,316 @@ const FURNACE_BITS: &[Bit] = &[
   skin([5, 14, 5], [11, 16, 11], Tile::FurnaceTop)
 ];
 
+const fn tinted(low: [u8; 3], high: [u8; 3], tile: Tile, color: [f32; 3]) -> Bit {
+  Bit { low, high, color, tile }
+}
+
+const GOLDEN: [f32; 3] = [1.45, 1.1, 0.42];
+const DIAMOND: [f32; 3] = [0.62, 1.35, 1.4];
+const RED: [f32; 3] = [1.5, 0.45, 0.4];
+const BIO: [f32; 3] = [0.62, 1.15, 0.5];
+const AMBER: [f32; 3] = [1.35, 1.0, 0.42];
+const SOOTY: [f32; 3] = [0.55, 0.55, 0.6];
+
+const TANK_BITS: &[Bit] = &[
+  skin([0, 0, 0], [16, 2, 16], Tile::Copper),
+  skin([0, 14, 0], [16, 16, 16], Tile::Copper),
+  skin([0, 2, 0], [2, 14, 2], Tile::Copper),
+  skin([14, 2, 0], [16, 14, 2], Tile::Copper),
+  skin([0, 2, 14], [2, 14, 16], Tile::Copper),
+  skin([14, 2, 14], [16, 14, 16], Tile::Copper),
+  skin([2, 2, 0], [14, 14, 1], Tile::PipeGlass),
+  skin([2, 2, 15], [14, 14, 16], Tile::PipeGlass),
+  skin([0, 2, 2], [1, 14, 14], Tile::PipeGlass),
+  skin([15, 2, 2], [16, 14, 14], Tile::PipeGlass)
+];
+
+const PUMPJACK_BITS: &[Bit] = &[
+  skin([1, 0, 1], [15, 2, 15], Tile::Steel),
+  skin([1, 2, 4], [6, 7, 12], Tile::Casing),
+  skin([7, 2, 3], [9, 13, 5], Tile::Hazard),
+  skin([7, 2, 11], [9, 13, 13], Tile::Hazard),
+  skin([7, 12, 5], [9, 14, 11], Tile::Steel),
+  skin([12, 2, 7], [14, 6, 9], Tile::Copper),
+  skin([11, 6, 6], [15, 7, 10], Tile::Steel)
+];
+
+const REFINERY_BITS: &[Bit] = &[
+  skin([1, 0, 1], [11, 9, 15], Tile::Casing),
+  skin([11, 0, 9], [15, 16, 13], Tile::Steel),
+  skin([10, 15, 8], [16, 16, 14], Tile::Steel),
+  skin([11, 0, 3], [14, 12, 6], Tile::Copper),
+  skin([8, 9, 10], [11, 11, 12], Tile::Copper),
+  skin([3, 9, 3], [8, 11, 8], Tile::Grille)
+];
+
+const FERMENTER_BITS: &[Bit] = &[
+  skin([2, 0, 2], [14, 12, 14], Tile::Planks),
+  skin([1, 2, 1], [15, 3, 15], Tile::Steel),
+  skin([1, 9, 1], [15, 10, 15], Tile::Steel),
+  skin([3, 12, 3], [13, 13, 13], Tile::Planks),
+  skin([7, 13, 7], [9, 16, 9], Tile::Copper),
+  skin([6, 15, 6], [10, 16, 10], Tile::PipeGlass)
+];
+
+const STEAM_ENGINE_BITS: &[Bit] = &[
+  skin([1, 0, 1], [15, 6, 15], Tile::Bricks),
+  skin([5, 1, 0], [11, 5, 1], Tile::Coil),
+  skin([2, 6, 3], [14, 12, 13], Tile::Copper),
+  skin([4, 6, 2], [5, 12, 14], Tile::Steel),
+  skin([11, 6, 2], [12, 12, 14], Tile::Steel),
+  skin([11, 12, 10], [14, 16, 13], Tile::Steel),
+  skin([4, 12, 7], [6, 14, 9], Tile::Copper)
+];
+
+const BIOFUEL_BITS: &[Bit] = &[
+  skin([1, 0, 2], [15, 10, 14], Tile::Casing),
+  skin([3, 2, 1], [13, 8, 2], Tile::Grille),
+  tinted([2, 10, 3], [9, 14, 13], Tile::Steel, BIO),
+  skin([11, 10, 10], [13, 16, 12], Tile::Steel),
+  skin([4, 14, 7], [7, 15, 9], Tile::Copper)
+];
+
+const DIESEL_BITS: &[Bit] = &[
+  tinted([0, 0, 2], [16, 9, 14], Tile::Casing, AMBER),
+  skin([1, 9, 3], [7, 14, 13], Tile::Grille),
+  skin([10, 9, 9], [12, 16, 11], Tile::Steel),
+  tinted([10, 15, 8], [12, 16, 12], Tile::Steel, SOOTY),
+  skin([12, 9, 4], [14, 10, 6], Tile::Copper)
+];
+
+const GEOTHERMAL_BITS: &[Bit] = &[
+  tinted([0, 0, 0], [16, 3, 16], Tile::Steel, SOOTY),
+  skin([2, 3, 2], [14, 11, 14], Tile::Grille),
+  skin([3, 5, 1], [13, 9, 2], Tile::Lava),
+  skin([3, 5, 14], [13, 9, 15], Tile::Lava),
+  skin([3, 11, 3], [13, 13, 13], Tile::Casing),
+  skin([6, 13, 6], [10, 16, 10], Tile::Steel)
+];
+
+const SOLAR_BITS: &[Bit] = &[
+  skin([7, 0, 7], [9, 6, 9], Tile::Steel),
+  skin([0, 6, 0], [16, 7, 16], Tile::Steel),
+  skin([1, 7, 1], [15, 8, 15], Tile::Solar)
+];
+
+const TURBINE_BITS: &[Bit] = &[
+  skin([4, 0, 4], [12, 2, 12], Tile::Steel),
+  skin([6, 2, 6], [10, 16, 10], Tile::Steel)
+];
+
+const BATTERY_BITS: &[Bit] = &[
+  skin([2, 0, 2], [14, 13, 14], Tile::Cells),
+  skin([2, 13, 2], [14, 14, 14], Tile::Steel),
+  skin([4, 14, 6], [6, 16, 8], Tile::Copper),
+  tinted([10, 14, 6], [12, 16, 8], Tile::Steel, RED)
+];
+
+const PUMP_BITS: &[Bit] = &[
+  skin([2, 0, 2], [14, 3, 14], Tile::Steel),
+  skin([3, 3, 3], [13, 10, 13], Tile::Casing),
+  skin([5, 10, 4], [11, 14, 12], Tile::Copper),
+  skin([7, 14, 7], [9, 15, 9], Tile::Steel)
+];
+
+const ELECTRIC_FURNACE_BITS: &[Bit] = &[
+  skin([1, 0, 1], [15, 15, 15], Tile::Casing),
+  skin([3, 3, 0], [13, 11, 1], Tile::Coil),
+  skin([4, 15, 4], [12, 16, 12], Tile::Grille)
+];
+
+const LAMP_BITS: &[Bit] = &[
+  skin([5, 0, 5], [11, 2, 11], Tile::Steel),
+  skin([7, 2, 7], [9, 6, 9], Tile::Steel),
+  skin([5, 6, 5], [11, 13, 11], Tile::Bulb),
+  skin([6, 13, 6], [10, 14, 10], Tile::Steel)
+];
+
+const LIT_LAMP_BITS: &[Bit] = &[
+  skin([5, 0, 5], [11, 2, 11], Tile::Steel),
+  skin([7, 2, 7], [9, 6, 9], Tile::Steel),
+  skin([5, 6, 5], [11, 13, 11], Tile::BulbLit),
+  skin([6, 13, 6], [10, 14, 10], Tile::Steel)
+];
+
+pub const ACROSS: u16 = 0b11;
+
+pub fn links(block: Block, near: impl Fn(IVec3) -> Block) -> u16 {
+  let joined =
+    crate::machine::SIDES.iter().enumerate().fold(0, |links, (index, &side)| {
+      match crate::machine::joins(block, near(side)) {
+        true => links | 1 << index,
+        false => links
+      }
+    });
+  crate::machine::attached(block, &near)
+    .map_or(joined, |side| (joined & !(1 << side)) | 1 << (ATTACHED + side))
+}
+
+pub fn ends(links: u16) -> u16 {
+  let links = links & JOINS;
+  match links.count_ones() {
+    0 => ACROSS,
+    1 => links | 1 << (links.trailing_zeros() ^ 1),
+    _ => links
+  }
+}
+
+pub const ATTACHED: usize = 8;
+const JOINS: u16 = 0b11_1111;
+
+const DRAIN_ABOVE_BITS: &[Bit] = &[
+  skin([3, 14, 3], [13, 16, 13], Tile::Copper),
+  skin([5, 9, 5], [11, 14, 11], Tile::Steel),
+  skin([7, 4, 7], [9, 9, 9], Tile::Copper),
+  tinted([3, 11, 7], [13, 12, 9], Tile::Steel, RED)
+];
+
+const DRAIN_BELOW_BITS: &[Bit] = &[
+  skin([3, 0, 3], [13, 2, 13], Tile::Copper),
+  skin([6, 2, 6], [10, 8, 10], Tile::Steel),
+  skin([10, 5, 6], [14, 8, 10], Tile::Copper),
+  tinted([4, 6, 7], [6, 7, 9], Tile::Steel, RED)
+];
+
+const DRAIN_SIDE_BITS: [Bit; 4] = [
+  skin([3, 3, 0], [13, 13, 2], Tile::Copper),
+  skin([6, 6, 2], [10, 10, 10], Tile::Steel),
+  skin([6, 3, 6], [10, 6, 10], Tile::Copper),
+  tinted([5, 10, 4], [11, 11, 6], Tile::Steel, RED)
+];
+
+const DRAIN_EAST_BITS: [Bit; 4] = turned(DRAIN_SIDE_BITS, 1);
+const DRAIN_SOUTH_BITS: [Bit; 4] = turned(DRAIN_SIDE_BITS, 2);
+const DRAIN_WEST_BITS: [Bit; 4] = turned(DRAIN_SIDE_BITS, 3);
+
+fn attachment(links: u16) -> Option<usize> {
+  (0..6).find(|&side| links & (1 << (ATTACHED + side)) != 0)
+}
+
+fn drained(links: u16) -> &'static [Bit] {
+  match attachment(links) {
+    Some(0) => &DRAIN_EAST_BITS,
+    Some(1) => &DRAIN_WEST_BITS,
+    Some(2) => DRAIN_ABOVE_BITS,
+    Some(3) => DRAIN_BELOW_BITS,
+    Some(4) => &DRAIN_SOUTH_BITS,
+    _ => &DRAIN_SIDE_BITS
+  }
+}
+
+fn hoppered(bits: &[Bit]) -> Vec<Bit> {
+  bits
+    .iter()
+    .filter(|bit| bit.color != RED)
+    .map(|&bit| match bit.tile {
+      Tile::Copper => Bit { tile: Tile::Steel, color: SOOTY, ..bit },
+      _ => bit
+    })
+    .collect()
+}
+
+pub fn spout(links: u16) -> Vec3 {
+  let lip = |x: f32, y: f32, z: f32| Vec3::new(x, y, z) / 16.0;
+  match attachment(links) {
+    Some(0) => lip(8.0, 3.0, 8.0),
+    Some(1) => lip(8.0, 3.0, 8.0),
+    Some(2) => lip(8.0, 4.0, 8.0),
+    Some(3) => lip(14.0, 6.5, 8.0),
+    _ => lip(8.0, 3.0, 8.0)
+  }
+}
+
+fn arm(index: usize, low: [u8; 3], high: [u8; 3]) -> ([u8; 3], [u8; 3]) {
+  let axis = index / 2;
+  let flip = |value: u8| 16 - value;
+  match index % 2 {
+    0 => (low, high),
+    _ => {
+      let (mut low, mut high) = (low, high);
+      let (from, to) = (flip(high[axis]), flip(low[axis]));
+      low[axis] = from;
+      high[axis] = to;
+      (low, high)
+    }
+  }
+}
+
+fn along(axis: usize, from: u8, to: u8, thin: u8, thick: u8) -> ([u8; 3], [u8; 3]) {
+  let mut low = [thin; 3];
+  let mut high = [thick; 3];
+  low[axis] = from;
+  high[axis] = to;
+  (low, high)
+}
+
+fn ringed(block: Block) -> Bit {
+  match block {
+    Block::IronPipe => skin([0; 3], [0; 3], Tile::Steel),
+    Block::GoldPipe => tinted([0; 3], [0; 3], Tile::Steel, GOLDEN),
+    Block::DiamondPipe => tinted([0; 3], [0; 3], Tile::Steel, DIAMOND),
+    _ => skin([0; 3], [0; 3], Tile::Copper)
+  }
+}
+
+fn piping(block: Block, links: u16) -> Vec<Bit> {
+  let ring = ringed(block);
+  let made = |(low, high): ([u8; 3], [u8; 3]), like: Bit| Bit { low, high, ..like };
+  let glass = skin([0; 3], [0; 3], Tile::PipeGlass);
+  std::iter::once(made(([6; 3], [10; 3]), glass))
+    .chain((0..6).filter(|index| ends(links) & (1 << index) != 0).flat_map(|index| {
+      let axis = index / 2;
+      let part = |(from, to, thin, thick), like| {
+        let (low, high) = along(axis, from, to, thin, thick);
+        made(arm(index, low, high), like)
+      };
+      [
+        part((10, 16, 6, 10), glass),
+        part((14, 16, 5, 11), ring),
+        part((10, 11, 5, 11), ring)
+      ]
+    }))
+    .collect()
+}
+
+fn wiring(links: u16) -> Vec<Bit> {
+  let cable = skin([0; 3], [0; 3], Tile::Cable);
+  let made = |(low, high): ([u8; 3], [u8; 3]), like: Bit| Bit { low, high, ..like };
+  let ends = ends(links);
+  let straight = ends == ACROSS || ends == 0b1100 || ends == 0b11_0000;
+  let hub = match straight {
+    true => made(([7; 3], [9; 3]), cable),
+    false => made(([6; 3], [10; 3]), skin([0; 3], [0; 3], Tile::Steel))
+  };
+  std::iter::once(hub)
+    .chain((0..6).filter(|index| ends & (1 << index) != 0).map(|index| {
+      let (low, high) = along(index / 2, 9, 16, 7, 9);
+      made(arm(index, low, high), cable)
+    }))
+    .collect()
+}
+
+pub fn shape(block: Block, links: u16) -> std::borrow::Cow<'static, [Bit]> {
+  match block {
+    Block::FluidDrain => std::borrow::Cow::Borrowed(drained(links)),
+    Block::ItemDrain => std::borrow::Cow::Owned(hoppered(drained(links))),
+    Block::PipedDrain => std::borrow::Cow::Owned(
+      drained(links)
+        .iter()
+        .copied()
+        .chain(
+          piping(Block::CopperPipe, links & JOINS)
+            .into_iter()
+            .filter(|_| links & JOINS != 0)
+        )
+        .collect()
+    ),
+    pipe if pipe.pipe() => std::borrow::Cow::Owned(piping(block, links)),
+    Block::CopperCable => std::borrow::Cow::Owned(wiring(links)),
+    _ => std::borrow::Cow::Borrowed(bits(block))
+  }
+}
+
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
     torch if torch.torch() => TORCH_BITS,
@@ -310,6 +620,21 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::EmptyChest => EMPTY_CHEST_BITS,
     Block::CraftingTable => TABLE_BITS,
     Block::Furnace => FURNACE_BITS,
+    Block::Tank => TANK_BITS,
+    Block::Pumpjack => PUMPJACK_BITS,
+    Block::Refinery => REFINERY_BITS,
+    Block::Fermenter => FERMENTER_BITS,
+    Block::SteamEngine => STEAM_ENGINE_BITS,
+    Block::BiofuelGenerator => BIOFUEL_BITS,
+    Block::DieselGenerator => DIESEL_BITS,
+    Block::GeothermalGenerator => GEOTHERMAL_BITS,
+    Block::SolarPanel => SOLAR_BITS,
+    Block::WindTurbine => TURBINE_BITS,
+    Block::Battery => BATTERY_BITS,
+    Block::ElectricPump => PUMP_BITS,
+    Block::ElectricFurnace => ELECTRIC_FURNACE_BITS,
+    Block::ElectricLamp => LAMP_BITS,
+    Block::ElectricLampLit => LIT_LAMP_BITS,
     _ => &[]
   }
 }
@@ -337,19 +662,21 @@ pub fn pose(block: Block) -> Affine3A {
 
 const TORCH_FLAME: Vec3 = Vec3::new(8.0, 10.5, 8.0);
 const BRAZIER_FLAME: Vec3 = Vec3::new(0.5, 0.8, 0.5);
+const BULB: Vec3 = Vec3::new(0.5, 0.6, 0.5);
 
 pub fn flame(block: Block) -> Vec3 {
-  match block.torch() {
-    true => pose(block).transform_point3(TORCH_FLAME) / 16.0,
-    false => BRAZIER_FLAME
+  match (block.torch(), block) {
+    (true, _) => pose(block).transform_point3(TORCH_FLAME) / 16.0,
+    (_, Block::ElectricLampLit) => BULB,
+    _ => BRAZIER_FLAME
   }
 }
 
 const SIGN_BOUNDS: (Vec3, Vec3) = (Vec3::new(4.5, 0.0, 4.5), Vec3::new(11.5, 17.0, 11.5));
 
-pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
+pub fn bounds(block: Block, seed: u32, at: IVec3, links: u16) -> Option<(Vec3, Vec3)> {
   let shift = shift(block, seed, at);
-  bits(block)
+  shape(block, links)
     .iter()
     .map(|bit| (Vec3::from(bit.low.map(f32::from)), Vec3::from(bit.high.map(f32::from))))
     .reduce(|(low, high), (bit_low, bit_high)| (low.min(bit_low), high.max(bit_high)))
@@ -376,7 +703,7 @@ pub fn bounds(block: Block, seed: u32, at: IVec3) -> Option<(Vec3, Vec3)> {
 
 pub fn icon(block: Block, x: u32, y: u32) -> Option<Bit> {
   let (x, y) = (x as u8, 15 - y as u8);
-  bits(block)
+  shape(block, ACROSS)
     .iter()
     .filter(|bit| (bit.low[0]..bit.high[0].max(bit.low[0] + 1)).contains(&x))
     .filter(|bit| (bit.low[1]..bit.high[1].max(bit.low[1] + 1)).contains(&y))

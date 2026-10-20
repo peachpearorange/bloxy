@@ -1395,6 +1395,144 @@ fn spell(glyph: crate::glyph::Glyph, palette: Palette, x: u32, y: u32) -> Texel 
   })
 }
 
+fn brushed(base: [f32; 3], x: u32, y: u32) -> Texel {
+  let streak = lattice(0x3A1, 2, x, y * 4) * 0.6 + lattice(0x3A2, 4, x / 2, y * 8) * 0.4;
+  let edge = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
+  let rivet = (x == 2 || x == 13) && (y == 2 || y == 13);
+  let glint = (x == 1 || x == 12) && (y == 1 || y == 12);
+  let [r, g, b] = base;
+  Texel::rgb(r, g, b).scaled(match (edge, rivet, glint) {
+    (true, ..) => 0.62,
+    (_, true, _) => 0.74,
+    (.., true) => 1.3,
+    _ => 0.86 + streak * 0.28
+  })
+}
+
+const COPPER: [f32; 3] = [0.74, 0.43, 0.24];
+const STEEL: [f32; 3] = [0.58, 0.6, 0.63];
+
+fn pipe_glass(x: u32, y: u32) -> Texel {
+  let shine = match x {
+    6 | 2 if y % 5 != 3 => Some(0.95),
+    13 => Some(0.5),
+    _ if (x * 5 + y * 3) % 23 == 0 => Some(0.7),
+    _ => None
+  };
+  shine.map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |light| {
+    Texel::rgb(0.82 * light + 0.12, 0.92 * light + 0.06, light).alpha(0.9)
+  })
+}
+
+fn casing(x: u32, y: u32) -> Texel {
+  let slot = (10..13).contains(&y) && (3..13).contains(&x) && y != 11;
+  let light = y == 4 && (x == 11 || x == 12);
+  match (slot, light) {
+    (true, _) => Texel::rgb(0.08, 0.08, 0.09),
+    (_, true) => Texel::rgb(0.3, 0.95, 0.4).glowing(1.2),
+    _ => brushed([0.42, 0.45, 0.5], x, y)
+  }
+}
+
+fn grille(x: u32, y: u32) -> Texel {
+  let frame = x < 2 || y < 2 || x > PIXELS - 3 || y > PIXELS - 3;
+  match (frame, y % 3) {
+    (true, _) => brushed([0.32, 0.33, 0.36], x, y),
+    (_, 0) => Texel::rgb(0.05, 0.05, 0.06),
+    (_, 1) => Texel::rgb(0.55, 0.56, 0.6),
+    _ => Texel::rgb(0.3, 0.31, 0.34)
+  }
+}
+
+fn solar(x: u32, y: u32) -> Texel {
+  let line = x % 4 == 0 || y % 4 == 0;
+  let glint = (x + y) % 9 == 0 || (x + 16 - y) % 13 == 0;
+  match (line, glint) {
+    (true, _) => Texel::rgb(0.66, 0.68, 0.72),
+    (_, true) => Texel::rgb(0.3, 0.42, 0.78),
+    _ => Texel::rgb(0.08, 0.13, 0.36).scaled(0.85 + lattice(0x501, 4, x, y) * 0.3)
+  }
+}
+
+fn cable(x: u32, y: u32) -> Texel {
+  let shine = y % 8 == 2 || (y % 8 == 3 && x % 3 != 0);
+  let band = x % 8 == 7;
+  match (band, shine) {
+    (true, _) => Texel::rgb(0.74, 0.43, 0.24).scaled(0.8),
+    (_, true) => Texel::rgb(0.24, 0.24, 0.26),
+    _ => Texel::rgb(0.07, 0.07, 0.08)
+  }
+}
+
+fn oil(x: u32, y: u32) -> Texel {
+  let swirl = lattice(0x011, 4, x, y) * 0.6 + lattice(0x012, 8, x, y) * 0.4;
+  let (dx, dy) = (x as f32 - 10.5, y as f32 - 5.5);
+  let bubble = ((dx * dx + dy * dy).sqrt() - 2.2).abs() < 0.6;
+  let sheen = |phase: f32| (swirl * 6.0 + phase).fract();
+  match bubble {
+    true => Texel::rgb(0.32, 0.3, 0.34),
+    false => Texel::rgb(
+      0.03 + sheen(0.0) * 0.1,
+      0.03 + sheen(0.33) * 0.07,
+      0.05 + sheen(0.66) * 0.12
+    )
+  }
+}
+
+fn tar(x: u32, y: u32) -> Texel {
+  let stain = lattice(0x013, 4, x, y) + (16 - y.min(16)) as f32 / 40.0;
+  match stain > 0.72 {
+    true => oil(x, y),
+    false => soil(x, y).scaled(0.45 + (0.72 - stain) * 0.6)
+  }
+}
+
+fn cells(x: u32, y: u32) -> Texel {
+  let window = (4..12).contains(&x) && (3..13).contains(&y);
+  let bar = window && x % 2 == 1 && y > 4;
+  let charged = bar && y > 6;
+  match (window, bar, charged) {
+    (_, _, true) => Texel::rgb(0.32, 0.95, 0.36).glowing(1.0),
+    (_, true, _) => Texel::rgb(0.12, 0.3, 0.14),
+    (true, ..) => Texel::rgb(0.05, 0.06, 0.06),
+    _ if y < 2 => brushed(COPPER, x, y),
+    _ => brushed([0.2, 0.22, 0.26], x, y)
+  }
+}
+
+fn coil(x: u32, y: u32) -> Texel {
+  let run = y % 4 == 1 && (2..14).contains(&x);
+  let turn =
+    (y % 8 == 2 || y % 8 == 3) && x == 13 || (y % 8 == 6 || y % 8 == 7) && x == 2;
+  let frame = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
+  match (frame, run || turn) {
+    (true, _) => Texel::rgb(0.3, 0.31, 0.34),
+    (_, true) => Texel::rgb(1.0, 0.45 + (x % 3) as f32 * 0.08, 0.1).glowing(1.4),
+    _ => Texel::rgb(0.12, 0.06, 0.04)
+  }
+}
+
+fn bulb(lit: bool, x: u32, y: u32) -> Texel {
+  let filament =
+    (x == 7 || x == 8) && (5..11).contains(&y) || y == 5 && (5..11).contains(&x);
+  let rim = x == 0 || x == PIXELS - 1;
+  let glass = 0.82 + lattice(0x0B1, 2, x, y) * 0.12;
+  match (lit, filament, rim) {
+    (true, true, _) => Texel::rgb(1.0, 0.96, 0.8).glowing(4.0),
+    (true, _, _) => Texel::rgb(1.0, 0.86, 0.56).scaled(glass).glowing(2.4),
+    (false, true, _) => Texel::rgb(0.45, 0.28, 0.12),
+    (false, _, true) => Texel::rgb(0.66, 0.66, 0.6),
+    _ => Texel::rgb(0.86, 0.85, 0.76).scaled(glass)
+  }
+}
+
+fn hazard(x: u32, y: u32) -> Texel {
+  match (x + y) / 4 % 2 == 0 {
+    true => Texel::rgb(0.92, 0.72, 0.1).scaled(0.9 + lattice(0x0C1, 4, x, y) * 0.15),
+    false => Texel::rgb(0.08, 0.08, 0.09)
+  }
+}
+
 fn model_icon(block: Block, x: u32, y: u32) -> Texel {
   model::icon(block, x, y).map_or(Texel::rgb(0.0, 0.0, 0.0).alpha(0.0), |bit| {
     let Texel { color: [r, g, b, _], glow } = paint(bit.tile, x, y);
@@ -1715,6 +1853,20 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::Belt => inked(&BELT, [&IRON, &LEATHER, &GILT], x, y),
     Tile::Boots => inked(&BOOTS, [&IRON, &LEATHER, &GILT], x, y),
     Tile::Balloon => inked(&BALLOON, [&CRIMSON, &IVORY, &WOOD], x, y),
+    Tile::Copper => brushed(COPPER, x, y),
+    Tile::Steel => brushed(STEEL, x, y),
+    Tile::PipeGlass => pipe_glass(x, y),
+    Tile::Casing => casing(x, y),
+    Tile::Grille => grille(x, y),
+    Tile::Solar => solar(x, y),
+    Tile::Cable => cable(x, y),
+    Tile::OilSeep => oil(x, y),
+    Tile::Tar => tar(x, y),
+    Tile::Cells => cells(x, y),
+    Tile::Coil => coil(x, y),
+    Tile::Bulb => bulb(false, x, y),
+    Tile::BulbLit => bulb(true, x, y),
+    Tile::Hazard => hazard(x, y),
     Tile::Ring => match inked(&RING, [&CRIMSON, &GILT, &GILT], x, y) {
       gem if shade_of(&RING, x, y) == Some(3) => gem.glowing(0.4),
       texel => texel
@@ -1822,7 +1974,7 @@ const ICON_SAMPLES: u32 = 2;
 const FACE_SHADES: [f32; 6] = [0.7, 0.62, 0.5, 1.0, 0.6, 0.8];
 
 fn bricks(block: Block) -> Vec<Brick> {
-  let bits = model::bits(block);
+  let bits = model::shape(block, model::ACROSS);
   match bits.is_empty() {
     true => {
       let [top, side, bottom] = block.tiles();

@@ -35,11 +35,12 @@ pub enum Tab {
   Trade,
   Map,
   Skills,
-  Chest
+  Chest,
+  Machine
 }
 
 impl Tab {
-  const ALL: [Tab; 10] = [
+  const ALL: [Tab; 11] = [
     Tab::Inventory,
     Tab::Skills,
     Tab::Map,
@@ -49,10 +50,13 @@ impl Tab {
     Tab::Waystones,
     Tab::Sign,
     Tab::Trade,
-    Tab::Chest
+    Tab::Chest,
+    Tab::Machine
   ];
 
-  fn listed(self) -> bool { !matches!(self, Tab::Sign | Tab::Trade | Tab::Chest) }
+  fn listed(self) -> bool {
+    !matches!(self, Tab::Sign | Tab::Trade | Tab::Chest | Tab::Machine)
+  }
 
   fn label(self) -> &'static str {
     match self {
@@ -65,7 +69,8 @@ impl Tab {
       Tab::Trade => "Trade",
       Tab::Map => "Map",
       Tab::Skills => "Skills",
-      Tab::Chest => "Chest"
+      Tab::Chest => "Chest",
+      Tab::Machine => "Machine"
     }
   }
 }
@@ -380,7 +385,8 @@ fn build(
                 Tab::Trade => trade::page(page),
                 Tab::Map => chart::page(page, &chart),
                 Tab::Skills => crate::skill::page(page),
-                Tab::Chest => crafting::chest_page(page, &palette)
+                Tab::Chest => crafting::chest_page(page, &palette),
+                Tab::Machine => crate::apparatus::page(page)
               });
           }
         });

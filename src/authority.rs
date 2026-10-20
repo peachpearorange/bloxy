@@ -175,7 +175,8 @@ fn found_world(mut commands: Commands) {
     kept,
     generation,
     coffers,
-    balloons
+    balloons,
+    works
   } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
@@ -187,7 +188,8 @@ fn found_world(mut commands: Commands) {
     kept: default(),
     generation: Some(generate::GENERATION),
     coffers: default(),
-    balloons: default()
+    balloons: default(),
+    works: default()
   });
   let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
   if migrating {
@@ -243,6 +245,10 @@ fn found_world(mut commands: Commands) {
       .collect()
   ));
   commands.insert_resource(stock(&mut voxels));
+  commands.insert_resource(crate::machine::settle(&mut voxels, match migrating {
+    true => Vec::new(),
+    false => works
+  }));
   commands.insert_resource(voxels);
   commands.insert_resource(accounts)
 }
@@ -516,6 +522,7 @@ fn dig(
         for dropped in std::iter::once(block.drop())
           .chain(perched.iter().map(|&(_, block)| block.drop()))
           .chain(lucky.then_some(block.drop()))
+          .chain((block == Block::PipedDrain).then_some(Block::CopperPipe))
           .chain(found)
           .filter(|&dropped| dropped != Block::Air)
         {
@@ -711,6 +718,7 @@ fn pick(
 fn craft(
   mut crafts: MessageReader<FromClient<Craft>>,
   mut voxels: ResMut<Voxels>,
+  mut works: ResMut<crate::machine::Works>,
   mut players: Query<(&Controller, (&Avatar, &mut Inventory, &Skills))>
 ) {
   for &FromClient { client_id, message: Craft(index) } in crafts.read() {
@@ -720,11 +728,14 @@ fn craft(
       && let eye = avatar.at + Vec3::Y * EYE
       && let stations = {
         voxels.ensure(eye.floor().as_ivec3());
-        voxels.stations_near(eye, REACH)
+        voxels.stations_near(eye, REACH, |at| works.charged(at))
       }
       && let Some(made) = recipe.made(&inventory, &stations, &skills.spells())
     {
-      *inventory = made
+      *inventory = made;
+      if recipe.electric(&stations) {
+        works.smelt(&voxels, eye, REACH)
+      }
     }
   }
 }

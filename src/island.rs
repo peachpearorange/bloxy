@@ -58,7 +58,8 @@ pub struct Island {
   pub beach: bool,
   pub warm: bool,
   pub summit: f32,
-  pub stone: IVec3
+  pub stone: IVec3,
+  pub seep: Option<IVec2>
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -112,6 +113,8 @@ fn scattering(seed: u32, at: Vec2) -> f32 {
 const RING: f32 = 0.8;
 const SHORE_BEACH: f32 = 1.5;
 const SHORE_BANK: f32 = 3.5;
+
+const SEEP_CLEARANCE: i32 = 8;
 
 const COMPASS: [Vec2; 8] = [
   Vec2::new(1.0, 0.0),
@@ -323,6 +326,27 @@ impl Island {
     IVec3::new(spot.x, height + 1, spot.y)
   }
 
+  fn place_seep(&self, seed: u32, stone: IVec3, turn: f32) -> Option<IVec2> {
+    let start = (turn * COMPASS.len() as f32) as usize;
+    [0.55, 0.4, 0.7, 0.3]
+      .into_iter()
+      .flat_map(|fraction| {
+        (0..COMPASS.len())
+          .map(move |step| COMPASS[(start + step) % COMPASS.len()] * fraction)
+      })
+      .map(|offset| (self.centre + offset * self.radius).floor().as_ivec2())
+      .find(|&spot| {
+        spot.distance_squared(stone.xz()) > SEEP_CLEARANCE * SEEP_CLEARANCE
+          && (-2..=2).all(|dx| {
+            (-2..=2).all(|dz| {
+              self.rise(seed, spot.x + dx, spot.y + dz).is_some_and(|rise| {
+                !rise.streak && rise.height >= SEA as f32 + 1.5 && rise.inward < 0.95
+              })
+            })
+          })
+      })
+  }
+
   fn key(seed: u32, cell: IVec2) -> u32 {
     hash(seed, cell.x, 0x15, 0) ^ hash(seed ^ 0x5EED, 0, cell.y, 0x17)
   }
@@ -508,9 +532,22 @@ impl Island {
           beach,
           warm,
           summit,
-          stone: IVec3::ZERO
+          stone: IVec3::ZERO,
+          seep: None
         };
-        Island { stone: island.place_stone(seed), ..island }
+        let stone = island.place_stone(seed);
+        let seeping = match kind {
+          _ if home => 0.0,
+          Kind::Dunes => 0.5,
+          Kind::Volcano => 0.4,
+          Kind::Frost => 0.2,
+          Kind::Mushroom => 0.05,
+          _ => 0.1
+        };
+        let seep = (roll(11) < seeping)
+          .then(|| island.place_seep(seed, stone, roll(12)))
+          .flatten();
+        Island { stone, seep, ..island }
       }
     )
   }

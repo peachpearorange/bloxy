@@ -482,16 +482,17 @@ fn aim(
   aimed.set_if_neq(crate::ground::Aimed(aim.hit.as_ref().map(|hit| hit.at)));
   let bounds =
     aim.hit.as_ref().filter(|hit| hit.block.sign()).zip(voxels).map(|(hit, voxels)| {
-      model::bounds(hit.block, voxels.seed, hit.at).map_or_else(
-        || {
-          let corner = hit.at.as_vec3();
-          (corner - EDGE / 2.0, corner + Vec3::ONE + EDGE / 2.0)
-        },
-        |(low, high)| {
-          let rim = Vec3::new(EDGE, 0.0, EDGE);
-          (low - rim + Vec3::Y * (EDGE / 2.0 + 0.004), high + rim + Vec3::Y * EDGE)
-        }
-      )
+      model::bounds(hit.block, voxels.seed, hit.at, voxels.links(hit.at, hit.block))
+        .map_or_else(
+          || {
+            let corner = hit.at.as_vec3();
+            (corner - EDGE / 2.0, corner + Vec3::ONE + EDGE / 2.0)
+          },
+          |(low, high)| {
+            let rim = Vec3::new(EDGE, 0.0, EDGE);
+            (low - rim + Vec3::Y * (EDGE / 2.0 + 0.004), high + rim + Vec3::Y * EDGE)
+          }
+        )
     });
   for mut visibility in outline.iter_mut() {
     *visibility = match bounds {

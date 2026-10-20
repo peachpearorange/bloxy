@@ -400,13 +400,18 @@ fn survey(
   menu: Res<Menu>,
   pilot: Option<Res<Pilot>>,
   voxels: Option<Res<Voxels>>,
+  units: Query<&crate::machine::Unit>,
   mut nearby: ResMut<Nearby>
 ) {
   if menu.showing(Tab::Inventory)
     && let Some(pilot) = pilot
     && let Some(voxels) = voxels
   {
-    let found = voxels.stations_near(pilot.eye(), REACH);
+    let found = voxels.stations_near(pilot.eye(), REACH, |at| {
+      units
+        .iter()
+        .any(|unit| unit.at == at && unit.charge as f32 >= crate::machine::SMELT)
+    });
     if nearby.0 != found {
       nearby.0 = found
     }
@@ -506,7 +511,7 @@ fn card(
       .with_child(icon(block, 28.0, palette));
   };
   let missing: Vec<String> = recipe
-    .missing(inventory)
+    .missing(inventory, nearby)
     .iter()
     .map(|&(block, short)| format!("{short} {}", block.name()))
     .chain(
@@ -523,7 +528,7 @@ fn card(
   parent
     .spawn(Node { align_items: AlignItems::Center, column_gap: px(6), ..default() })
     .with_children(|row| {
-      for &(block, need) in recipe.inputs.iter() {
+      for (block, need) in recipe.needs(nearby) {
         let have = inventory.count(block);
         ingredient(row, block);
         row.spawn((
@@ -549,7 +554,10 @@ fn card(
       }));
       if let Some(station) = recipe.station {
         row.spawn(words("at", 14.0, FAINT));
-        ingredient(row, station);
+        ingredient(row, match recipe.electric(nearby) {
+          true => Block::ElectricFurnace,
+          false => station
+        });
       }
       if missing.is_empty() {
         button(row, "Craft", Act::Craft(index as u16))

@@ -56,7 +56,7 @@ impl Sky {
     }
   }
 
-  fn sun(self) -> f32 {
+  pub fn sun(self) -> f32 {
     match self {
       Sky::Clear => 1.0,
       Sky::Cloudy => 0.6,
@@ -65,7 +65,7 @@ impl Sky {
     }
   }
 
-  fn wind(self) -> f32 {
+  pub fn wind(self) -> f32 {
     match self {
       Sky::Clear => 0.35,
       Sky::Cloudy => 0.65,

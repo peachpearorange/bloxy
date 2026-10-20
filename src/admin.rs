@@ -115,6 +115,7 @@ fn spot(words: &[&str]) -> Result<IVec3, String> {
 fn place(world: &mut World, at: IVec3, block: Block) {
   let now = world.resource::<Time>().elapsed_secs();
   world.resource_mut::<Voxels>().set(at, block);
+  world.resource_mut::<crate::machine::Works>().install(at, block);
   world.resource_mut::<Flows>().stir(at, now + Fluid::Water.delay());
   world.write_message(ToClients {
     targets: SendTargets::All,

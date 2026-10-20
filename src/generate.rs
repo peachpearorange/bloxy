@@ -8,6 +8,7 @@ use {crate::{block::Block,
 const SNOW_LINE: f32 = 128.0;
 const CAVE_GRID: i32 = 4;
 const TREE_REACH: i32 = 5;
+const SEEP_REACH: i32 = 3;
 const COMPASS: [IVec2; 8] = [
   IVec2::new(1, 0),
   IVec2::new(1, 1),
@@ -43,14 +44,22 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     })
 }
 
-pub const GENERATION: u32 = 5;
+pub const GENERATION: u32 = 6;
+
+fn seeping(seed: u32, seep: IVec2, column: IVec2) -> bool {
+  let ragged = 1.4 + unit(seed ^ 0x0115, column.x, 0, column.y) * 1.6;
+  (column - seep).as_vec2().length() <= ragged
+}
 
 pub fn overview(seed: u32, x: i32, z: i32) -> (Block, i32, i32) {
   let spot = IVec2::new(x, z);
   let islands = Island::within(seed, spot, spot);
   let ground = column(seed, surface(seed, &islands, x, z), false, x, z);
   let (fluid, level) = ground.pool;
+  let seeped =
+    islands.iter().filter_map(|island| island.seep).any(|seep| seeping(seed, seep, spot));
   match () {
+    () if seeped => (Block::OilSeep, ground.height, ground.height),
     () if ground.height < level && ground.ice => (Block::Ice, level, ground.height),
     () if ground.height < level => (fluid, level, ground.height),
     () => (ground.top, ground.height, ground.height)
@@ -664,6 +673,33 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
                 };
                 if inside(cell) {
                   blocks[Chunk::index(cell)] = block
+                }
+              }
+            }
+          }
+        }
+      }
+      for seep in islands.iter().filter_map(|island| island.seep) {
+        for dx in -SEEP_REACH..=SEEP_REACH {
+          for dz in -SEEP_REACH..=SEEP_REACH {
+            let column = seep + IVec2::new(dx, dz);
+            let local = column - origin.xz();
+            if (0..SIZE).contains(&local.x)
+              && (0..SIZE).contains(&local.y)
+              && seeping(seed, seep, column)
+            {
+              let ground = column_at(local.x, local.y);
+              let depth = if dx == 0 && dz == 0 { 3 } else { 1 };
+              for y in ground.height + 1 - depth..=ground.height + 1 {
+                let cell = IVec3::new(local.x, y - origin.y, local.y);
+                if inside(cell) {
+                  let slot = &mut blocks[Chunk::index(cell)];
+                  match y > ground.height {
+                    true if slot.modelled() => *slot = Block::Air,
+                    true => (),
+                    false if slot.solid() => *slot = Block::OilSeep,
+                    false => ()
+                  }
                 }
               }
             }

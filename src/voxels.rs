@@ -155,6 +155,10 @@ impl Voxels {
       .or_else(|| self.chunks.get(&chunk_of(at)).map(|chunk| chunk.get(local_of(at))))
   }
 
+  pub fn links(&self, at: IVec3, block: Block) -> u16 {
+    model::links(block, |side| self.block(at + side).unwrap_or_default())
+  }
+
   pub fn solid(&self, at: IVec3) -> bool { self.block(at).is_none_or(Block::solid) }
 
   pub fn insert(&mut self, key: IVec3, mut chunk: Chunk) {
@@ -227,7 +231,12 @@ impl Voxels {
       .collect()
   }
 
-  pub fn stations_near(&self, at: Vec3, reach: f32) -> Vec<Block> {
+  pub fn stations_near(
+    &self,
+    at: Vec3,
+    reach: f32,
+    powered: impl Fn(IVec3) -> bool
+  ) -> Vec<Block> {
     let centre = at.floor().as_ivec3();
     let span = reach.ceil() as i32;
     let mut found: Vec<Block> = (-span..=span)
@@ -235,7 +244,11 @@ impl Voxels {
         (-span..=span).flat_map(move |y| (-span..=span).map(move |z| IVec3::new(x, y, z)))
       })
       .filter(|offset| offset.as_vec3().length() <= reach)
-      .filter_map(|offset| self.block(centre + offset).filter(|block| block.station()))
+      .filter_map(|offset| {
+        self.block(centre + offset).filter(|&block| {
+          block.station() && (block != Block::ElectricFurnace || powered(centre + offset))
+        })
+      })
       .collect();
     found.sort();
     found.dedup();
@@ -316,7 +329,7 @@ impl Voxels {
         .block(at)
         .filter(|&block| wanted(block))
         .filter(|&block| {
-          model::bounds(block, self.seed, at)
+          model::bounds(block, self.seed, at, self.links(at, block))
             .is_none_or(|(low, high)| pierces(from, toward, low, high))
         })
         .map(|block| Hit { at, normal, block })

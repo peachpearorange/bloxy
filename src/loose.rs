@@ -207,6 +207,7 @@ impl Looks {
       .entry((block, made))
       .or_insert_with(|| {
         meshes.add(match (cubic(block), made) {
+          (true, _) if block.furnished() => figurine(block),
           (true, _) => cube(block),
           (false, Some(material)) => sliver(forged_slot(block, material)),
           (false, None) => sliver(block.tiles()[1].index())
@@ -272,6 +273,46 @@ fn cube(block: Block) -> Mesh {
   )
 }
 
+fn figurine(block: Block) -> Mesh {
+  let bits = crate::model::shape(block, crate::model::ACROSS);
+  let sides = [
+    (Vec3::Y, Vec3::X, Vec3::NEG_Z),
+    (Vec3::NEG_Y, Vec3::X, Vec3::Z),
+    (Vec3::X, Vec3::NEG_Z, Vec3::Y),
+    (Vec3::NEG_X, Vec3::Z, Vec3::Y),
+    (Vec3::Z, Vec3::X, Vec3::Y),
+    (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y)
+  ];
+  let faces: Vec<([Vec3; 4], Vec3, [Vec2; 4])> = bits
+    .iter()
+    .flat_map(|bit| {
+      let (low, high) =
+        (Vec3::from(bit.low.map(f32::from)), Vec3::from(bit.high.map(f32::from)));
+      let (centre, half) = ((low + high) / 2.0, (high - low) / 2.0);
+      sides.map(|(normal, across, up)| {
+        let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+          .map(|(a, b)| centre + (normal + across * a + up * b) * half);
+        (
+          corners.map(|texel| (texel / PIXELS as f32 - Vec3::new(0.5, 0.0, 0.5)) * SIZE),
+          normal,
+          corners.map(|texel| {
+            let (u, v) = (texel.dot(across.abs()), texel.dot(up.abs()));
+            uv_corner(bit.tile, Vec2::new(u / PIXELS as f32, 1.0 - v / PIXELS as f32))
+          })
+        )
+      })
+    })
+    .collect();
+  let colors: Vec<[f32; 4]> = bits
+    .iter()
+    .flat_map(|bit| {
+      let [r, g, b] = bit.color;
+      [LinearRgba::from(Color::srgb(r, g, b)).to_f32_array(); 24]
+    })
+    .collect();
+  quads(faces).with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+}
+
 fn sliver(slot: u32) -> Mesh {
   let edge = PIXELS as i32;
   let solid = |x: i32, y: i32| {
@@ -335,7 +376,7 @@ fn sliver(slot: u32) -> Mesh {
 }
 
 pub fn cubic(block: Block) -> bool {
-  matches!(block.look(), Look::Opaque | Look::Cutout | Look::Log)
+  matches!(block.look(), Look::Opaque | Look::Cutout | Look::Log) || block.furnished()
 }
 
 fn show(
