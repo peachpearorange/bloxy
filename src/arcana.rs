@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(
+  Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, VariantArray,
+)]
 pub enum Aspect {
   Earth,
   Water,
@@ -13,20 +16,11 @@ pub enum Aspect {
   Magic
 }
 
-pub const ASPECTS: usize = 9;
+pub const ASPECTS: usize = Aspect::ALL.len();
 
 impl Aspect {
-  pub const ALL: [Aspect; ASPECTS] = [
-    Aspect::Earth,
-    Aspect::Water,
-    Aspect::Fire,
-    Aspect::Air,
-    Aspect::Order,
-    Aspect::Decay,
-    Aspect::Growth,
-    Aspect::Metal,
-    Aspect::Magic
-  ];
+  pub const ALL: [Aspect; Aspect::VARIANTS.len()] =
+    *Aspect::VARIANTS.first_chunk().unwrap();
 
   pub fn name(self) -> &'static str {
     match self {

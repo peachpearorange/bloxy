@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{authority::{Controller, player_of, within_reach},
              balloon::burns,
              block::{Block, Fluid},
@@ -14,7 +15,9 @@ use {crate::{authority::{Controller, player_of, within_reach},
 pub const SIDES: [IVec3; 6] =
   [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z];
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(
+  Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, VariantArray,
+)]
 pub enum Liquid {
   Water,
   Lava,
@@ -26,15 +29,8 @@ pub enum Liquid {
 }
 
 impl Liquid {
-  pub const ALL: [Liquid; 7] = [
-    Liquid::Water,
-    Liquid::Lava,
-    Liquid::Crude,
-    Liquid::Diesel,
-    Liquid::Biofuel,
-    Liquid::Mana,
-    Liquid::Lifeblood
-  ];
+  pub const ALL: [Liquid; Liquid::VARIANTS.len()] =
+    *Liquid::VARIANTS.first_chunk().unwrap();
 
   pub fn name(self) -> &'static str {
     match self {

@@ -2,11 +2,12 @@ use bevy::{asset::RenderAssetUsages,
            image::ImageSampler,
            prelude::*,
            render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+use strum::VariantArray;
 
 pub type Art = [&'static str; 16];
 pub type Shades = [[f32; 3]; 4];
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, VariantArray)]
 pub enum Glyph {
   Star,
   Boot,
@@ -631,39 +632,7 @@ const DASH: Art = [
 ];
 
 impl Glyph {
-  pub const ALL: [Glyph; 31] = [
-    Glyph::Star,
-    Glyph::Boot,
-    Glyph::Wing,
-    Glyph::Wave,
-    Glyph::Heart,
-    Glyph::Shield,
-    Glyph::Mend,
-    Glyph::Fist,
-    Glyph::Pick,
-    Glyph::Gem,
-    Glyph::Rune,
-    Glyph::Flame,
-    Glyph::Snowflake,
-    Glyph::Missile,
-    Glyph::Hand,
-    Glyph::Hourglass,
-    Glyph::Stone,
-    Glyph::Feather,
-    Glyph::Sun,
-    Glyph::Thunder,
-    Glyph::Drop,
-    Glyph::Broken,
-    Glyph::Eye,
-    Glyph::Burst,
-    Glyph::Storm,
-    Glyph::Skull,
-    Glyph::Ghost,
-    Glyph::Cloak,
-    Glyph::Axe,
-    Glyph::Sword,
-    Glyph::Dash
-  ];
+  pub const ALL: [Glyph; Glyph::VARIANTS.len()] = *Glyph::VARIANTS.first_chunk().unwrap();
 
   pub fn art(self) -> &'static Art {
     match self {

@@ -1,7 +1,8 @@
+use strum::VariantArray;
 use {super::synth::{Hall, Osc, Rng, Svf, Wave, len, midi, perc, seamless, smooth, time},
      std::f32::consts::TAU};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, VariantArray)]
 pub enum Cue {
   Soft,
   Hard,
@@ -30,32 +31,7 @@ pub enum Cue {
 }
 
 impl Cue {
-  pub const ALL: [Cue; 24] = [
-    Cue::Soft,
-    Cue::Hard,
-    Cue::Wood,
-    Cue::Crumble,
-    Cue::Thud,
-    Cue::Punch,
-    Cue::Hurt,
-    Cue::Splash,
-    Cue::Swim,
-    Cue::Song,
-    Cue::Caw,
-    Cue::Cry,
-    Cue::Honk,
-    Cue::Bleat,
-    Cue::Cast,
-    Cue::Burst,
-    Cue::Pop,
-    Cue::Creak,
-    Cue::Chime,
-    Cue::Warp,
-    Cue::Thunder,
-    Cue::Craft,
-    Cue::Rustle,
-    Cue::Clod
-  ];
+  pub const ALL: [Cue; Cue::VARIANTS.len()] = *Cue::VARIANTS.first_chunk().unwrap();
 
   pub fn variants(self) -> u64 {
     match self {

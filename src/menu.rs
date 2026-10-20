@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{block::Block,
              chart::{self, Chart},
              crafting,
@@ -24,35 +25,23 @@ pub const EDGE: Color = Color::srgb(0.3, 0.33, 0.36);
 pub const LIT: Color = Color::srgb(0.95, 0.85, 0.45);
 const ESCAPE_GRACE: f32 = 0.3;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
 pub enum Tab {
   Inventory,
+  Skills,
+  Map,
   Settings,
   Profile,
   Skin,
   Waystones,
   Sign,
   Trade,
-  Map,
-  Skills,
   Chest,
   Machine
 }
 
 impl Tab {
-  const ALL: [Tab; 11] = [
-    Tab::Inventory,
-    Tab::Skills,
-    Tab::Map,
-    Tab::Settings,
-    Tab::Profile,
-    Tab::Skin,
-    Tab::Waystones,
-    Tab::Sign,
-    Tab::Trade,
-    Tab::Chest,
-    Tab::Machine
-  ];
+  const ALL: [Tab; Tab::VARIANTS.len()] = *Tab::VARIANTS.first_chunk().unwrap();
 
   fn listed(self) -> bool {
     !matches!(self, Tab::Sign | Tab::Trade | Tab::Chest | Tab::Machine)

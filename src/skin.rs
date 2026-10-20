@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {bevy::{asset::RenderAssetUsages,
             image::ImageSampler,
             mesh::{Indices, PrimitiveTopology},
@@ -45,7 +46,7 @@ pub const PALETTE: [[u8; 3]; 32] = [
   [156, 40, 28]
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
 pub enum Part {
   Head,
   Body,
@@ -56,8 +57,7 @@ pub enum Part {
 }
 
 impl Part {
-  pub const ALL: [Part; 6] =
-    [Part::Head, Part::Body, Part::Arm, Part::Leg, Part::LeftArm, Part::LeftLeg];
+  pub const ALL: [Part; Part::VARIANTS.len()] = *Part::VARIANTS.first_chunk().unwrap();
 
   pub fn limb(self) -> Part {
     match self {

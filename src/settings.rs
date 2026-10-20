@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{local, opts::opts, player::Eye, protocol::plays},
      bevy::prelude::*,
      serde::{Deserialize, Serialize}};
@@ -19,7 +20,7 @@ impl Default for Settings {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
 pub enum Knob {
   Reach,
   Sensitivity,
@@ -28,7 +29,7 @@ pub enum Knob {
 }
 
 impl Knob {
-  pub const ALL: [Knob; 4] = [Knob::Reach, Knob::Sensitivity, Knob::Fov, Knob::Invert];
+  pub const ALL: [Knob; Knob::VARIANTS.len()] = *Knob::VARIANTS.first_chunk().unwrap();
 
   pub fn label(self) -> &'static str {
     match self {

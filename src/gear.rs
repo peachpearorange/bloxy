@@ -1,9 +1,12 @@
+use strum::VariantArray;
 use {crate::{block::Block,
              noise::unit,
-             protocol::{Inventory, Stack, WORN}},
+             protocol::{Inventory, Stack}},
      serde::{Deserialize, Serialize}};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(
+  Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, VariantArray,
+)]
 pub enum Material {
   Wood,
   Stone,
@@ -34,28 +37,8 @@ pub struct Grit {
 }
 
 impl Material {
-  pub const ALL: [Material; 20] = [
-    Material::Wood,
-    Material::Stone,
-    Material::Granite,
-    Material::Diorite,
-    Material::Andesite,
-    Material::Limestone,
-    Material::Slate,
-    Material::Basalt,
-    Material::Copper,
-    Material::Tin,
-    Material::Iron,
-    Material::Gold,
-    Material::Diamond,
-    Material::Lumen,
-    Material::Steel,
-    Material::Mithril,
-    Material::Glimsteel,
-    Material::Verdantine,
-    Material::Hexbrass,
-    Material::Platinum
-  ];
+  pub const ALL: [Material; Material::VARIANTS.len()] =
+    *Material::VARIANTS.first_chunk().unwrap();
 
   pub fn index(self) -> usize { self as usize }
 
@@ -275,7 +258,9 @@ pub fn dug_with(block: Block) -> Option<Block> {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(
+  Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, VariantArray,
+)]
 pub enum Wear {
   Head,
   Neck,
@@ -286,8 +271,7 @@ pub enum Wear {
 }
 
 impl Wear {
-  pub const ALL: [Wear; WORN] =
-    [Wear::Head, Wear::Neck, Wear::Body, Wear::Waist, Wear::Feet, Wear::Finger];
+  pub const ALL: [Wear; Wear::VARIANTS.len()] = *Wear::VARIANTS.first_chunk().unwrap();
 
   pub fn name(self) -> &'static str {
     match self {

@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{authority::{Controller, player_of},
              condition::{Conditions, Kind},
              death::Dying,
@@ -20,7 +21,9 @@ const LUNGE_GLIDE: f32 = 0.3;
 const LUNGE_REACH: f32 = 5.5;
 const LUNGE_WIDTH: f32 = 1.4;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, Hash)]
+#[derive(
+  Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, Hash, VariantArray,
+)]
 pub enum Stance {
   Berserker,
   Defender,
@@ -29,8 +32,8 @@ pub enum Stance {
 }
 
 impl Stance {
-  pub const ALL: [Stance; 4] =
-    [Stance::Berserker, Stance::Defender, Stance::Duelist, Stance::Mystic];
+  pub const ALL: [Stance; Stance::VARIANTS.len()] =
+    *Stance::VARIANTS.first_chunk().unwrap();
 
   pub fn name(self) -> &'static str {
     match self {
