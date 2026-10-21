@@ -3,8 +3,7 @@ use {crate::{protocol::{Avatar, Bedside, Bookmarks, HUES, Inventory, Visited},
              skin::Skin},
      bevy::prelude::*,
      serde::{Deserialize, Serialize},
-     sha2::{Digest, Sha256},
-     std::hash::{BuildHasher, RandomState}};
+     sha2::{Digest, Sha256}};
 
 const ROUNDS: u32 = 20_000;
 pub const LONGEST_NAME: usize = 24;
@@ -29,7 +28,9 @@ pub struct Account {
   pub skills: Skills
 }
 
-pub fn random() -> u64 { RandomState::new().hash_one(std::time::SystemTime::now()) }
+pub fn random() -> u64 {
+  u64::from_le_bytes(crate::local::random_bytes(8).try_into().unwrap_or_default())
+}
 
 fn digest(salt: &str, password: &str) -> String {
   let seed = Sha256::digest(format!("{salt}\u{0}{password}"));
