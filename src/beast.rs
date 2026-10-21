@@ -1,6 +1,7 @@
 use {crate::{authority::{Controller, player_of},
              bird,
              block::Block,
+             cage::Cage,
              facet::{Form, Part},
              folk::ray_box,
              folk::{KNOCK, PUNCH, Vigour, hurt},
@@ -8,13 +9,16 @@ use {crate::{authority::{Controller, player_of},
              island::{Island, Kind, SEA, UNLOAD},
              loose::scatter,
              menu::Menu,
-             noise::{hash, unit},
+             noise::{hash, perlin3, unit},
              opts::opts,
              player::{Bulk, Marched, Pilot, captured, cells, march},
              protocol::{Avatar, Beast, Breed, EYE, Fleece, Health, Inventory, Knock,
                         Pose, REACH, Strike, authority, plays},
+             sculpt::{Daub, sculpt},
              voxels::Voxels},
-     bevy::{platform::collections::{HashMap, HashSet},
+     bevy::{camera::visibility::DynamicSkinnedMeshBounds,
+            mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+            platform::collections::{HashMap, HashSet},
             prelude::*,
             window::{CursorOptions, PrimaryWindow}},
      bevy_replicon::prelude::*,
@@ -549,7 +553,8 @@ fn prod(
 #[derive(Resource, Default)]
 pub struct Shapes {
   meshes: HashMap<([u32; 5], [u32; 3]), Handle<Mesh>>,
-  materials: HashMap<[u8; 3], Handle<StandardMaterial>>
+  materials: HashMap<[u8; 3], Handle<StandardMaterial>>,
+  hides: HashMap<Breed, Option<(Handle<Mesh>, Handle<SkinnedMeshInverseBindposes>)>>
 }
 
 impl Shapes {
@@ -645,7 +650,20 @@ pub fn rig(
   })
 }
 
+fn bound(bones: &[Bone]) -> Vec<Mat4> {
+  bones
+    .iter()
+    .fold(Vec::new(), |mut placed: Vec<Vec3>, bone| {
+      placed.push(bone.pivot + bone.parent.map_or(Vec3::ZERO, |parent| placed[parent]));
+      placed
+    })
+    .into_iter()
+    .map(|at| Mat4::from_translation(-at))
+    .collect()
+}
+
 const BLACK: [f32; 3] = [0.06, 0.05, 0.05];
+const AMBER: [f32; 3] = [0.85, 0.6, 0.15];
 
 fn sided(side: f32, parts: Vec<Part>) -> Vec<Part> {
   match side < 0.0 {
@@ -654,7 +672,29 @@ fn sided(side: f32, parts: Vec<Part>) -> Vec<Part> {
   }
 }
 
-fn sheep(fleece: Fleece) -> Vec<Bone> {
+const SHEEP_LEGS: [(f32, f32, f32); 4] =
+  [(0.22, -0.345, 0.0), (-0.22, 0.345, 0.0), (-0.22, -0.345, PI), (0.22, 0.345, PI)];
+const SHEEP_NECK: Vec3 = Vec3::new(0.0, 0.84, -0.46);
+const SHEEP_HIPS: f32 = 0.45;
+
+fn sheep() -> Vec<Bone> {
+  [Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, parts: vec![] }, Bone {
+    parent: Some(0),
+    joint: Joint::Neck,
+    pivot: SHEEP_NECK,
+    parts: vec![]
+  }]
+  .into_iter()
+  .chain(SHEEP_LEGS.map(|(x, z, phase)| Bone {
+    parent: Some(0),
+    joint: Joint::Leg(phase),
+    pivot: Vec3::new(x, SHEEP_HIPS, z),
+    parts: vec![]
+  }))
+  .collect()
+}
+
+fn fleeced(fleece: Fleece) -> Mesh {
   let wool = match fleece {
     Fleece::White => [0.9, 0.88, 0.8],
     Fleece::Silver => [0.66, 0.66, 0.62],
@@ -663,65 +703,91 @@ fn sheep(fleece: Fleece) -> Vec<Bone> {
     Fleece::Brown => [0.45, 0.3, 0.18],
     Fleece::Pink => [0.94, 0.62, 0.72]
   };
-  let shade = wool.map(|channel| channel * 0.82);
   let face = match fleece {
     Fleece::Black => [0.17, 0.15, 0.13],
     Fleece::Brown => [0.32, 0.22, 0.14],
     _ => [0.25, 0.22, 0.2]
   };
   let hoof = [0.14, 0.12, 0.1];
-  let leg = |x: f32, z: f32, phase: f32| Bone {
-    parent: Some(0),
-    joint: Joint::Leg(phase),
-    pivot: Vec3::new(x, 0.45, z),
-    parts: vec![
-      Part::pebble([0.0, -0.02, 0.0], [0.24, 0.22, 0.24], shade),
-      Part::taper(IVec3::NEG_Y, 0.7, [0.0, -0.24, 0.0], [0.1, 0.38, 0.1], face),
-      Part::taper(IVec3::NEG_Y, 1.3, [0.0, -0.42, -0.01], [0.1, 0.07, 0.11], hoof),
-    ]
-  };
-  vec![
-    Bone {
-      parent: None,
-      joint: Joint::Fixed,
-      pivot: Vec3::ZERO,
-      parts: vec![
-        Part::lump([0.0, 0.7, 0.02], [0.74, 0.58, 1.0], wool),
-        Part::lump([0.0, 0.9, 0.05], [0.56, 0.3, 0.74], wool),
-        Part::lump([0.0, 0.76, 0.38], [0.64, 0.5, 0.38], wool),
-        Part::lump([0.0, 0.74, -0.36], [0.62, 0.52, 0.36], wool),
-        Part::lump([0.0, 0.52, 0.0], [0.5, 0.2, 0.8], shade),
-        Part::pebble([0.0, 0.8, 0.56], [0.14, 0.14, 0.12], shade),
-      ]
+  let (middle, half) = (Vec3::Y * 0.74, Vec3::new(0.34, 0.27, 0.48));
+  let body = Cage::block(half * 2.0, UVec3::new(3, 2, 3)).shaped(|at| {
+    let cube = at / half;
+    let ball = cube.normalize_or_zero() * cube.abs().max_element();
+    let round = cube.lerp(ball, 0.45) * half;
+    middle
+      + round * Vec3::new(1.0 + at.z * 0.12, 1.0, 1.0)
+      + Vec3::Y * (at.z * 0.06).min(0.0)
+  });
+  let legs = body.faces_where(|centre, normal| {
+    normal.y < -0.6 && centre.x.abs() > 0.12 && centre.z.abs() > 0.2
+  });
+  let legged = legs.iter().fold(body, |cage, &leg| {
+    let top = cage.centre(leg);
+    let foot = Vec3::new(top.x.signum() * 0.21, 0.0, top.z.signum() * 0.32);
+    [(0.38, 0.62), (0.3, 0.72), (0.07, 1.0), (0.0, 1.15)].iter().fold(
+      cage,
+      |cage, &(y, narrow)| {
+        let middle = cage.centre(leg);
+        cage.grown(&[leg], foot.with_y(y) - middle, Vec3::new(narrow, 1.0, narrow))
+      }
+    )
+  });
+  let front = legged.faces_where(|centre, normal| {
+    normal.z < -0.6 && centre.x.abs() < 0.1 && centre.y > 0.75
+  })[0];
+  let necked = legged
+    .grown(&[front], Vec3::new(0.0, 0.07, -0.08), Vec3::new(0.95, 0.95, 1.0))
+    .grown(&[front], Vec3::new(0.0, 0.03, -0.17), Vec3::new(1.2, 1.15, 1.0));
+  let head_sides = necked.faces_where(|centre, normal| {
+    normal.x.abs() > 0.6 && centre.z < -0.6 && centre.y > 0.7
+  });
+  let muzzled = necked
+    .grown(&[front], Vec3::new(0.0, -0.07, -0.17), Vec3::new(0.68, 0.7, 1.0))
+    .inset(&head_sides, 0.05);
+  let eared = head_sides.iter().fold(muzzled, |cage, &side| {
+    let out = cage.normal(side).x.signum();
+    cage.grown(&[side], Vec3::new(out * 0.15, -0.02, 0.04), Vec3::new(1.0, 0.3, 0.75))
+  });
+  let back = eared.faces_where(|centre, normal| {
+    normal.z > 0.6 && centre.x.abs() < 0.1 && centre.y > 0.75
+  })[0];
+  let tailed = eared.grown(&[back], Vec3::new(0.0, -0.08, 0.06), Vec3::splat(0.5));
+  let woolly = |at: Vec3| at.y > SHEEP_HIPS - 0.04 && at.z > -0.55;
+  let cage = tailed.subdivided(1).displaced(|at, _| {
+    woolly(at)
+      .then(|| 0.02 + perlin3(0x3001, at.x * 6.0, at.y * 6.0, at.z * 6.0) * 0.06)
+      .unwrap_or(0.0)
+  });
+  let eye = |side: f32| Daub { at: Vec3::new(side * 0.2, 0.97, -0.78), color: AMBER };
+  let nostril =
+    |side: f32| Daub { at: Vec3::new(side * 0.05, 0.86, -1.02), color: BLACK };
+  sculpt(
+    &cage,
+    |centre, normal| match () {
+      _ if centre.y < 0.07 => hoof,
+      _ if centre.y < SHEEP_HIPS - 0.06 => face,
+      _ if centre.z < -0.6
+        && !(normal.y > 0.5 && centre.z > -0.8 && centre.x.abs() < 0.13) =>
+      {
+        face
+      }
+      _ if normal.y < -0.5 => wool.map(|channel| channel * 0.85),
+      _ => wool
     },
-    Bone {
-      parent: Some(0),
-      joint: Joint::Neck,
-      pivot: Vec3::new(0.0, 0.84, -0.44),
-      parts: [
-        vec![
-          Part::taper(IVec3::NEG_Z, 0.6, [0.0, 0.0, -0.2], [0.26, 0.3, 0.38], face),
-          Part::pebble([0.0, -0.06, -0.38], [0.15, 0.13, 0.08], face),
-          Part::lump([0.0, 0.15, -0.12], [0.34, 0.18, 0.28], wool),
-        ],
-        sided(1.0, vec![
-          Part::taper(IVec3::X, 0.4, [0.18, 0.05, -0.1], [0.17, 0.05, 0.1], face)
-            .turned(0.0, 0.0, -0.45),
-          Part::block([0.085, 0.05, -0.25], [0.03, 0.05, 0.05], BLACK),
-        ]),
-        sided(-1.0, vec![
-          Part::taper(IVec3::X, 0.4, [0.18, 0.05, -0.1], [0.17, 0.05, 0.1], face)
-            .turned(0.0, 0.0, -0.45),
-          Part::block([0.085, 0.05, -0.25], [0.03, 0.05, 0.05], BLACK),
-        ])
-      ]
-      .concat()
-    },
-    leg(0.19, -0.3, 0.0),
-    leg(-0.19, 0.3, 0.0),
-    leg(-0.19, -0.3, PI),
-    leg(0.19, 0.3, PI),
-  ]
+    &[eye(1.0), eye(-1.0), nostril(1.0), nostril(-1.0)],
+    |at| match () {
+      _ if at.y < SHEEP_HIPS - 0.03 => {
+        2 + SHEEP_LEGS
+          .iter()
+          .position(|&(x, z, _)| {
+            x.signum() == at.x.signum() && z.signum() == at.z.signum()
+          })
+          .unwrap_or(0) as u16
+      }
+      _ if at.z < SHEEP_NECK.z - 0.03 => 1,
+      _ => 0
+    }
+  )
 }
 
 fn lizard() -> Vec<Bone> {
@@ -883,6 +949,7 @@ fn dress(
   mut shapes: ResMut<Shapes>,
   mut meshes: ResMut<Assets<Mesh>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
+  mut poses: ResMut<Assets<SkinnedMeshInverseBindposes>>,
   mut commands: Commands
 ) {
   for (entity, beast) in arrivals.iter() {
@@ -892,11 +959,32 @@ fn dress(
       Visibility::default()
     ));
     let bones = match beast.breed {
-      Breed::Sheep(fleece) => sheep(fleece),
+      Breed::Sheep(_) => sheep(),
       Breed::Lizard => lizard(),
       Breed::Spider => spider()
     };
-    rig(entity, &bones, &mut shapes, &mut meshes, &mut materials, &mut commands);
+    let joints =
+      rig(entity, &bones, &mut shapes, &mut meshes, &mut materials, &mut commands);
+    let hide = shapes
+      .hides
+      .entry(beast.breed)
+      .or_insert_with(|| {
+        let mesh = match beast.breed {
+          Breed::Sheep(fleece) => Some(fleeced(fleece)),
+          _ => None
+        };
+        mesh.map(|mesh| (meshes.add(mesh), poses.add(bound(&bones))))
+      })
+      .clone();
+    if let Some((mesh, inverse_bindposes)) = hide {
+      commands.spawn((
+        Mesh3d(mesh),
+        MeshMaterial3d(shapes.paint(&mut materials, [1.0; 3])),
+        SkinnedMesh { inverse_bindposes, joints },
+        DynamicSkinnedMeshBounds,
+        ChildOf(entity)
+      ));
+    }
   }
 }
 
@@ -1077,5 +1165,39 @@ impl Plugin for Beasts {
         Update,
         parade.run_if(|| opts().parade).run_if(resource_exists::<Pilot>)
       );
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use {super::*, crate::sculpt::portrait};
+
+  #[test]
+  #[ignore]
+  fn hides() {
+    let (size, views) = (300, [200.0, 160.0, 90.0, 20.0]);
+    let hides = [Fleece::White, Fleece::Black, Fleece::Brown].map(fleeced);
+    let rows: Vec<Vec<Vec<[u8; 3]>>> = hides
+      .iter()
+      .flat_map(|hide| {
+        [false, true]
+          .map(|wire| views.iter().map(|&yaw| portrait(hide, yaw, size, wire)).collect())
+      })
+      .collect();
+    let image: Vec<u8> = rows
+      .iter()
+      .flat_map(|row| {
+        (0..size).flat_map(move |y| {
+          row.iter().flat_map(move |tile| {
+            tile[y * size..(y + 1) * size].iter().flatten().copied()
+          })
+        })
+      })
+      .collect();
+    let mut file =
+      format!("P6 {} {} 255\n", size * views.len(), size * rows.len()).into_bytes();
+    file.extend(image);
+    std::fs::create_dir_all("screenshots").unwrap();
+    std::fs::write("screenshots/hides.ppm", file).unwrap()
   }
 }

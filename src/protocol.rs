@@ -373,7 +373,7 @@ pub struct Inscribe {
   pub text: String
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Fleece {
   White,
   Silver,
@@ -383,7 +383,7 @@ pub enum Fleece {
   Pink
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Breed {
   Sheep(Fleece),
   Lizard,
