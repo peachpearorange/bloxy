@@ -539,8 +539,9 @@ fn status(
   let loading = (progress.pending > 0)
     .then(|| format!("  |  loading {}", progress.pending))
     .unwrap_or_default();
+  let plain = if crate::sky::PLAIN { "  |  plain mode (no WebGPU)" } else { "" };
   let line = format!(
-    "{link}  |  {} players  |  {place}{looking}  |  {fps:.0} fps{loading}",
+    "{link}{plain}  |  {} players  |  {place}{looking}  |  {fps:.0} fps{loading}",
     players.iter().count()
   );
   for mut text in texts.iter_mut() {

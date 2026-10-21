@@ -85,13 +85,23 @@ pub fn daylight(hour: f32) -> Daylight {
   }
 }
 
+pub const PLAIN: bool = cfg!(feature = "plain");
+pub const PLAIN_NOTE: &str = "Plain mode: this browser has no WebGPU, so the sky is plain and there are no particles. Recent Chrome or Edge show the full game.";
+const PLAIN_SKY: Vec3 = Vec3::new(0.7, 0.82, 1.0);
+const PLAIN_AMBIENT: f32 = 1.6;
+
 const UNHAZED: f32 = 1.0;
+
+pub fn atmosphere() -> impl Bundle {
+  (
+    AtmosphereSettings { aerial_view_lut_max_distance: UNHAZED, ..default() },
+    AtmosphereEnvironmentMapLight::default()
+  )
+}
 
 pub fn lens() -> impl Bundle {
   let Daylight { ev100, haze, .. } = daylight(opts().hour);
   (
-    AtmosphereSettings { aerial_view_lut_max_distance: UNHAZED, ..default() },
-    AtmosphereEnvironmentMapLight::default(),
     Exposure { ev100 },
     Tonemapping::AcesFitted,
     Bloom { intensity: 0.18, ..Bloom::NATURAL },
@@ -112,9 +122,19 @@ fn light(
   mut media: ResMut<Assets<ScatteringMedium>>,
   mut ambient: ResMut<GlobalAmbientLight>
 ) {
-  let Daylight { toward, lux, tint, disk, dark, .. } = daylight(opts().hour);
-  commands
-    .spawn(bevy::light::Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256))));
+  let Daylight { toward, lux, tint, disk, dark, haze, ev100 } = daylight(opts().hour);
+  match PLAIN {
+    true => {
+      let sky = haze * PLAIN_SKY;
+      commands.insert_resource(ClearColor(Color::srgb(sky.x, sky.y, sky.z)));
+      warn!("{PLAIN_NOTE}")
+    }
+    false => {
+      commands.spawn(bevy::light::Atmosphere::earth(
+        media.add(ScatteringMedium::earth(256, 256))
+      ));
+    }
+  }
   commands.spawn((
     DirectionalLight {
       illuminance: lux,
@@ -134,7 +154,11 @@ fn light(
   ));
   *ambient = GlobalAmbientLight {
     color: Color::srgb(0.6, 0.7, 1.0),
-    brightness: 80.0 + 60.0 * dark,
+    brightness: if PLAIN {
+      PLAIN_AMBIENT * 1.2 * 2f32.powf(ev100)
+    } else {
+      80.0 + 60.0 * dark
+    },
     ..default()
   }
 }

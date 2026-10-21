@@ -157,18 +157,20 @@ fn possess(
 }
 
 fn spawn_eye(mut commands: Commands, settings: Res<Settings>) {
-  commands.spawn((
-    Eye,
-    Camera3d::default(),
-    Projection::Perspective(PerspectiveProjection {
-      fov: settings.fov.to_radians(),
-      near: 0.05,
-      far: crate::far::FAR as f32 + 800.0,
-      ..default()
-    }),
-    crate::sky::lens(),
-    Transform::default()
-  ));
+  commands
+    .spawn((
+      Eye,
+      Camera3d::default(),
+      Projection::Perspective(PerspectiveProjection {
+        fov: settings.fov.to_radians(),
+        near: 0.05,
+        far: crate::far::FAR as f32 + 800.0,
+        ..default()
+      }),
+      crate::sky::lens(),
+      Transform::default()
+    ))
+    .insert_if(crate::sky::atmosphere(), || !crate::sky::PLAIN);
 }
 
 fn grab(

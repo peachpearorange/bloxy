@@ -467,10 +467,12 @@ pub struct Sparkle;
 
 impl Plugin for Sparkle {
   fn build(&self, app: &mut App) {
-    app
-      .add_plugins(HanabiPlugin)
-      .init_resource::<Glimmers>()
-      .add_systems(PreStartup, prepare)
-      .add_systems(Update, enchant.run_if(resource_exists::<Pilot>));
+    match crate::sky::PLAIN {
+      true => app.init_asset::<EffectAsset>(),
+      false => app.add_plugins(HanabiPlugin)
+    }
+    .init_resource::<Glimmers>()
+    .add_systems(PreStartup, prepare)
+    .add_systems(Update, enchant.run_if(resource_exists::<Pilot>));
   }
 }

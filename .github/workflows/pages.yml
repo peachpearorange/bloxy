@@ -28,7 +28,9 @@ jobs:
       - name: Build
         env:
           BLOXY_CONNECT: wss://v2202610434077535942.quicksrv.de
-        run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
+        run: |
+          trunk build --release --public-url "/${{ github.event.repository.name }}/"
+          trunk build plain.html --release --dist dist/plain --public-url "/${{ github.event.repository.name }}/plain/"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -49,7 +49,7 @@ png = "0.18"
 cpal = { version = "0.17.3", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-bevy = { version = "0.19.1", default-features = false, features = ["webgpu", "web"] }
+bevy = { version = "0.19.1", default-features = false, features = ["web"] }
 tracing = { version = "0.1", features = ["release_max_level_info"] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
@@ -59,6 +59,9 @@ web-sys = { version = "0.3", features = ["WebSocket", "BinaryType", "MessageEven
 default = ["sound"]
 sound = ["dep:cpal"]
 dev = ["bevy/dynamic_linking"]
+webgpu = ["bevy/webgpu"]
+webgl2 = ["plain", "bevy/webgl2"]
+plain = []
 
 [profile.release]
 lto = "thin"
