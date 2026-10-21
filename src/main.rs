@@ -44,6 +44,7 @@ mod haunt;
 mod hud;
 mod hull;
 mod identity;
+mod imp;
 mod island;
 mod local;
 mod loose;

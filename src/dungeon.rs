@@ -49,7 +49,8 @@ pub enum Foe {
   Skeleton,
   Shade,
   Spider,
-  Warden
+  Warden,
+  Imp
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -556,7 +557,10 @@ impl Plan {
           true => IVec3::new(to + 2, low.y, bridge),
           false => IVec3::new(bridge, low.y, to + 2)
         };
-        lair(self, far, Foe::Shade, 2 + more / 2);
+        match molten {
+          true => lair(self, far, Foe::Imp, 2 + more / 2),
+          false => lair(self, far, Foe::Shade, 2 + more / 2)
+        }
       }
       Theme::Flooded => {
         let path =

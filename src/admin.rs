@@ -38,7 +38,7 @@ bloxy admin: one command per connection, coordinates are block x y z (y up, sea 
                                 players (white), mobs (red) and claims (yellow edges);
                                 default FILE /tmp/bloxy-view.png
   mobs [X Z R]                  mobs with their ids (all, or within R of X Z)
-  spawn KIND X Y Z [COUNT]      sheep, lizard, swan, raven, gull, parrot, shroomling, skeleton, shade, spider or warden
+  spawn KIND X Y Z [COUNT]      sheep, lizard, swan, raven, gull, parrot, shroomling, skeleton, shade, spider, warden or imp
   kill ID...                    remove mobs by id
   kill KIND|all X Z R           remove every mob of a kind (or all) within R of X Z
   claims                        claimed chunks and their owners
@@ -207,6 +207,7 @@ fn kind_named(name: &str) -> Option<Kind> {
     "shade" => Some(Kind::Haunt(crate::dungeon::Foe::Shade)),
     "spider" => Some(Kind::Haunt(crate::dungeon::Foe::Spider)),
     "warden" => Some(Kind::Haunt(crate::dungeon::Foe::Warden)),
+    "imp" => Some(Kind::Haunt(crate::dungeon::Foe::Imp)),
     _ => None
   }
 }

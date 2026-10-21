@@ -40,7 +40,8 @@ impl Band {
       Band::Shade => 8,
       Band::Warden => 60,
       Band::Thrall => 12,
-      Band::Phantom => 10
+      Band::Phantom => 10,
+      Band::Imp => 7
     }
   }
 
@@ -52,6 +53,7 @@ impl Band {
       Band::Warden => 2.9,
       Band::Thrall => 3.9,
       Band::Phantom => 3.6,
+      Band::Imp => 4.4,
       _ => 3.4
     }
   }
@@ -59,7 +61,7 @@ impl Band {
   pub fn blow(self) -> u8 {
     match self {
       Band::Viking => 3,
-      Band::Shade => 1,
+      Band::Shade | Band::Imp => 1,
       Band::Warden => 5,
       Band::Thrall => 3,
       _ => 2
@@ -68,9 +70,16 @@ impl Band {
 
   pub fn ghostly(self) -> bool { matches!(self, Band::Shade | Band::Phantom) }
 
+  pub fn flies(self) -> bool { self.ghostly() || self == Band::Imp }
+
+  pub fn sculpted(self) -> bool {
+    matches!(self, Band::Skeleton | Band::Warden | Band::Thrall | Band::Imp)
+  }
+
   pub fn scale(self) -> f32 {
     match self {
       Band::Warden => 1.6,
+      Band::Imp => crate::imp::SCALE,
       _ => 1.0
     }
   }
@@ -518,7 +527,7 @@ fn hat(band: Band, luck: u32) -> Gear {
       (at(0.0, 8.6, 0.0), at(9.0, 3.0, 9.0), [0.94, 0.9, 0.8]),
       (at(0.0, 8.8, -4.6), at(1.5, 1.5, 0.4), [0.2, 0.8, 0.5]),
     ],
-    Band::Skeleton | Band::Thrall | Band::Warden => vec![],
+    Band::Skeleton | Band::Thrall | Band::Warden | Band::Imp => vec![],
     Band::Phantom => vec![
       (at(0.0, 4.5, 0.6), at(9.2, 9.4, 9.0), [0.1, 0.16, 0.4]),
       (at(0.0, 9.6, 1.5), at(7.0, 1.4, 7.0), [0.1, 0.16, 0.4]),
@@ -556,6 +565,17 @@ fn eyes(band: Band) -> Gear {
         })
         .to_vec()
     }
+    Band::Imp => [1.0, -1.0]
+      .map(|side| {
+        let [r, g, b] = crate::imp::GLARE;
+        (
+          crate::imp::SOCKET * Vec3::new(side, 1.0, 1.0) - crate::imp::HEAD
+            + Vec3::new(0.0, 0.0, -0.012),
+          Vec3::new(0.05, 0.03, 0.012),
+          [r, g, b]
+        )
+      })
+      .to_vec(),
     _ => vec![]
   }
 }
@@ -1103,7 +1123,12 @@ fn dress(
   mut commands: Commands
 ) {
   for (entity, folk) in arrivals.iter() {
-    let bony = matches!(folk.band, Band::Skeleton | Band::Warden | Band::Thrall);
+    let bony = folk.band.sculpted();
+    let imp = folk.band == Band::Imp;
+    let bone = |joint: u16| match imp {
+      true => crate::imp::pivot(joint),
+      false => pivot(joint)
+    };
     let clad = match bony {
       true => Clad {
         material: materials.add(StandardMaterial {
@@ -1173,8 +1198,8 @@ fn dress(
     let head = commands
       .spawn((
         Joint::Neck,
-        Rest(SKULL_PIVOT),
-        Transform::from_translation(SKULL_PIVOT),
+        Rest(bone(SKULL)),
+        Transform::from_translation(bone(SKULL)),
         Visibility::default(),
         ChildOf(entity)
       ))
@@ -1196,7 +1221,7 @@ fn dress(
       .zip([(0.0, Part::Arm), (PI, Part::LeftArm), (PI, Part::Leg), (0.0, Part::LeftLeg)])
       .map(|(&(joint, side, arm), (phase, part))| {
         let rest = match (bony, arm) {
-          (true, _) => pivot(joint),
+          (true, _) => bone(joint),
           (false, true) => Vec3::new(side * 6.0, 24.0, 0.0) * PX,
           (false, false) => Vec3::new(side * 2.0, 12.0, 0.0) * PX
         };
@@ -1220,18 +1245,38 @@ fn dress(
         limb
       })
       .collect();
+    let wings: Vec<Entity> = match imp {
+      true => [(6, 1.0), (7, -1.0)]
+        .map(|(joint, side)| {
+          commands
+            .spawn((
+              Joint::Wing(side),
+              Rest(bone(joint)),
+              Transform::from_translation(bone(joint)),
+              Visibility::default(),
+              ChildOf(entity)
+            ))
+            .id()
+        })
+        .to_vec(),
+      false => vec![]
+    };
     if bony {
       let (mesh, inverse_bindposes) = ossuary
         .0
         .entry((folk.band, folk.band == Band::Skeleton && folk.luck % 3 == 0))
-        .or_insert_with(|| {
-          (meshes.add(ossified(folk.band, folk.luck)), poses.add(bindings()))
+        .or_insert_with(|| match imp {
+          true => (meshes.add(crate::imp::fiendish()), poses.add(crate::imp::bindings())),
+          false => (meshes.add(ossified(folk.band, folk.luck)), poses.add(bindings()))
         })
         .clone();
       commands.spawn((
         Mesh3d(mesh),
         material.clone(),
-        SkinnedMesh { inverse_bindposes, joints: [vec![entity, head], limbs].concat() },
+        SkinnedMesh {
+          inverse_bindposes,
+          joints: [vec![entity, head], limbs, wings].concat()
+        },
         DynamicSkinnedMeshBounds,
         ChildOf(entity)
       ));
@@ -1277,7 +1322,9 @@ fn animate(
       }
       .with_alpha(alpha)
     }
-    let floating = folk.band.ghostly();
+    let floating = folk.band.flies();
+    let imp = folk.band == Band::Imp;
+    let beat = now * 14.0 + folk.luck as f32;
     let swing = match floating {
       true => 0.0,
       false => shown.stride.sin() * (shown.pace / 4.3).min(1.0) * 0.7
@@ -1287,9 +1334,10 @@ fn animate(
       (true, true) => Some(2.3 + (now * 3.0 + folk.luck as f32).sin() * 0.3),
       _ => None
     };
-    let hover = match floating {
-      true => Vec3::Y * (0.25 + (now * 2.1 + folk.luck as f32).sin() * 0.12),
-      false => Vec3::ZERO
+    let hover = match (imp, floating) {
+      (true, _) => Vec3::Y * (0.3 + beat.sin() * 0.05 + (now * 1.7).sin() * 0.08),
+      (_, true) => Vec3::Y * (0.25 + (now * 2.1 + folk.luck as f32).sin() * 0.12),
+      _ => Vec3::ZERO
     };
     *transform = Transform::from_translation(shown.at + hover)
       .with_rotation(Quat::from_rotation_y(shown.yaw))
@@ -1307,6 +1355,18 @@ fn animate(
           {
             Quat::from_rotation_x(raised)
           }
+          Joint::Arm(phase) if imp => {
+            Quat::from_rotation_x(0.55 + (beat * 0.5 + phase).sin() * 0.12)
+          }
+          Joint::Leg(phase) if imp => {
+            Quat::from_rotation_x(-0.35 + (beat * 0.3 + phase).sin() * 0.15)
+          }
+          Joint::Wing(side) => Quat::from_euler(
+            EulerRot::YZX,
+            side * 0.25,
+            side * (0.15 + beat.sin() * 0.6),
+            0.0
+          ),
           Joint::Arm(_) if floating => {
             Quat::from_rotation_x(1.3 + (now * 3.0).sin() * 0.15)
           }

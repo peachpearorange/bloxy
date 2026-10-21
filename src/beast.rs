@@ -1285,8 +1285,13 @@ fn parade(pilot: Res<Pilot>, mut done: Local<bool>, mut commands: Commands) {
     ];
     let birds =
       [bird::Breed::Swan, bird::Breed::Raven, bird::Breed::Gull, bird::Breed::Parrot];
-    let folk =
-      [(Band::Skeleton, 0), (Band::Skeleton, 1), (Band::Thrall, 2), (Band::Warden, 0)];
+    let folk = [
+      (Band::Skeleton, 0),
+      (Band::Skeleton, 1),
+      (Band::Thrall, 2),
+      (Band::Warden, 0),
+      (Band::Imp, 0)
+    ];
     let (forward, right) = (ahead(pilot.yaw), Quat::from_rotation_y(pilot.yaw) * Vec3::X);
     let spot = |index: usize| {
       let (row, column) = ((index / 5) as f32, (index % 5) as f32);

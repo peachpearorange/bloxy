@@ -38,7 +38,8 @@ fn sighted(
       Band::Shade => "Shade",
       Band::Warden => "Bone Warden",
       Band::Thrall => "Thrall",
-      Band::Phantom => "Spirit Guardian"
+      Band::Phantom => "Spirit Guardian",
+      Band::Imp => "Imp"
     },
     top: folk.at + Vec3::Y * (2.1 * folk.band.scale() + 0.2 * (folk.band.scale() - 1.0)),
     full: folk.band.health(),

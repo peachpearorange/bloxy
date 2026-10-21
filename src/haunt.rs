@@ -5,12 +5,13 @@ use {crate::{authority::{Controller, player_of},
              condition::{Conditions, Kind},
              death::{Dying, slay},
              dungeon::{Dungeon, Foe},
-             folk::{KNOCK, Raider, Vigour, hurt},
+             folk::{KNOCK, Raider, Vigour, hurt, ray_box},
              loose::scatter,
              noise::unit,
              player::{Bulk, Marched, march},
              protocol::*,
              skill::Earned,
+             spell::{Bolt, Flourish},
              summon::Servant,
              voxels::Voxels},
      bevy::{platform::collections::{HashMap, HashSet},
@@ -28,6 +29,14 @@ const LEAP: f32 = 9.4;
 const RESPAWN: f32 = 600.0;
 const WARDEN_RESPAWN: f32 = 1500.0;
 const MUSTER_EVERY: f32 = 0.5;
+const HURL_WITHIN: f32 = 14.0;
+const HURL_BEYOND: f32 = 3.5;
+const HURL_EVERY: f32 = 3.0;
+const EMBER_SPEED: f32 = 13.0;
+const EMBER_LIFE: f32 = 2.0;
+const EMBER_BLOW: u8 = 2;
+const EMBER_BURNS: f32 = 3.0;
+const IMP_HOVER: f32 = 1.0;
 
 type Lair = (IVec2, u16);
 
@@ -37,6 +46,7 @@ impl Foe {
       Foe::Skeleton => Band::Skeleton.speed(),
       Foe::Shade => Band::Shade.speed(),
       Foe::Warden => Band::Warden.speed(),
+      Foe::Imp => Band::Imp.speed(),
       Foe::Spider => 4.6
     }
   }
@@ -44,7 +54,7 @@ impl Foe {
   fn reach(self) -> f32 {
     match self {
       Foe::Warden => 2.4,
-      Foe::Spider => 1.3,
+      Foe::Spider | Foe::Imp => 1.3,
       _ => 1.45
     }
   }
@@ -53,7 +63,7 @@ impl Foe {
     match self {
       Foe::Skeleton => 1.1,
       Foe::Shade => 1.6,
-      Foe::Spider => 0.9,
+      Foe::Spider | Foe::Imp => 0.9,
       Foe::Warden => 2.0
     }
   }
@@ -63,6 +73,7 @@ impl Foe {
       Foe::Skeleton => Band::Skeleton.blow(),
       Foe::Shade => Band::Shade.blow(),
       Foe::Warden => Band::Warden.blow(),
+      Foe::Imp => Band::Imp.blow(),
       Foe::Spider => 1
     }
   }
@@ -72,6 +83,7 @@ impl Foe {
       Foe::Spider => Bulk { half: 0.42, tall: 0.6 },
       Foe::Warden => Bulk { half: 0.45, tall: 2.9 },
       Foe::Shade => Bulk { half: 0.3, tall: 1.7 },
+      Foe::Imp => Bulk { half: 0.25, tall: 1.1 },
       Foe::Skeleton => Bulk::PERSON
     }
   }
@@ -81,9 +93,12 @@ impl Foe {
       Foe::Spider => &[(Kind::Poisoned, 6.0)],
       Foe::Shade => &[(Kind::Chilled, 5.0), (Kind::Frightened, 5.0)],
       Foe::Warden => &[(Kind::Weakened, 8.0)],
+      Foe::Imp => &[(Kind::Burning, 3.0)],
       Foe::Skeleton => &[]
     }
   }
+
+  fn flies(self) -> bool { matches!(self, Foe::Shade | Foe::Imp) }
 
   fn respawn(self) -> f32 {
     match self {
@@ -104,6 +119,7 @@ pub struct Haunt {
   stuck: f32,
   detour: f32,
   timer: f32,
+  hurl: f32,
   goal: Vec3,
   luck: u32
 }
@@ -117,6 +133,12 @@ impl Haunt {
 
 #[derive(Component, Clone, Copy)]
 pub struct Blamed(pub Entity);
+
+#[derive(Component)]
+struct Ember {
+  velocity: Vec3,
+  life: f32
+}
 
 enum Prey {
   Player(Entity),
@@ -146,6 +168,7 @@ pub fn rise(commands: &mut Commands, foe: Foe, at: Vec3, lair: Lair, luck: u32) 
     stuck: 0.0,
     detour: 0.0,
     timer: 0.0,
+    hurl: HURL_EVERY * unit(luck, 7, 2, 9),
     goal: at,
     luck
   };
@@ -153,6 +176,7 @@ pub fn rise(commands: &mut Commands, foe: Foe, at: Vec3, lair: Lair, luck: u32) 
     Foe::Skeleton => Some(Band::Skeleton),
     Foe::Shade => Some(Band::Shade),
     Foe::Warden => Some(Band::Warden),
+    Foe::Imp => Some(Band::Imp),
     Foe::Spider => None
   };
   match band {
@@ -292,7 +316,7 @@ fn prowl(
       .or(beast.as_ref().map(|beast| (beast.at, beast.yaw)))
       .unwrap_or_default();
     let foe = haunt.foe;
-    let flying = foe == Foe::Shade;
+    let flying = foe.flies();
     let bulk = foe.bulk();
     for offset in [
       IVec3::ZERO,
@@ -331,6 +355,7 @@ fn prowl(
     haunt.stagger -= dt;
     haunt.detour -= dt;
     haunt.timer -= dt;
+    haunt.hurl -= dt;
     let pace = foe.speed() * conditions.pace();
     let side = if haunt.luck % 2 == 0 { 1.5 } else { -1.5 };
     let (wish, lift, yaw, chasing) = match target {
@@ -373,11 +398,37 @@ fn prowl(
             }
           }
         }
-        let wish = match close {
-          true => Vec3::ZERO,
-          false => ahead(facing) * pace
+        let distance = offset.length();
+        if foe == Foe::Imp
+          && matches!(prey, Prey::Player(_))
+          && (HURL_BEYOND..HURL_WITHIN).contains(&distance)
+          && haunt.hurl <= 0.0
+          && haunt.stagger <= 0.0
+        {
+          haunt.hurl = HURL_EVERY
+            * (0.8 + unit(haunt.luck, 9, (time.elapsed_secs() * 4.0) as i32, 1) * 0.6);
+          let toward = (spot + Vec3::Y * EYE * 0.7 - eye).normalize_or_zero();
+          commands.spawn((
+            Replicated,
+            Bolt { spell: Block::SpellFirebolt, at: eye + toward * 0.3 },
+            Ember { velocity: toward * EMBER_SPEED, life: EMBER_LIFE }
+          ));
+        }
+        let weave = match foe == Foe::Imp {
+          true => {
+            ahead(facing + TAU / 4.0)
+              * (time.elapsed_secs() * 2.3 + haunt.luck as f32).sin()
+              * pace
+              * 0.6
+          }
+          false => Vec3::ZERO
         };
-        (wish, spot.y + 0.4 - at.y, facing, true)
+        let wish = match close {
+          true => weave * 0.5,
+          false => ahead(facing) * pace + weave
+        };
+        let above = if foe == Foe::Imp { IMP_HOVER } else { 0.4 };
+        (wish, spot.y + above - at.y, facing, true)
       }
       None => {
         if haunt.timer <= 0.0 {
@@ -446,6 +497,67 @@ fn prowl(
   }
 }
 
+fn scorch(
+  time: Res<Time>,
+  voxels: Res<Voxels>,
+  mut embers: Query<(Entity, &mut Bolt, &mut Ember)>,
+  mut players: Query<(&Controller, &Avatar, &mut Health, &mut Vigour, &mut Conditions)>,
+  mut knocks: MessageWriter<ToClients<Knock>>,
+  mut flourishes: MessageWriter<ToClients<Flourish>>,
+  mut commands: Commands
+) {
+  let dt = time.delta_secs().min(0.1);
+  for (entity, mut bolt, mut ember) in embers.iter_mut() {
+    let (from, step) = (bolt.at, ember.velocity * dt);
+    let (direction, length) = (step.normalize_or_zero(), step.length());
+    let wall = voxels
+      .cast_for(from, direction, length, Block::solid)
+      .map(|hit| (hit.at.as_vec3() + 0.5).distance(from) - 0.5);
+    let struck = players
+      .iter_mut()
+      .filter(|(_, _, health, ..)| health.0 > 0)
+      .filter_map(|player| {
+        let at = player.1.at;
+        ray_box(
+          from,
+          direction,
+          at - Vec3::new(0.3, 0.0, 0.3),
+          at + Vec3::new(0.3, 1.8, 0.3)
+        )
+        .filter(|&near| near <= length && wall.is_none_or(|wall| near <= wall))
+        .map(|near| (near, player))
+      })
+      .min_by(|a, b| a.0.total_cmp(&b.0));
+    ember.life -= dt;
+    let ended = match (struck, wall) {
+      (Some((near, (controller, _, mut health, mut vigour, mut afflicted))), _) => {
+        hurt(&mut health, &mut vigour, EMBER_BLOW);
+        afflicted.afflict(Kind::Burning, EMBER_BURNS);
+        knocks.write(ToClients {
+          targets: SendTargets::Single(controller.client),
+          message: Knock(
+            direction.with_y(0.0).normalize_or_zero() * KNOCK * 0.5 + Vec3::Y * 3.0
+          )
+        });
+        Some(from + direction * near)
+      }
+      (_, Some(wall)) => Some(from + direction * wall.max(0.0)),
+      _ if ember.life <= 0.0 => Some(from),
+      _ => None
+    };
+    match ended {
+      Some(at) => {
+        flourishes.write(ToClients {
+          targets: SendTargets::All,
+          message: Flourish { spell: Block::SpellFirebolt, at, reach: 0.7 }
+        });
+        commands.entity(entity).despawn()
+      }
+      None => bolt.at = from + step
+    }
+  }
+}
+
 fn swat(
   mut strikes: MessageReader<FromClient<Strike>>,
   time: Res<Time>,
@@ -484,6 +596,9 @@ fn spoils(
   match (folk.map(|folk| folk.band), beast.map(|beast| beast.breed), bird.is_some()) {
     (Some(Band::Skeleton), ..) => (vec![(Block::BoneDust, some(1, 2))], 15),
     (Some(Band::Shade), ..) => (vec![(Block::ArcaneDust, some(1, 2))], 20),
+    (Some(Band::Imp), ..) => {
+      (vec![(Block::Charcoal, some(1, 2)), (Block::ArcaneDust, some(0, 2))], 18)
+    }
     (Some(Band::Warden), ..) => (
       vec![
         (Block::ArcaneDust, 5),
@@ -522,7 +637,7 @@ fn reward(
       .or(bird.map(|bird| bird.at))
       .unwrap_or_default();
     let (loot, xp) = spoils(folk, beast, bird);
-    for (block, count) in loot.into_iter() {
+    for (block, count) in loot.into_iter().filter(|&(_, count)| count > 0) {
       scatter(&mut commands, block, count, at + Vec3::Y * 0.6, Vec3::Y * 3.0, 0.4)
     }
     if let Some(folk) = folk.filter(|folk| folk.band == Band::Warden) {
@@ -550,7 +665,10 @@ impl Plugin for Haunting {
       .init_resource::<Lairs>()
       .add_systems(
         Update,
-        (muster, prowl).chain().run_if(authority).run_if(resource_exists::<Voxels>)
+        (muster, prowl, scorch)
+          .chain()
+          .run_if(authority)
+          .run_if(resource_exists::<Voxels>)
       )
       .add_systems(PreUpdate, swat.after(ServerSystems::Receive).run_if(authority))
       .add_observer(reward);

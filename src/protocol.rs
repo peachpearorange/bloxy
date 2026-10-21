@@ -416,7 +416,8 @@ pub enum Band {
   Shade,
   Warden,
   Thrall,
-  Phantom
+  Phantom,
+  Imp
 }
 
 impl Band {
