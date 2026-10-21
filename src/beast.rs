@@ -1,5 +1,7 @@
 use {crate::{authority::{Controller, player_of},
+             bird,
              block::Block,
+             facet::{Form, Part},
              folk::ray_box,
              folk::{KNOCK, PUNCH, Vigour, hurt},
              generate,
@@ -7,15 +9,13 @@ use {crate::{authority::{Controller, player_of},
              loose::scatter,
              menu::Menu,
              noise::{hash, unit},
+             opts::opts,
              player::{Bulk, Marched, Pilot, captured, cells, march},
              protocol::{Avatar, Beast, Breed, EYE, Fleece, Health, Inventory, Knock,
                         Pose, REACH, Strike, authority, plays},
              voxels::Voxels},
-     bevy::{asset::RenderAssetUsages,
-            image::ImageSampler,
-            platform::collections::{HashMap, HashSet},
+     bevy::{platform::collections::{HashMap, HashSet},
             prelude::*,
-            render::render_resource::{Extent3d, TextureDimension, TextureFormat},
             window::{CursorOptions, PrimaryWindow}},
      bevy_replicon::prelude::*,
      std::f32::consts::{PI, TAU}};
@@ -548,80 +548,41 @@ fn prod(
 
 #[derive(Resource, Default)]
 pub struct Shapes {
-  meshes: HashMap<[u32; 3], Handle<Mesh>>,
-  materials: HashMap<([u8; 3], Grain), Handle<StandardMaterial>>,
-  grains: HashMap<Grain, Handle<Image>>
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Grain {
-  Plain,
-  Wool,
-  Scales
-}
-
-impl Grain {
-  fn texel(self, x: u32, y: u32) -> f32 {
-    let noise = unit(self as u32 * 0x77 + 3, x as i32, y as i32, 0);
-    match self {
-      Grain::Plain => 1.0,
-      Grain::Wool => {
-        let curl = unit(0x3A, (x / 2) as i32, (y / 2) as i32, 0);
-        0.78 + curl * 0.14 + noise * 0.08
-      }
-      Grain::Scales => match (x + (y / 2 % 2) * 2) % 4 == 0 || y % 2 == 0 && noise < 0.3 {
-        true => 0.8,
-        false => 0.93 + noise * 0.07
-      }
-    }
-  }
-
-  fn image(self) -> Image {
-    let mut image = Image::new(
-      Extent3d { width: 16, height: 16, depth_or_array_layers: 1 },
-      TextureDimension::D2,
-      (0..256)
-        .flat_map(|index| {
-          let shade = (self.texel(index % 16, index / 16) * 255.0) as u8;
-          [shade, shade, shade, 255]
-        })
-        .collect(),
-      TextureFormat::Rgba8UnormSrgb,
-      RenderAssetUsages::default()
-    );
-    image.sampler = ImageSampler::nearest();
-    image
-  }
+  meshes: HashMap<([u32; 5], [u32; 3]), Handle<Mesh>>,
+  materials: HashMap<[u8; 3], Handle<StandardMaterial>>
 }
 
 impl Shapes {
-  pub fn cuboid(&mut self, meshes: &mut Assets<Mesh>, size: Vec3) -> Handle<Mesh> {
+  pub fn shaped(
+    &mut self,
+    meshes: &mut Assets<Mesh>,
+    form: Form,
+    size: Vec3
+  ) -> Handle<Mesh> {
     self
       .meshes
-      .entry(size.to_array().map(f32::to_bits))
-      .or_insert_with(|| meshes.add(Cuboid::from_size(size)))
+      .entry((form.key(), size.to_array().map(f32::to_bits)))
+      .or_insert_with(|| meshes.add(form.mesh(size)))
       .clone()
+  }
+
+  pub fn cuboid(&mut self, meshes: &mut Assets<Mesh>, size: Vec3) -> Handle<Mesh> {
+    self.shaped(meshes, Form::Block, size)
   }
 
   pub fn paint(
     &mut self,
     materials: &mut Assets<StandardMaterial>,
-    images: &mut Assets<Image>,
-    color: [f32; 3],
-    grain: Grain
+    color: [f32; 3]
   ) -> Handle<StandardMaterial> {
-    let key = (color.map(|channel| (channel * 255.0) as u8), grain);
-    let texture = (grain != Grain::Plain).then(|| {
-      self.grains.entry(grain).or_insert_with(|| images.add(grain.image())).clone()
-    });
     self
       .materials
-      .entry(key)
+      .entry(color.map(|channel| (channel * 255.0) as u8))
       .or_insert_with(|| {
         materials.add(StandardMaterial {
           base_color: Color::srgb(color[0], color[1], color[2]),
-          base_color_texture: texture,
-          perceptual_roughness: 0.9,
+          perceptual_roughness: 0.95,
+          reflectance: 0.2,
           ..default()
         })
       })
@@ -649,7 +610,7 @@ pub struct Bone {
   pub parent: Option<usize>,
   pub joint: Joint,
   pub pivot: Vec3,
-  pub boxes: Vec<(Vec3, Vec3, [f32; 3], Grain)>
+  pub parts: Vec<Part>
 }
 
 pub fn rig(
@@ -658,7 +619,6 @@ pub fn rig(
   shapes: &mut Shapes,
   meshes: &mut Assets<Mesh>,
   materials: &mut Assets<StandardMaterial>,
-  images: &mut Assets<Image>,
   commands: &mut Commands
 ) -> Vec<Entity> {
   bones.iter().fold(Vec::new(), |mut spawned: Vec<Entity>, bone| {
@@ -672,11 +632,11 @@ pub fn rig(
         ChildOf(parent)
       ))
       .id();
-    for &(centre, size, color, grain) in bone.boxes.iter() {
+    for &Part { at, size, color, form, turn } in bone.parts.iter() {
       commands.spawn((
-        Mesh3d(shapes.cuboid(meshes, size)),
-        MeshMaterial3d(shapes.paint(materials, images, color, grain)),
-        Transform::from_translation(centre),
+        Mesh3d(shapes.shaped(meshes, form, size)),
+        MeshMaterial3d(shapes.paint(materials, color)),
+        Transform::from_translation(at).with_rotation(turn),
         ChildOf(entity)
       ));
     }
@@ -687,27 +647,37 @@ pub fn rig(
 
 const BLACK: [f32; 3] = [0.06, 0.05, 0.05];
 
+fn sided(side: f32, parts: Vec<Part>) -> Vec<Part> {
+  match side < 0.0 {
+    true => parts.into_iter().map(Part::mirrored).collect(),
+    false => parts
+  }
+}
+
 fn sheep(fleece: Fleece) -> Vec<Bone> {
   let wool = match fleece {
-    Fleece::White => [0.93, 0.92, 0.88],
-    Fleece::Silver => [0.68, 0.68, 0.66],
-    Fleece::Grey => [0.4, 0.4, 0.41],
-    Fleece::Black => [0.11, 0.1, 0.1],
-    Fleece::Brown => [0.45, 0.29, 0.17],
-    Fleece::Pink => [0.96, 0.62, 0.74]
+    Fleece::White => [0.9, 0.88, 0.8],
+    Fleece::Silver => [0.66, 0.66, 0.62],
+    Fleece::Grey => [0.4, 0.4, 0.39],
+    Fleece::Black => [0.12, 0.11, 0.1],
+    Fleece::Brown => [0.45, 0.3, 0.18],
+    Fleece::Pink => [0.94, 0.62, 0.72]
   };
+  let shade = wool.map(|channel| channel * 0.82);
   let face = match fleece {
-    Fleece::Black => [0.16, 0.14, 0.13],
-    Fleece::Brown => [0.3, 0.2, 0.13],
-    _ => [0.86, 0.77, 0.68]
+    Fleece::Black => [0.17, 0.15, 0.13],
+    Fleece::Brown => [0.32, 0.22, 0.14],
+    _ => [0.25, 0.22, 0.2]
   };
+  let hoof = [0.14, 0.12, 0.1];
   let leg = |x: f32, z: f32, phase: f32| Bone {
     parent: Some(0),
     joint: Joint::Leg(phase),
     pivot: Vec3::new(x, 0.45, z),
-    boxes: vec![
-      (Vec3::new(0.0, -0.225, 0.0), Vec3::new(0.13, 0.45, 0.13), face, Grain::Plain),
-      (Vec3::new(0.0, -0.06, 0.0), Vec3::new(0.17, 0.14, 0.17), wool, Grain::Wool),
+    parts: vec![
+      Part::pebble([0.0, -0.02, 0.0], [0.24, 0.22, 0.24], shade),
+      Part::taper(IVec3::NEG_Y, 0.7, [0.0, -0.24, 0.0], [0.1, 0.38, 0.1], face),
+      Part::taper(IVec3::NEG_Y, 1.3, [0.0, -0.42, -0.01], [0.1, 0.07, 0.11], hoof),
     ]
   };
   vec![
@@ -715,104 +685,128 @@ fn sheep(fleece: Fleece) -> Vec<Bone> {
       parent: None,
       joint: Joint::Fixed,
       pivot: Vec3::ZERO,
-      boxes: vec![(
-        Vec3::new(0.0, 0.68, 0.0),
-        Vec3::new(0.62, 0.5, 0.95),
-        wool,
-        Grain::Wool
-      )]
+      parts: vec![
+        Part::lump([0.0, 0.7, 0.02], [0.74, 0.58, 1.0], wool),
+        Part::lump([0.0, 0.9, 0.05], [0.56, 0.3, 0.74], wool),
+        Part::lump([0.0, 0.76, 0.38], [0.64, 0.5, 0.38], wool),
+        Part::lump([0.0, 0.74, -0.36], [0.62, 0.52, 0.36], wool),
+        Part::lump([0.0, 0.52, 0.0], [0.5, 0.2, 0.8], shade),
+        Part::pebble([0.0, 0.8, 0.56], [0.14, 0.14, 0.12], shade),
+      ]
     },
     Bone {
       parent: Some(0),
       joint: Joint::Neck,
-      pivot: Vec3::new(0.0, 0.8, -0.42),
-      boxes: vec![
-        (Vec3::new(0.0, 0.03, -0.2), Vec3::new(0.3, 0.3, 0.34), face, Grain::Plain),
-        (Vec3::new(0.0, 0.2, -0.16), Vec3::new(0.34, 0.08, 0.3), wool, Grain::Wool),
-        (Vec3::new(0.09, 0.07, -0.375), Vec3::new(0.06, 0.06, 0.02), BLACK, Grain::Plain),
-        (
-          Vec3::new(-0.09, 0.07, -0.375),
-          Vec3::new(0.06, 0.06, 0.02),
-          BLACK,
-          Grain::Plain
-        ),
-        (Vec3::new(0.19, 0.11, -0.12), Vec3::new(0.1, 0.05, 0.07), face, Grain::Plain),
-        (Vec3::new(-0.19, 0.11, -0.12), Vec3::new(0.1, 0.05, 0.07), face, Grain::Plain),
+      pivot: Vec3::new(0.0, 0.84, -0.44),
+      parts: [
+        vec![
+          Part::taper(IVec3::NEG_Z, 0.6, [0.0, 0.0, -0.2], [0.26, 0.3, 0.38], face),
+          Part::pebble([0.0, -0.06, -0.38], [0.15, 0.13, 0.08], face),
+          Part::lump([0.0, 0.15, -0.12], [0.34, 0.18, 0.28], wool),
+        ],
+        sided(1.0, vec![
+          Part::taper(IVec3::X, 0.4, [0.18, 0.05, -0.1], [0.17, 0.05, 0.1], face)
+            .turned(0.0, 0.0, -0.45),
+          Part::block([0.085, 0.05, -0.25], [0.03, 0.05, 0.05], BLACK),
+        ]),
+        sided(-1.0, vec![
+          Part::taper(IVec3::X, 0.4, [0.18, 0.05, -0.1], [0.17, 0.05, 0.1], face)
+            .turned(0.0, 0.0, -0.45),
+          Part::block([0.085, 0.05, -0.25], [0.03, 0.05, 0.05], BLACK),
+        ])
       ]
+      .concat()
     },
-    leg(0.18, -0.3, 0.0),
-    leg(-0.18, 0.3, 0.0),
-    leg(-0.18, -0.3, PI),
-    leg(0.18, 0.3, PI),
+    leg(0.19, -0.3, 0.0),
+    leg(-0.19, 0.3, 0.0),
+    leg(-0.19, -0.3, PI),
+    leg(0.19, 0.3, PI),
   ]
 }
 
 fn lizard() -> Vec<Bone> {
-  let green = [0.3, 0.56, 0.2];
-  let belly = [0.68, 0.76, 0.42];
-  let crest = [0.95, 0.52, 0.12];
+  let green = [0.32, 0.52, 0.2];
+  let dark = [0.22, 0.4, 0.15];
+  let belly = [0.7, 0.74, 0.42];
+  let crest = [0.93, 0.5, 0.12];
   let eye = [0.98, 0.86, 0.2];
-  let skin = |centre: Vec3, size: Vec3| (centre, size, green, Grain::Scales);
   let arm = |x: f32, phase: f32| Bone {
     parent: Some(2),
     joint: Joint::Arm(phase),
     pivot: Vec3::new(x, -0.04, -0.34),
-    boxes: vec![
-      skin(Vec3::new(0.0, -0.08, -0.02), Vec3::new(0.05, 0.16, 0.05)),
-      skin(Vec3::new(0.0, -0.17, -0.04), Vec3::new(0.07, 0.03, 0.07)),
+    parts: vec![
+      Part::taper(IVec3::NEG_Y, 0.7, [0.0, -0.08, -0.02], [0.065, 0.17, 0.065], green),
+      Part::pebble([0.0, -0.17, -0.04], [0.09, 0.045, 0.09], dark),
     ]
   };
   let leg = |x: f32, phase: f32| Bone {
     parent: Some(1),
     joint: Joint::Leg(phase),
     pivot: Vec3::new(x, 0.0, 0.02),
-    boxes: vec![
-      skin(Vec3::new(0.0, -0.12, 0.0), Vec3::new(0.08, 0.26, 0.09)),
-      skin(Vec3::new(0.0, -0.32, 0.0), Vec3::new(0.06, 0.2, 0.06)),
-      skin(Vec3::new(0.0, -0.405, -0.06), Vec3::new(0.09, 0.03, 0.18)),
+    parts: vec![
+      Part::lump([0.0, -0.11, 0.0], [0.11, 0.28, 0.13], green),
+      Part::taper(IVec3::NEG_Y, 0.7, [0.0, -0.31, 0.01], [0.07, 0.2, 0.07], green),
+      Part::taper(IVec3::NEG_Z, 0.4, [0.0, -0.405, -0.06], [0.11, 0.04, 0.2], dark),
     ]
   };
+  let spike = |z: f32, y: f32, height: f32| {
+    Part::taper(IVec3::Y, 0.2, [0.0, y, z], [0.035, height, 0.08], crest)
+  };
   vec![
-    Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, boxes: vec![] },
+    Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, parts: vec![] },
     Bone {
       parent: Some(0),
       joint: Joint::Hips,
       pivot: Vec3::new(0.0, 0.42, 0.0),
-      boxes: vec![]
+      parts: vec![]
     },
     Bone {
       parent: Some(1),
       joint: Joint::Trunk,
       pivot: Vec3::ZERO,
-      boxes: vec![
-        skin(Vec3::new(0.0, 0.0, -0.2), Vec3::new(0.22, 0.2, 0.46)),
-        (Vec3::new(0.0, -0.09, -0.2), Vec3::new(0.18, 0.04, 0.4), belly, Grain::Scales),
-        (Vec3::new(0.0, 0.16, -0.18), Vec3::new(0.03, 0.12, 0.34), crest, Grain::Plain),
+      parts: vec![
+        Part::lump([0.0, 0.0, -0.2], [0.25, 0.22, 0.52], green),
+        Part::lump([0.0, -0.06, -0.2], [0.2, 0.12, 0.42], belly),
+        spike(-0.06, 0.13, 0.1),
+        spike(-0.2, 0.14, 0.13),
+        spike(-0.34, 0.12, 0.1),
       ]
     },
     Bone {
       parent: Some(2),
       joint: Joint::Neck,
       pivot: Vec3::new(0.0, 0.03, -0.42),
-      boxes: vec![
-        skin(Vec3::new(0.0, 0.03, -0.1), Vec3::new(0.17, 0.14, 0.22)),
-        skin(Vec3::new(0.0, 0.0, -0.24), Vec3::new(0.12, 0.09, 0.1)),
-        (Vec3::new(0.09, 0.07, -0.1), Vec3::new(0.03, 0.05, 0.05), eye, Grain::Plain),
-        (Vec3::new(-0.09, 0.07, -0.1), Vec3::new(0.03, 0.05, 0.05), eye, Grain::Plain),
-        (Vec3::new(0.0, 0.14, -0.02), Vec3::new(0.03, 0.08, 0.12), crest, Grain::Plain),
+      parts: vec![
+        Part::lump([0.0, 0.03, -0.1], [0.18, 0.15, 0.23], green),
+        Part::taper(IVec3::NEG_Z, 0.55, [0.0, 0.0, -0.25], [0.13, 0.09, 0.15], green),
+        Part::pebble([0.075, 0.075, -0.12], [0.05, 0.06, 0.06], eye),
+        Part::pebble([-0.075, 0.075, -0.12], [0.05, 0.06, 0.06], eye),
+        Part::taper(IVec3::Y, 0.3, [0.0, 0.14, -0.03], [0.035, 0.1, 0.14], crest),
       ]
     },
     Bone {
       parent: Some(2),
       joint: Joint::Tail,
       pivot: Vec3::new(0.0, 0.0, 0.02),
-      boxes: vec![skin(Vec3::new(0.0, 0.0, 0.2), Vec3::new(0.14, 0.12, 0.4))]
+      parts: vec![Part::taper(
+        IVec3::Z,
+        0.55,
+        [0.0, 0.0, 0.2],
+        [0.15, 0.13, 0.42],
+        green
+      )]
     },
     Bone {
       parent: Some(4),
       joint: Joint::TailTip,
       pivot: Vec3::new(0.0, 0.0, 0.4),
-      boxes: vec![skin(Vec3::new(0.0, 0.0, 0.22), Vec3::new(0.08, 0.07, 0.45))]
+      parts: vec![Part::taper(
+        IVec3::Z,
+        0.15,
+        [0.0, 0.0, 0.22],
+        [0.085, 0.075, 0.46],
+        dark
+      )]
     },
     arm(0.13, 0.0),
     arm(-0.13, PI),
@@ -822,44 +816,46 @@ fn lizard() -> Vec<Bone> {
 }
 
 fn spider() -> Vec<Bone> {
-  let hide = [0.13, 0.11, 0.12];
-  let hair = [0.22, 0.18, 0.17];
+  let hide = [0.14, 0.11, 0.11];
+  let hair = [0.24, 0.19, 0.16];
   let mark = [0.7, 0.12, 0.08];
   let eye = [1.0, 0.2, 0.1];
-  let fang = [0.85, 0.82, 0.7];
+  let fang = [0.82, 0.78, 0.66];
   let leg = |x: f32, z: f32, phase: f32| Bone {
     parent: Some(2),
     joint: Joint::Leg(phase),
     pivot: Vec3::new(x * 0.16, 0.02, z),
-    boxes: vec![
-      (Vec3::new(x * 0.2, 0.12, 0.0), Vec3::new(0.42, 0.06, 0.06), hair, Grain::Wool),
-      (Vec3::new(x * 0.4, 0.14, 0.0), Vec3::new(0.08, 0.08, 0.08), hide, Grain::Plain),
-      (Vec3::new(x * 0.47, -0.08, 0.0), Vec3::new(0.05, 0.46, 0.05), hide, Grain::Plain),
-    ]
+    parts: sided(x, vec![
+      Part::taper(IVec3::X, 0.7, [0.2, 0.1, 0.0], [0.44, 0.08, 0.08], hair)
+        .turned(0.0, 0.0, 0.3),
+      Part::pebble([0.41, 0.17, 0.0], [0.1, 0.1, 0.1], hide),
+      Part::taper(IVec3::NEG_Y, 0.3, [0.47, -0.08, 0.0], [0.065, 0.48, 0.065], hide)
+        .turned(0.0, 0.0, 0.12),
+    ])
   };
   vec![
-    Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, boxes: vec![] },
+    Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, parts: vec![] },
     Bone {
       parent: Some(0),
       joint: Joint::Hips,
       pivot: Vec3::new(0.0, 0.32, 0.0),
-      boxes: vec![]
+      parts: vec![]
     },
     Bone {
       parent: Some(1),
       joint: Joint::Trunk,
       pivot: Vec3::ZERO,
-      boxes: vec![
-        (Vec3::new(0.0, 0.04, -0.16), Vec3::new(0.34, 0.22, 0.34), hide, Grain::Wool),
-        (Vec3::new(0.0, 0.14, 0.26), Vec3::new(0.5, 0.42, 0.54), hair, Grain::Wool),
-        (Vec3::new(0.0, 0.355, 0.26), Vec3::new(0.12, 0.02, 0.22), mark, Grain::Plain),
-        (Vec3::new(0.0, 0.355, 0.36), Vec3::new(0.2, 0.02, 0.05), mark, Grain::Plain),
-        (Vec3::new(0.06, 0.1, -0.335), Vec3::new(0.05, 0.05, 0.02), eye, Grain::Plain),
-        (Vec3::new(-0.06, 0.1, -0.335), Vec3::new(0.05, 0.05, 0.02), eye, Grain::Plain),
-        (Vec3::new(0.12, 0.07, -0.33), Vec3::new(0.04, 0.04, 0.02), eye, Grain::Plain),
-        (Vec3::new(-0.12, 0.07, -0.33), Vec3::new(0.04, 0.04, 0.02), eye, Grain::Plain),
-        (Vec3::new(0.05, -0.08, -0.34), Vec3::new(0.04, 0.1, 0.04), fang, Grain::Plain),
-        (Vec3::new(-0.05, -0.08, -0.34), Vec3::new(0.04, 0.1, 0.04), fang, Grain::Plain),
+      parts: vec![
+        Part::lump([0.0, 0.04, -0.16], [0.38, 0.25, 0.38], hide),
+        Part::lump([0.0, 0.15, 0.27], [0.54, 0.45, 0.6], hair),
+        Part::pebble([0.0, 0.34, 0.2], [0.14, 0.08, 0.16], mark),
+        Part::pebble([0.0, 0.33, 0.36], [0.2, 0.08, 0.08], mark),
+        Part::pebble([0.06, 0.1, -0.33], [0.06, 0.06, 0.04], eye),
+        Part::pebble([-0.06, 0.1, -0.33], [0.06, 0.06, 0.04], eye),
+        Part::pebble([0.12, 0.07, -0.31], [0.045, 0.045, 0.04], eye),
+        Part::pebble([-0.12, 0.07, -0.31], [0.045, 0.045, 0.04], eye),
+        Part::taper(IVec3::NEG_Y, 0.3, [0.05, -0.08, -0.33], [0.05, 0.12, 0.05], fang),
+        Part::taper(IVec3::NEG_Y, 0.3, [-0.05, -0.08, -0.33], [0.05, 0.12, 0.05], fang),
       ]
     },
     leg(1.0, -0.28, 0.0),
@@ -887,7 +883,6 @@ fn dress(
   mut shapes: ResMut<Shapes>,
   mut meshes: ResMut<Assets<Mesh>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
-  mut images: ResMut<Assets<Image>>,
   mut commands: Commands
 ) {
   for (entity, beast) in arrivals.iter() {
@@ -901,15 +896,7 @@ fn dress(
       Breed::Lizard => lizard(),
       Breed::Spider => spider()
     };
-    rig(
-      entity,
-      &bones,
-      &mut shapes,
-      &mut meshes,
-      &mut materials,
-      &mut images,
-      &mut commands
-    );
+    rig(entity, &bones, &mut shapes, &mut meshes, &mut materials, &mut commands);
   }
 }
 
@@ -1037,6 +1024,46 @@ fn animate(
   }
 }
 
+fn parade(
+  pilot: Res<Pilot>,
+  voxels: Res<Voxels>,
+  mut done: Local<bool>,
+  mut commands: Commands
+) {
+  if !*done && pilot.grounded {
+    *done = true;
+    let beasts = [
+      Breed::Sheep(Fleece::White),
+      Breed::Sheep(Fleece::Black),
+      Breed::Sheep(Fleece::Brown),
+      Breed::Lizard,
+      Breed::Spider
+    ];
+    let birds =
+      [bird::Breed::Swan, bird::Breed::Raven, bird::Breed::Gull, bird::Breed::Parrot];
+    let count = (beasts.len() + birds.len()) as f32;
+    let (forward, right) = (ahead(pilot.yaw), Quat::from_rotation_y(pilot.yaw) * Vec3::X);
+    let spot = |index: usize| {
+      let at =
+        pilot.at + forward * 4.5 + right * (index as f32 - (count - 1.0) * 0.5) * 1.15;
+      let cell = at.floor().as_ivec3();
+      at.with_y(generate::height(voxels.seed, cell.x, cell.z) as f32 + 1.0)
+    };
+    let yaw = pilot.yaw + PI - 0.7;
+    for (index, &breed) in beasts.iter().enumerate() {
+      commands.spawn(Beast { breed, at: spot(index), yaw, pose: Pose::Still });
+    }
+    for (index, &breed) in birds.iter().enumerate() {
+      commands.spawn(bird::Bird {
+        breed,
+        at: spot(beasts.len() + index),
+        yaw,
+        stance: bird::Stance::Rest
+      });
+    }
+  }
+}
+
 pub struct Beasts;
 
 impl Plugin for Beasts {
@@ -1053,6 +1080,13 @@ impl Plugin for Beasts {
       )
       .add_systems(PreUpdate, shear.after(ServerSystems::Receive).run_if(authority))
       .add_systems(Update, (dress, animate).chain().run_if(plays))
-      .add_systems(Update, prod.run_if(plays).run_if(resource_exists::<Pilot>));
+      .add_systems(Update, prod.run_if(plays).run_if(resource_exists::<Pilot>))
+      .add_systems(
+        Update,
+        parade
+          .run_if(|| opts().parade)
+          .run_if(resource_exists::<Pilot>)
+          .run_if(resource_exists::<Voxels>)
+      );
   }
 }

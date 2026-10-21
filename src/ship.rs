@@ -1,5 +1,5 @@
 use {crate::{authority::Controller,
-             beast::{Grain, Shapes},
+             beast::Shapes,
              block::Block,
              boat::planked,
              folk::{KNOCK, Raider, Vigour, hurt},
@@ -604,7 +604,6 @@ fn rig(
   palette: Res<Palette>,
   mut shapes: ResMut<Shapes>,
   mut meshes: ResMut<Assets<Mesh>>,
-  mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
@@ -648,9 +647,7 @@ fn rig(
                     parent: Entity| {
       commands.spawn((
         Mesh3d(shapes.cuboid(&mut meshes, size)),
-        MeshMaterial3d(sail.unwrap_or_else(|| {
-          shapes.paint(&mut materials, &mut images, color, Grain::Plain)
-        })),
+        MeshMaterial3d(sail.unwrap_or_else(|| shapes.paint(&mut materials, color))),
         Transform::from_translation(at),
         ChildOf(parent)
       ));
@@ -759,7 +756,6 @@ fn fire(
   time: Res<Time>,
   mut shapes: ResMut<Shapes>,
   mut materials: ResMut<Assets<StandardMaterial>>,
-  mut images: ResMut<Assets<Image>>,
   mut balls: Query<(Entity, &Cannonball, Option<&mut Transform>)>,
   mut commands: Commands
 ) {
@@ -772,12 +768,7 @@ fn fire(
       None => {
         commands.entity(entity).insert((
           Mesh3d(rigging.ball.clone()),
-          MeshMaterial3d(shapes.paint(
-            &mut materials,
-            &mut images,
-            [0.05, 0.05, 0.06],
-            Grain::Plain
-          )),
+          MeshMaterial3d(shapes.paint(&mut materials, [0.05, 0.05, 0.06])),
           Transform::from_translation(ball.0),
           Visibility::default()
         ));

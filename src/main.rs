@@ -25,6 +25,7 @@ mod crumble;
 mod death;
 mod dungeon;
 mod editor;
+mod facet;
 mod far;
 mod figure;
 mod fishing;

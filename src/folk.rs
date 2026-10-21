@@ -1,5 +1,5 @@
 use {crate::{authority::{Controller, player_of},
-             beast::{Grain, Joint, Rest, Shapes},
+             beast::{Joint, Rest, Shapes},
              block::Block,
              figure::{Clad, Kit, clothe},
              generate,
@@ -694,7 +694,7 @@ fn dress(
       for (centre, size, color) in gear.into_iter() {
         commands.spawn((
           Mesh3d(shapes.cuboid(&mut meshes, size)),
-          MeshMaterial3d(shapes.paint(&mut materials, &mut images, color, Grain::Plain)),
+          MeshMaterial3d(shapes.paint(&mut materials, color)),
           Transform::from_translation(centre),
           ChildOf(parent)
         ));

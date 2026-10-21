@@ -1,6 +1,7 @@
 use {crate::{authority::{Controller, player_of},
-             beast::{Bone, Grain, Joint, Rest, Shapes, rig},
+             beast::{Bone, Joint, Rest, Shapes, rig},
              block::Block,
+             facet::Part,
              folk::{PUNCH, ray_box},
              generate,
              island::{Island, Kind, SEA, UNLOAD, Wood},
@@ -430,12 +431,6 @@ fn poke(
   }
 }
 
-type Cuboid3 = (Vec3, Vec3, [f32; 3], Grain);
-
-fn plain(centre: [f32; 3], size: [f32; 3], color: [f32; 3]) -> Cuboid3 {
-  (Vec3::from(centre), Vec3::from(size), color, Grain::Plain)
-}
-
 struct Plumage {
   body: [f32; 3],
   belly: [f32; 3],
@@ -485,6 +480,7 @@ fn plumage(breed: Breed) -> Plumage {
 fn body(breed: Breed) -> Vec<Bone> {
   let Plumage { body, belly, wing, tip, beak, legs } = plumage(breed);
   let swan = breed == Breed::Swan;
+  let eye = [0.03, 0.03, 0.03];
   let (girth, length, lift) = match breed {
     Breed::Swan => (0.42, 0.7, 0.32),
     Breed::Parrot => (0.2, 0.28, 0.24),
@@ -492,18 +488,25 @@ fn body(breed: Breed) -> Vec<Bone> {
   };
   let neck = match swan {
     true => vec![
-      plain([0.0, 0.18, -0.02], [0.1, 0.42, 0.1], body),
-      plain([0.0, 0.42, -0.08], [0.12, 0.12, 0.2], body),
-      plain([0.0, 0.4, -0.23], [0.06, 0.05, 0.12], beak),
-      plain([0.0, 0.42, -0.17], [0.07, 0.07, 0.03], [0.05, 0.05, 0.05]),
-      plain([0.065, 0.45, -0.1], [0.01, 0.03, 0.03], [0.05, 0.05, 0.05]),
-      plain([-0.065, 0.45, -0.1], [0.01, 0.03, 0.03], [0.05, 0.05, 0.05]),
+      Part::taper(IVec3::Y, 0.75, [0.0, 0.18, -0.02], [0.11, 0.44, 0.11], body)
+        .turned(-0.12, 0.0, 0.0),
+      Part::lump([0.0, 0.42, -0.08], [0.13, 0.12, 0.2], body),
+      Part::taper(IVec3::NEG_Z, 0.4, [0.0, 0.4, -0.23], [0.07, 0.05, 0.13], beak),
+      Part::pebble([0.0, 0.42, -0.165], [0.075, 0.075, 0.04], eye),
+      Part::block([0.06, 0.45, -0.1], [0.02, 0.03, 0.03], eye),
+      Part::block([-0.06, 0.45, -0.1], [0.02, 0.03, 0.03], eye),
     ],
     false => vec![
-      plain([0.0, 0.06, -0.06], [girth * 0.62, girth * 0.62, girth * 0.62], body),
-      plain([0.0, 0.04, -0.06 - girth * 0.45], [0.05, 0.05, 0.12], beak),
-      plain([girth * 0.32, 0.1, -0.12], [0.01, 0.035, 0.035], [0.02, 0.02, 0.02]),
-      plain([-girth * 0.32, 0.1, -0.12], [0.01, 0.035, 0.035], [0.02, 0.02, 0.02]),
+      Part::lump([0.0, 0.06, -0.06], [girth * 0.66, girth * 0.62, girth * 0.7], body),
+      Part::taper(
+        IVec3::NEG_Z,
+        0.25,
+        [0.0, 0.04, -0.06 - girth * 0.45],
+        [0.06, 0.055, 0.13],
+        beak
+      ),
+      Part::block([girth * 0.3, 0.1, -0.12], [0.02, 0.035, 0.035], eye),
+      Part::block([-girth * 0.3, 0.1, -0.12], [0.02, 0.035, 0.035], eye),
     ]
   };
   let span = girth * if swan { 1.6 } else { 1.9 };
@@ -511,15 +514,19 @@ fn body(breed: Breed) -> Vec<Bone> {
     parent: Some(0),
     joint: Joint::Wing(side),
     pivot: Vec3::new(side * girth * 0.45, lift + girth * 0.3, -length * 0.1),
-    boxes: vec![
-      plain(
+    parts: vec![
+      Part::taper(
+        IVec3::X * side as i32,
+        0.75,
         [side * span * 0.35, 0.0, length * 0.1],
-        [span * 0.7, 0.03, length * 0.7],
+        [span * 0.7, 0.05, length * 0.7],
         wing
       ),
-      plain(
+      Part::taper(
+        IVec3::X * side as i32,
+        0.3,
         [side * span * 0.85, 0.0, length * 0.2],
-        [span * 0.3, 0.025, length * 0.5],
+        [span * 0.32, 0.035, length * 0.52],
         tip
       ),
     ]
@@ -528,9 +535,9 @@ fn body(breed: Breed) -> Vec<Bone> {
     parent: Some(0),
     joint: Joint::Leg(phase),
     pivot: Vec3::new(side * girth * 0.22, lift - girth * 0.4, 0.0),
-    boxes: vec![
-      plain([0.0, -0.06, 0.0], [0.03, 0.14, 0.03], legs),
-      plain([0.0, -0.13, -0.03], [0.07, 0.02, 0.09], legs),
+    parts: vec![
+      Part::taper(IVec3::NEG_Y, 0.7, [0.0, -0.06, 0.0], [0.035, 0.14, 0.035], legs),
+      Part::taper(IVec3::NEG_Z, 0.5, [0.0, -0.13, -0.03], [0.08, 0.025, 0.1], legs),
     ]
   };
   vec![
@@ -538,25 +545,28 @@ fn body(breed: Breed) -> Vec<Bone> {
       parent: None,
       joint: Joint::Trunk,
       pivot: Vec3::ZERO,
-      boxes: vec![
-        plain([0.0, lift, 0.0], [girth, girth * 0.8, length], body),
-        plain(
-          [0.0, lift - girth * 0.3, -0.02],
-          [girth * 0.85, girth * 0.25, length * 0.8],
+      parts: vec![
+        Part::lump([0.0, lift, 0.0], [girth * 1.05, girth * 0.85, length], body),
+        Part::lump(
+          [0.0, lift - girth * 0.2, -0.02],
+          [girth * 0.85, girth * 0.5, length * 0.8],
           belly
         ),
-        plain(
+        Part::taper(
+          IVec3::Z,
+          1.5,
           [0.0, lift + girth * 0.1, length * 0.6],
-          [girth * 0.6, 0.04, length * 0.4],
+          [girth * 0.5, 0.05, length * 0.4],
           tip
-        ),
+        )
+        .turned(-0.25, 0.0, 0.0),
       ]
     },
     Bone {
       parent: Some(0),
       joint: Joint::Neck,
       pivot: Vec3::new(0.0, lift + girth * 0.3, -length * 0.45),
-      boxes: neck
+      parts: neck
     },
     wing_bone(1.0),
     wing_bone(-1.0),
@@ -579,7 +589,6 @@ fn dress(
   mut shapes: ResMut<Shapes>,
   mut meshes: ResMut<Assets<Mesh>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
-  mut images: ResMut<Assets<Image>>,
   mut commands: Commands
 ) {
   for (entity, bird) in arrivals.iter() {
@@ -594,7 +603,6 @@ fn dress(
       &mut shapes,
       &mut meshes,
       &mut materials,
-      &mut images,
       &mut commands
     );
   }
