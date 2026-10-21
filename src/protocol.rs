@@ -407,7 +407,7 @@ pub struct Beast {
   pub pose: Pose
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Band {
   Trader,
   Pirate,

@@ -191,19 +191,4 @@ impl Part {
   pub fn turned(self, pitch: f32, yaw: f32, roll: f32) -> Part {
     Part { turn: Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll), ..self }
   }
-
-  pub fn mirrored(self) -> Part {
-    let (yaw, pitch, roll) = self.turn.to_euler(EulerRot::YXZ);
-    Part {
-      at: self.at * Vec3::new(-1.0, 1.0, 1.0),
-      turn: Quat::from_euler(EulerRot::YXZ, -yaw, pitch, -roll),
-      form: match self.form {
-        Form::Taper { toward, end, sides } => {
-          Form::Taper { toward: toward * IVec3::new(-1, 1, 1), end, sides }
-        }
-        form => form
-      },
-      ..self
-    }
-  }
 }

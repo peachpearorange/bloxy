@@ -101,6 +101,16 @@ pub fn sculpt(
     .with_inserted_indices(Indices::U32((0..count as u32).collect()))
 }
 
+pub fn merged(meshes: impl IntoIterator<Item = Mesh>) -> Mesh {
+  meshes
+    .into_iter()
+    .reduce(|mut whole, piece| {
+      whole.merge(&piece).expect("sculpted pieces share their attributes");
+      whole
+    })
+    .expect("something to merge")
+}
+
 #[cfg(test)]
 pub fn portrait(mesh: &Mesh, yaw: f32, size: usize, wire: bool) -> Vec<[u8; 3]> {
   let vectors = |attribute| match mesh.attribute(attribute) {
@@ -162,4 +172,31 @@ pub fn portrait(mesh: &Mesh, yaw: f32, size: usize, wire: bool) -> Vec<[u8; 3]> 
     }
   }
   pixels
+}
+
+#[cfg(test)]
+pub fn sheet(meshes: &[Mesh], path: &str) {
+  let (size, views) = (300, [200.0, 160.0, 90.0, 20.0]);
+  let rows: Vec<Vec<Vec<[u8; 3]>>> = meshes
+    .iter()
+    .flat_map(|mesh| {
+      [false, true]
+        .map(|wire| views.iter().map(|&yaw| portrait(mesh, yaw, size, wire)).collect())
+    })
+    .collect();
+  let image: Vec<u8> = rows
+    .iter()
+    .flat_map(|row| {
+      (0..size).flat_map(move |y| {
+        row
+          .iter()
+          .flat_map(move |tile| tile[y * size..(y + 1) * size].iter().flatten().copied())
+      })
+    })
+    .collect();
+  let mut file =
+    format!("P6 {} {} 255\n", size * views.len(), size * rows.len()).into_bytes();
+  file.extend(image);
+  std::fs::create_dir_all("screenshots").unwrap();
+  std::fs::write(path, file).unwrap()
 }

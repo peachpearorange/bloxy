@@ -12,9 +12,9 @@ use {crate::{authority::{Controller, player_of},
              noise::{hash, perlin3, unit},
              opts::opts,
              player::{Bulk, Marched, Pilot, captured, cells, march},
-             protocol::{Avatar, Beast, Breed, EYE, Fleece, Health, Inventory, Knock,
-                        Pose, REACH, Strike, authority, plays},
-             sculpt::{Daub, sculpt},
+             protocol::{Avatar, Band, Beast, Breed, EYE, Fleece, Folk, Health,
+                        Inventory, Knock, Pose, REACH, Strike, authority, plays},
+             sculpt::{Daub, merged, sculpt},
              voxels::Voxels},
      bevy::{camera::visibility::DynamicSkinnedMeshBounds,
             mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
@@ -665,13 +665,6 @@ fn bound(bones: &[Bone]) -> Vec<Mat4> {
 const BLACK: [f32; 3] = [0.06, 0.05, 0.05];
 const AMBER: [f32; 3] = [0.85, 0.6, 0.15];
 
-fn sided(side: f32, parts: Vec<Part>) -> Vec<Part> {
-  match side < 0.0 {
-    true => parts.into_iter().map(Part::mirrored).collect(),
-    false => parts
-  }
-}
-
 const SHEEP_LEGS: [(f32, f32, f32); 4] =
   [(0.22, -0.345, 0.0), (-0.22, 0.345, 0.0), (-0.22, -0.345, PI), (0.22, 0.345, PI)];
 const SHEEP_NECK: Vec3 = Vec3::new(0.0, 0.84, -0.46);
@@ -790,149 +783,316 @@ fn fleeced(fleece: Fleece) -> Mesh {
   )
 }
 
+const SPIDER_HIDE: [f32; 3] = [0.15, 0.11, 0.1];
+const SPIDER_HAIR: [f32; 3] = [0.26, 0.19, 0.15];
+const SPIDER_MARK: [f32; 3] = [0.72, 0.13, 0.08];
+const SPIDER_EYE: [f32; 3] = [1.0, 0.25, 0.12];
+const FANG: [f32; 3] = [0.84, 0.8, 0.68];
+const SPIDER_LEGS: [f32; 4] = [-0.28, -0.18, -0.08, 0.02];
+
+fn spidery() -> Mesh {
+  let body = Cage::rounded(
+    Vec3::new(0.0, 0.47, 0.27),
+    Vec3::new(0.52, 0.44, 0.58),
+    UVec3::splat(3),
+    0.6
+  )
+  .joined(Cage::rounded(
+    Vec3::new(0.0, 0.37, -0.17),
+    Vec3::new(0.32, 0.2, 0.34),
+    UVec3::new(2, 2, 2),
+    0.55
+  ))
+  .subdivided(1);
+  let eye = |x: f32, y: f32| Daub { at: Vec3::new(x, y, -0.36), color: SPIDER_EYE };
+  let hide = sculpt(
+    &body,
+    |centre, normal| match () {
+      _ if centre.z > 0.05
+        && normal.y > 0.35
+        && ((centre.x.abs() < 0.05 && centre.z < 0.4)
+          || ((centre.z - 0.12) * 14.0).sin().abs() > 0.93) =>
+      {
+        SPIDER_MARK
+      }
+      _ if centre.z > 0.0 => SPIDER_HAIR,
+      _ => SPIDER_HIDE
+    },
+    &[eye(0.035, 0.42), eye(-0.035, 0.42), eye(0.07, 0.4), eye(-0.07, 0.4)],
+    |_| 2
+  );
+  let piece =
+    |cage: Cage, color: [f32; 3], joint: u16| sculpt(&cage, |_, _| color, &[], |_| joint);
+  let fangs = [1.0, -1.0].map(|side| {
+    piece(
+      Cage::tube(
+        &[
+          (Vec3::new(side * 0.04, 0.33, -0.34), Vec2::splat(0.025)),
+          (Vec3::new(side * 0.045, 0.27, -0.37), Vec2::splat(0.02)),
+          (Vec3::new(side * 0.03, 0.22, -0.35), Vec2::splat(0.003))
+        ],
+        4
+      ),
+      FANG,
+      2
+    )
+  });
+  let bristles = (0..9).map(|tuft| {
+    let turn = tuft as f32 / 9.0 * TAU;
+    let root = Vec3::new(
+      turn.cos() * 0.2,
+      0.62 + turn.sin().abs() * 0.02,
+      0.27 + turn.sin() * 0.24
+    );
+    let out = (root - Vec3::new(0.0, 0.42, 0.27)).normalize();
+    piece(
+      Cage::spike(root, root + out * 0.09 + Vec3::Y * 0.03, Vec2::splat(0.018)),
+      SPIDER_HIDE,
+      2
+    )
+  });
+  let spinneret = piece(
+    Cage::spike(
+      Vec3::new(0.0, 0.45, 0.54),
+      Vec3::new(0.0, 0.41, 0.62),
+      Vec2::splat(0.03)
+    ),
+    SPIDER_HIDE,
+    2
+  );
+  let legs = [1.0f32, -1.0].into_iter().enumerate().flat_map(|(flank, side)| {
+    SPIDER_LEGS.into_iter().enumerate().map(move |(rank, z)| {
+      let root = Vec3::new(side * 0.16, 0.34, z);
+      let splay = (rank as f32 - 1.5) * 0.42;
+      let out = Vec3::new(side * splay.cos(), 0.0, splay.sin());
+      let path = [
+        (0.0, 0.0, 0.045),
+        (0.12, 0.08, 0.04),
+        (0.26, 0.16, 0.034),
+        (0.36, 0.2, 0.042),
+        (0.44, 0.05, 0.03),
+        (0.5, -0.15, 0.022),
+        (0.53, -0.33, 0.004)
+      ]
+      .map(|(reach, rise, thick)| {
+        (root + out * reach + Vec3::Y * rise, Vec2::splat(thick))
+      });
+      sculpt(
+        &Cage::tube(&path, 5),
+        |centre, _| {
+          let reach = (centre - root).dot(out);
+          match () {
+            _ if reach > 0.5 => SPIDER_HIDE.map(|channel| channel * 0.5),
+            _ if (0.32..0.4).contains(&reach) || (0.1..0.15).contains(&reach) => {
+              SPIDER_MARK
+            }
+            _ => SPIDER_HAIR
+          }
+        },
+        &[],
+        |_| 3 + (flank * 4 + rank) as u16
+      )
+    })
+  });
+  merged([hide, spinneret].into_iter().chain(fangs).chain(bristles).chain(legs))
+}
+
+const LIZARD_GREEN: [f32; 3] = [0.34, 0.54, 0.21];
+const LIZARD_DARK: [f32; 3] = [0.21, 0.38, 0.14];
+const LIZARD_BELLY: [f32; 3] = [0.74, 0.76, 0.45];
+const LIZARD_CREST: [f32; 3] = [0.93, 0.5, 0.12];
+const LIZARD_EYE: [f32; 3] = [0.98, 0.86, 0.2];
+const LIZARD_CLAW: [f32; 3] = [0.85, 0.8, 0.6];
+
+fn scaly() -> Mesh {
+  let trunk = Cage::rounded(
+    Vec3::new(0.0, 0.42, -0.2),
+    Vec3::new(0.26, 0.22, 0.52),
+    UVec3::new(3, 2, 4),
+    0.45
+  );
+  let middle = |cage: &Cage, facing: f32| {
+    cage.faces_where(|centre, normal| normal.z * facing > 0.6 && centre.x.abs() < 0.05)
+  };
+  let below = |cage: &Cage, front: bool| {
+    cage.faces_where(|centre, normal| {
+      normal.y < -0.6
+        && centre.x.abs() > 0.05
+        && if front { centre.z < -0.33 } else { centre.z > -0.07 }
+    })
+  };
+  let (head, tail) = (middle(&trunk, -1.0), middle(&trunk, 1.0));
+  let (arms, legs) = (below(&trunk, true), below(&trunk, false));
+  let headed = trunk.grown_along(&head, &[
+    (Vec3::new(0.0, 0.04, -0.08), Vec3::new(1.5, 0.8, 1.0)),
+    (Vec3::new(0.0, 0.03, -0.12), Vec3::new(1.3, 1.0, 1.0)),
+    (Vec3::new(0.0, -0.02, -0.13), Vec3::new(0.62, 0.6, 1.0)),
+    (Vec3::new(0.0, -0.01, -0.05), Vec3::new(0.6, 0.6, 1.0))
+  ]);
+  let tailed = headed.grown_along(&tail, &[
+    (Vec3::new(0.0, 0.0, 0.12), Vec3::new(1.2, 0.85, 1.0)),
+    (Vec3::new(0.0, -0.01, 0.13), Vec3::new(0.85, 0.85, 1.0)),
+    (Vec3::new(0.0, -0.01, 0.13), Vec3::new(0.8, 0.8, 1.0)),
+    (Vec3::new(0.0, -0.01, 0.13), Vec3::new(0.75, 0.75, 1.0)),
+    (Vec3::new(0.0, 0.0, 0.13), Vec3::new(0.65, 0.65, 1.0)),
+    (Vec3::new(0.0, 0.0, 0.13), Vec3::new(0.2, 0.25, 1.0))
+  ]);
+  let limbed = |cage: Cage, faces: &[usize], steps: &[(Vec3, Vec3)]| {
+    faces.iter().fold(cage, |cage, &face| {
+      let side = cage.centre(face).x.signum();
+      cage.grown_along(
+        &[face],
+        &steps
+          .iter()
+          .map(|&(toward, scale)| (toward * Vec3::new(side, 1.0, 1.0), scale))
+          .collect::<Vec<_>>()
+      )
+    })
+  };
+  let armed = limbed(tailed, &arms, &[
+    (Vec3::new(0.06, -0.05, 0.0), Vec3::new(0.85, 1.0, 0.85)),
+    (Vec3::new(0.01, -0.1, -0.01), Vec3::new(0.8, 1.0, 0.8)),
+    (Vec3::new(0.0, -0.035, -0.035), Vec3::new(1.4, 1.0, 1.6))
+  ]);
+  let legged = limbed(armed, &legs, &[
+    (Vec3::new(0.03, -0.1, 0.0), Vec3::new(1.2, 1.0, 1.2)),
+    (Vec3::new(0.0, -0.13, 0.02), Vec3::new(0.65, 1.0, 0.65)),
+    (Vec3::new(0.0, -0.06, -0.06), Vec3::new(1.3, 1.0, 2.2))
+  ]);
+  let joint = |at: Vec3| match () {
+    _ if at.y < 0.3 && at.z < -0.25 => {
+      if at.x > 0.0 {
+        6
+      } else {
+        7
+      }
+    }
+    _ if at.y < 0.3 => {
+      if at.x > 0.0 {
+        8
+      } else {
+        9
+      }
+    }
+    _ if at.z < -0.47 => 3,
+    _ if at.z > 0.45 => 5,
+    _ if at.z > 0.07 => 4,
+    _ => 2
+  };
+  let body = legged.subdivided(1);
+  let eye =
+    |side: f32| Daub { at: Vec3::new(side * 0.12, 0.53, -0.6), color: LIZARD_EYE };
+  let nostril = |side: f32| Daub {
+    at: Vec3::new(side * 0.025, 0.47, -0.84),
+    color: LIZARD_DARK.map(|c| c * 0.4)
+  };
+  let hide = sculpt(
+    &body,
+    |centre, normal| match () {
+      _ if centre.y < 0.3 && normal.y < -0.5 => LIZARD_DARK,
+      _ if normal.y < -0.35 => LIZARD_BELLY,
+      _ if normal.y > 0.4 && ((centre.z + 1.0) * 9.0).rem_euclid(3.0) < 1.0 => {
+        LIZARD_DARK
+      }
+      _ => LIZARD_GREEN
+    },
+    &[eye(1.0), eye(-1.0), nostril(1.0), nostril(-1.0)],
+    joint
+  );
+  let fin = |z: f32, y: f32, tall: f32, lean: f32| {
+    let root = Vec3::new(0.0, y, z);
+    sculpt(
+      &Cage::spike(root, root + Vec3::new(0.0, tall, lean), Vec2::new(0.012, 0.045)),
+      |_, _| LIZARD_CREST,
+      &[],
+      |_| joint(root)
+    )
+  };
+  let claws = [(true, 1.0), (true, -1.0), (false, 1.0), (false, -1.0)]
+    .into_iter()
+    .flat_map(|(arm, side)| {
+      let (x, y, z, reach) = match arm {
+        true => (0.15, 0.21, -0.48, 0.06),
+        false => (0.12, 0.01, -0.12, 0.07)
+      };
+      [-0.025, 0.0, 0.025].map(|spread| {
+        let root = Vec3::new(side * (x + spread), y, z);
+        sculpt(
+          &Cage::spike(
+            root,
+            root + Vec3::new(side * spread, -0.015, -reach),
+            Vec2::splat(0.012)
+          ),
+          |_, _| LIZARD_CLAW,
+          &[],
+          |_| {
+            if arm {
+              if side > 0.0 { 6 } else { 7 }
+            } else if side > 0.0 {
+              8
+            } else {
+              9
+            }
+          }
+        )
+      })
+    });
+  merged(
+    [
+      hide,
+      fin(-0.08, 0.52, 0.07, 0.03),
+      fin(-0.2, 0.53, 0.09, 0.03),
+      fin(-0.32, 0.52, 0.07, 0.03),
+      fin(-0.58, 0.57, 0.1, 0.04),
+      fin(0.16, 0.49, 0.06, 0.03),
+      fin(0.3, 0.47, 0.045, 0.03)
+    ]
+    .into_iter()
+    .chain(claws)
+  )
+}
+
 fn lizard() -> Vec<Bone> {
-  let green = [0.32, 0.52, 0.2];
-  let dark = [0.22, 0.4, 0.15];
-  let belly = [0.7, 0.74, 0.42];
-  let crest = [0.93, 0.5, 0.12];
-  let eye = [0.98, 0.86, 0.2];
-  let arm = |x: f32, phase: f32| Bone {
-    parent: Some(2),
-    joint: Joint::Arm(phase),
-    pivot: Vec3::new(x, -0.04, -0.34),
-    parts: vec![
-      Part::taper(IVec3::NEG_Y, 0.7, [0.0, -0.08, -0.02], [0.065, 0.17, 0.065], green),
-      Part::pebble([0.0, -0.17, -0.04], [0.09, 0.045, 0.09], dark),
-    ]
-  };
-  let leg = |x: f32, phase: f32| Bone {
-    parent: Some(1),
-    joint: Joint::Leg(phase),
-    pivot: Vec3::new(x, 0.0, 0.02),
-    parts: vec![
-      Part::lump([0.0, -0.11, 0.0], [0.11, 0.28, 0.13], green),
-      Part::taper(IVec3::NEG_Y, 0.7, [0.0, -0.31, 0.01], [0.07, 0.2, 0.07], green),
-      Part::taper(IVec3::NEG_Z, 0.4, [0.0, -0.405, -0.06], [0.11, 0.04, 0.2], dark),
-    ]
-  };
-  let spike = |z: f32, y: f32, height: f32| {
-    Part::taper(IVec3::Y, 0.2, [0.0, y, z], [0.035, height, 0.08], crest)
+  let bone = |parent: Option<usize>, joint: Joint, pivot: [f32; 3]| Bone {
+    parent,
+    joint,
+    pivot: Vec3::from(pivot),
+    parts: vec![]
   };
   vec![
-    Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, parts: vec![] },
-    Bone {
-      parent: Some(0),
-      joint: Joint::Hips,
-      pivot: Vec3::new(0.0, 0.42, 0.0),
-      parts: vec![]
-    },
-    Bone {
-      parent: Some(1),
-      joint: Joint::Trunk,
-      pivot: Vec3::ZERO,
-      parts: vec![
-        Part::lump([0.0, 0.0, -0.2], [0.25, 0.22, 0.52], green),
-        Part::lump([0.0, -0.06, -0.2], [0.2, 0.12, 0.42], belly),
-        spike(-0.06, 0.13, 0.1),
-        spike(-0.2, 0.14, 0.13),
-        spike(-0.34, 0.12, 0.1),
-      ]
-    },
-    Bone {
-      parent: Some(2),
-      joint: Joint::Neck,
-      pivot: Vec3::new(0.0, 0.03, -0.42),
-      parts: vec![
-        Part::lump([0.0, 0.03, -0.1], [0.18, 0.15, 0.23], green),
-        Part::taper(IVec3::NEG_Z, 0.55, [0.0, 0.0, -0.25], [0.13, 0.09, 0.15], green),
-        Part::pebble([0.075, 0.075, -0.12], [0.05, 0.06, 0.06], eye),
-        Part::pebble([-0.075, 0.075, -0.12], [0.05, 0.06, 0.06], eye),
-        Part::taper(IVec3::Y, 0.3, [0.0, 0.14, -0.03], [0.035, 0.1, 0.14], crest),
-      ]
-    },
-    Bone {
-      parent: Some(2),
-      joint: Joint::Tail,
-      pivot: Vec3::new(0.0, 0.0, 0.02),
-      parts: vec![Part::taper(
-        IVec3::Z,
-        0.55,
-        [0.0, 0.0, 0.2],
-        [0.15, 0.13, 0.42],
-        green
-      )]
-    },
-    Bone {
-      parent: Some(4),
-      joint: Joint::TailTip,
-      pivot: Vec3::new(0.0, 0.0, 0.4),
-      parts: vec![Part::taper(
-        IVec3::Z,
-        0.15,
-        [0.0, 0.0, 0.22],
-        [0.085, 0.075, 0.46],
-        dark
-      )]
-    },
-    arm(0.13, 0.0),
-    arm(-0.13, PI),
-    leg(0.1, 0.0),
-    leg(-0.1, PI),
+    bone(None, Joint::Fixed, [0.0; 3]),
+    bone(Some(0), Joint::Hips, [0.0, 0.42, 0.0]),
+    bone(Some(1), Joint::Trunk, [0.0; 3]),
+    bone(Some(2), Joint::Neck, [0.0, 0.03, -0.42]),
+    bone(Some(2), Joint::Tail, [0.0, 0.0, 0.02]),
+    bone(Some(4), Joint::TailTip, [0.0, 0.0, 0.4]),
+    bone(Some(2), Joint::Arm(0.0), [0.13, -0.04, -0.34]),
+    bone(Some(2), Joint::Arm(PI), [-0.13, -0.04, -0.34]),
+    bone(Some(1), Joint::Leg(0.0), [0.1, 0.0, 0.02]),
+    bone(Some(1), Joint::Leg(PI), [-0.1, 0.0, 0.02]),
   ]
 }
 
 fn spider() -> Vec<Bone> {
-  let hide = [0.14, 0.11, 0.11];
-  let hair = [0.24, 0.19, 0.16];
-  let mark = [0.7, 0.12, 0.08];
-  let eye = [1.0, 0.2, 0.1];
-  let fang = [0.82, 0.78, 0.66];
-  let leg = |x: f32, z: f32, phase: f32| Bone {
-    parent: Some(2),
-    joint: Joint::Leg(phase),
-    pivot: Vec3::new(x * 0.16, 0.02, z),
-    parts: sided(x, vec![
-      Part::taper(IVec3::X, 0.7, [0.2, 0.1, 0.0], [0.44, 0.08, 0.08], hair)
-        .turned(0.0, 0.0, 0.3),
-      Part::pebble([0.41, 0.17, 0.0], [0.1, 0.1, 0.1], hide),
-      Part::taper(IVec3::NEG_Y, 0.3, [0.47, -0.08, 0.0], [0.065, 0.48, 0.065], hide)
-        .turned(0.0, 0.0, 0.12),
-    ])
+  let bone = |parent: Option<usize>, joint: Joint, pivot: Vec3| Bone {
+    parent,
+    joint,
+    pivot,
+    parts: vec![]
   };
-  vec![
-    Bone { parent: None, joint: Joint::Fixed, pivot: Vec3::ZERO, parts: vec![] },
-    Bone {
-      parent: Some(0),
-      joint: Joint::Hips,
-      pivot: Vec3::new(0.0, 0.32, 0.0),
-      parts: vec![]
-    },
-    Bone {
-      parent: Some(1),
-      joint: Joint::Trunk,
-      pivot: Vec3::ZERO,
-      parts: vec![
-        Part::lump([0.0, 0.04, -0.16], [0.38, 0.25, 0.38], hide),
-        Part::lump([0.0, 0.15, 0.27], [0.54, 0.45, 0.6], hair),
-        Part::pebble([0.0, 0.34, 0.2], [0.14, 0.08, 0.16], mark),
-        Part::pebble([0.0, 0.33, 0.36], [0.2, 0.08, 0.08], mark),
-        Part::pebble([0.06, 0.1, -0.33], [0.06, 0.06, 0.04], eye),
-        Part::pebble([-0.06, 0.1, -0.33], [0.06, 0.06, 0.04], eye),
-        Part::pebble([0.12, 0.07, -0.31], [0.045, 0.045, 0.04], eye),
-        Part::pebble([-0.12, 0.07, -0.31], [0.045, 0.045, 0.04], eye),
-        Part::taper(IVec3::NEG_Y, 0.3, [0.05, -0.08, -0.33], [0.05, 0.12, 0.05], fang),
-        Part::taper(IVec3::NEG_Y, 0.3, [-0.05, -0.08, -0.33], [0.05, 0.12, 0.05], fang),
-      ]
-    },
-    leg(1.0, -0.28, 0.0),
-    leg(1.0, -0.18, PI),
-    leg(1.0, -0.08, 0.0),
-    leg(1.0, 0.02, PI),
-    leg(-1.0, -0.28, PI),
-    leg(-1.0, -0.18, 0.0),
-    leg(-1.0, -0.08, PI),
-    leg(-1.0, 0.02, 0.0),
+  [
+    bone(None, Joint::Fixed, Vec3::ZERO),
+    bone(Some(0), Joint::Hips, Vec3::Y * 0.32),
+    bone(Some(1), Joint::Trunk, Vec3::ZERO)
   ]
+  .into_iter()
+  .chain([1.0f32, -1.0].into_iter().flat_map(|side| {
+    SPIDER_LEGS.into_iter().enumerate().map(move |(rank, z)| {
+      let phase = if (rank % 2 == 0) == (side > 0.0) { 0.0 } else { PI };
+      bone(Some(2), Joint::Leg(phase), Vec3::new(side * 0.16, 0.02, z))
+    })
+  }))
+  .collect()
 }
 
 #[derive(Component)]
@@ -970,10 +1130,11 @@ fn dress(
       .entry(beast.breed)
       .or_insert_with(|| {
         let mesh = match beast.breed {
-          Breed::Sheep(fleece) => Some(fleeced(fleece)),
-          _ => None
+          Breed::Sheep(fleece) => fleeced(fleece),
+          Breed::Lizard => scaly(),
+          Breed::Spider => spidery()
         };
-        mesh.map(|mesh| (meshes.add(mesh), poses.add(bound(&bones))))
+        Some((meshes.add(mesh), poses.add(bound(&bones))))
       })
       .clone();
     if let Some((mesh, inverse_bindposes)) = hide {
@@ -1124,19 +1285,28 @@ fn parade(pilot: Res<Pilot>, mut done: Local<bool>, mut commands: Commands) {
     ];
     let birds =
       [bird::Breed::Swan, bird::Breed::Raven, bird::Breed::Gull, bird::Breed::Parrot];
-    let count = (beasts.len() + birds.len()) as f32;
+    let folk =
+      [(Band::Skeleton, 0), (Band::Skeleton, 1), (Band::Thrall, 2), (Band::Warden, 0)];
     let (forward, right) = (ahead(pilot.yaw), Quat::from_rotation_y(pilot.yaw) * Vec3::X);
     let spot = |index: usize| {
-      pilot.at + forward * 3.4 + right * (index as f32 - (count - 1.0) * 0.5) * 0.95
+      let (row, column) = ((index / 5) as f32, (index % 5) as f32);
+      pilot.at + forward * (3.2 + row * 2.0) + right * (column - 2.0) * 1.15
     };
     let yaw = pilot.yaw + PI - 0.7;
     for (index, &breed) in beasts.iter().enumerate() {
       commands.spawn(Beast { breed, at: spot(index), yaw, pose: Pose::Still });
     }
+    for (index, &(band, luck)) in folk.iter().enumerate() {
+      let at = spot(beasts.len() + index);
+      commands.spawn((
+        Folk { band, at, yaw, luck, blows: 0, aboard: false },
+        Health(band.health())
+      ));
+    }
     for (index, &breed) in birds.iter().enumerate() {
       commands.spawn(bird::Bird {
         breed,
-        at: spot(beasts.len() + index),
+        at: spot(beasts.len() + folk.len() + index),
         yaw,
         stance: bird::Stance::Rest
       });
@@ -1170,34 +1340,14 @@ impl Plugin for Beasts {
 
 #[cfg(test)]
 mod tests {
-  use {super::*, crate::sculpt::portrait};
+  use {super::*, crate::sculpt::sheet};
 
   #[test]
   #[ignore]
   fn hides() {
-    let (size, views) = (300, [200.0, 160.0, 90.0, 20.0]);
-    let hides = [Fleece::White, Fleece::Black, Fleece::Brown].map(fleeced);
-    let rows: Vec<Vec<Vec<[u8; 3]>>> = hides
-      .iter()
-      .flat_map(|hide| {
-        [false, true]
-          .map(|wire| views.iter().map(|&yaw| portrait(hide, yaw, size, wire)).collect())
-      })
-      .collect();
-    let image: Vec<u8> = rows
-      .iter()
-      .flat_map(|row| {
-        (0..size).flat_map(move |y| {
-          row.iter().flat_map(move |tile| {
-            tile[y * size..(y + 1) * size].iter().flatten().copied()
-          })
-        })
-      })
-      .collect();
-    let mut file =
-      format!("P6 {} {} 255\n", size * views.len(), size * rows.len()).into_bytes();
-    file.extend(image);
-    std::fs::create_dir_all("screenshots").unwrap();
-    std::fs::write("screenshots/hides.ppm", file).unwrap()
+    sheet(
+      &[fleeced(Fleece::White), fleeced(Fleece::Brown), scaly(), spidery()],
+      "screenshots/hides.ppm"
+    )
   }
 }

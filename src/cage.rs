@@ -61,6 +61,87 @@ impl Cage {
     Self::outward(points, faces)
   }
 
+  pub fn tube(path: &[(Vec3, Vec2)], sides: u32) -> Self {
+    let tangent = |index: usize| {
+      (path[(index + 1).min(path.len() - 1)].0 - path[index.saturating_sub(1)].0)
+        .normalize_or(Vec3::Y)
+    };
+    let first = tangent(0);
+    let across =
+      first.cross(if first.y.abs() < 0.9 { Vec3::Y } else { Vec3::X }).normalize();
+    let frames = (1..path.len()).fold(vec![(first, across)], |mut frames, index| {
+      let (before, across) = frames[index - 1];
+      let along = tangent(index);
+      let turned = Quat::from_rotation_arc(before, along) * across;
+      frames.push((along, turned.reject_from(along).normalize_or(across)));
+      frames
+    });
+    let points = path
+      .iter()
+      .zip(&frames)
+      .flat_map(|(&(at, size), &(along, across))| {
+        let up = along.cross(across);
+        (0..sides).map(move |side| {
+          let angle = (side as f32 + 0.5) / sides as f32 * TAU;
+          at + across * angle.cos() * size.x + up * angle.sin() * size.y
+        })
+      })
+      .collect();
+    let rings = path.len() as u32;
+    let faces = (0..rings - 1)
+      .flat_map(|ring| {
+        (0..sides).map(move |side| {
+          let next = (side + 1) % sides;
+          vec![
+            ring * sides + side,
+            ring * sides + next,
+            (ring + 1) * sides + next,
+            (ring + 1) * sides + side,
+          ]
+        })
+      })
+      .chain([(0..sides).rev().collect(), ((rings - 1) * sides..rings * sides).collect()])
+      .collect();
+    Self { points, faces, ..default() }.turned_outward()
+  }
+
+  pub fn rounded(middle: Vec3, size: Vec3, segments: UVec3, round: f32) -> Self {
+    Self::block(size, segments).shaped(|at| {
+      let cube = at / (size / 2.0);
+      let ball = cube.normalize_or_zero() * cube.abs().max_element();
+      middle + cube.lerp(ball, round) * size / 2.0
+    })
+  }
+
+  pub fn spike(from: Vec3, to: Vec3, thick: Vec2) -> Self {
+    Self::tube(&[(from, thick), (to, thick * 0.08)], 4)
+  }
+
+  fn turned_outward(self) -> Self {
+    let volume: f32 = self
+      .faces
+      .iter()
+      .flat_map(|face| {
+        (1..face.len() - 1).map(move |corner| [face[0], face[corner], face[corner + 1]])
+      })
+      .map(|[a, b, c]| {
+        let [a, b, c] = [a, b, c].map(|corner| self.points[corner as usize]);
+        a.dot(b.cross(c))
+      })
+      .sum();
+    match volume < 0.0 {
+      true => Self {
+        faces: self
+          .faces
+          .into_iter()
+          .map(|face| face.into_iter().rev().collect())
+          .collect(),
+        ..self
+      },
+      false => self
+    }
+  }
+
   pub fn prism(sides: u32, radius: f32, height: f32) -> Self {
     let ring = |y: f32| {
       (0..sides).map(move |side| {
@@ -190,6 +271,10 @@ impl Cage {
     let middle = faces.iter().map(|&face| self.centre(face)).sum::<Vec3>()
       / faces.len().max(1) as f32;
     self.extruded(faces, |point| middle + toward + (point - middle) * scale)
+  }
+
+  pub fn grown_along(self, faces: &[usize], steps: &[(Vec3, Vec3)]) -> Self {
+    steps.iter().fold(self, |cage, &(toward, scale)| cage.grown(faces, toward, scale))
   }
 
   pub fn joined(self, other: Cage) -> Self {
