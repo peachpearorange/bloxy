@@ -593,7 +593,7 @@ const LIMBS: [(u16, f32, bool); 4] =
 const SKULL_PIVOT: Vec3 = Vec3::new(0.0, 24.0 * PX, 0.0);
 const SHOULDER: f32 = 0.28;
 const IRONRUST: [f32; 3] = [0.33, 0.29, 0.27];
-const SOCKET: Vec3 = Vec3::new(0.069, 1.63, -0.138);
+const SOCKET: Vec3 = Vec3::new(0.07, 1.618, -0.139);
 const MARROW: [f32; 3] = [0.7, 0.66, 0.55];
 const HOLLOW: [f32; 3] = [0.07, 0.05, 0.05];
 
@@ -611,34 +611,37 @@ fn pivot(joint: u16) -> Vec3 {
 }
 
 fn long_bone(from: Vec3, to: Vec3, thick: f32) -> Cage {
-  let along = |t: f32| from.lerp(to, t);
   Cage::tube(
-    &[(-0.03, 0.8), (0.07, 1.4), (0.2, 0.85), (0.8, 0.8), (0.93, 1.35), (1.03, 0.75)]
-      .map(|(t, girth)| (along(t), Vec2::splat(thick * girth))),
-    5
+    &[(0.0, 1.25), (0.5, 0.75), (1.0, 1.2)]
+      .map(|(t, girth)| (from.lerp(to, t), Vec2::splat(thick * girth))),
+    4
   )
 }
 
+fn rod(from: Vec3, to: Vec3, thick: f32, sides: u32) -> Cage {
+  Cage::tube(&[(from, Vec2::splat(thick)), (to, Vec2::splat(thick))], sides)
+}
+
 fn ribs(side: f32) -> Vec<Cage> {
-  [(1.33, 0.15), (1.275, 0.185), (1.22, 0.2), (1.165, 0.19), (1.11, 0.165)]
+  [(1.32, 0.155), (1.25, 0.19), (1.18, 0.195), (1.11, 0.17)]
     .into_iter()
     .map(|(y, wide)| {
       let deep = wide * 0.68;
-      let path: Vec<(Vec3, Vec2)> = (0..7)
+      let path: Vec<(Vec3, Vec2)> = (0..4)
         .map(|step| {
-          let turn = 0.35 + step as f32 / 6.0 * 2.3;
-          let flare = 1.0 + (step as f32 / 6.0).powi(3) * 0.18;
+          let turn = 0.35 + step as f32 / 3.0 * 2.3;
+          let flare = 1.0 + (step as f32 / 3.0).powi(3) * 0.18;
           (
             Vec3::new(
               side * wide * turn.sin() * flare,
               y - turn / PI * 0.06,
               deep * turn.cos() * flare + 0.02
             ),
-            Vec2::new(0.016, 0.026)
+            Vec2::new(0.018, 0.028)
           )
         })
         .collect();
-      Cage::tube(&path, 4)
+      Cage::tube(&path, 3)
     })
     .collect()
 }
@@ -654,15 +657,13 @@ fn skull(band: Band, luck: u32) -> Mesh {
     let cheek = ((1.6 - at.y) / 0.1).clamp(0.0, 1.0);
     at * Vec3::new(1.0 - cheek * 0.18, 1.0, 1.0)
       + Vec3::Z * (cheek * 0.03 * (-at.z).max(0.0) / 0.15)
-  })
-  .subdivided(1);
+  });
   let jaw = Cage::rounded(
     Vec3::new(0.0, 1.475, -0.06),
     Vec3::new(0.19, 0.06, 0.14),
     UVec3::new(2, 1, 2),
     0.4
-  )
-  .subdivided(1);
+  );
   let mouth = Cage::rounded(
     Vec3::new(0.0, 1.508, -0.07),
     Vec3::new(0.15, 0.03, 0.12),
@@ -672,59 +673,47 @@ fn skull(band: Band, luck: u32) -> Mesh {
   let teeth = [-0.05, -0.017, 0.017, 0.05].map(|x| {
     Cage::tube(
       &[
-        (Vec3::new(x, 1.497, -0.128), Vec2::splat(0.011)),
-        (Vec3::new(x, 1.527, -0.126), Vec2::splat(0.009))
+        (Vec3::new(x, 1.497, -0.128), Vec2::splat(0.012)),
+        (Vec3::new(x, 1.527, -0.126), Vec2::splat(0.01))
       ],
-      4
+      3
     )
   });
-  let socket = |side: f32, lift: f32, out: f32| Daub {
-    at: SOCKET * Vec3::new(side, 1.0, 1.0) + Vec3::new(side * out, lift + 0.005, -0.075),
+  let socket = |side: f32| Daub {
+    at: SOCKET * Vec3::new(side, 1.0, 1.0) + Vec3::new(0.0, 0.0, -0.05),
     color: HOLLOW
   };
   let face = sculpt(
     &cranium,
     |_, _| BONE,
-    &[
-      socket(1.0, 0.0, 0.0),
-      socket(-1.0, 0.0, 0.0),
-      socket(1.0, -0.02, 0.02),
-      socket(-1.0, -0.02, 0.02),
-      Daub { at: Vec3::new(0.0, 1.575, -0.22), color: HOLLOW }
-    ],
+    &[socket(1.0), socket(-1.0), Daub { at: Vec3::new(0.0, 1.57, -0.22), color: HOLLOW }],
     |_| SKULL
   );
   let plain = |cage: &Cage, color: [f32; 3]| sculpt(cage, |_, _| color, &[], |_| SKULL);
+  let dome = |size: Vec3, rim: f32| {
+    Cage::rounded(Vec3::new(0.0, rim + 0.05, 0.005), size, UVec3::new(2, 1, 2), 0.6)
+      .shaped(move |at| at.with_y(at.y.max(rim)))
+  };
   let helm: Vec<Mesh> = match band {
     Band::Warden => {
-      let dome = Cage::rounded(
-        Vec3::new(0.0, 1.72, 0.005),
-        Vec3::new(0.35, 0.2, 0.37),
-        UVec3::new(3, 2, 3),
-        0.6
-      )
-      .shaped(|at| at.with_y(at.y.max(1.66)))
-      .subdivided(1);
       let horn = |side: f32| {
         Cage::tube(
           &[
             (Vec3::new(side * 0.15, 1.73, 0.0), Vec2::splat(0.045)),
-            (Vec3::new(side * 0.25, 1.77, -0.01), Vec2::splat(0.04)),
-            (Vec3::new(side * 0.33, 1.86, -0.03), Vec2::splat(0.03)),
-            (Vec3::new(side * 0.35, 1.97, -0.07), Vec2::splat(0.018)),
+            (Vec3::new(side * 0.3, 1.8, -0.02), Vec2::splat(0.035)),
+            (Vec3::new(side * 0.35, 1.95, -0.06), Vec2::splat(0.02)),
             (Vec3::new(side * 0.32, 2.05, -0.12), Vec2::splat(0.004))
           ],
-          5
+          4
         )
       };
       let crest = Cage::tube(
         &[
           (Vec3::new(0.0, 1.8, -0.19), Vec2::new(0.014, 0.02)),
-          (Vec3::new(0.0, 1.85, -0.05), Vec2::new(0.014, 0.03)),
-          (Vec3::new(0.0, 1.84, 0.1), Vec2::new(0.014, 0.03)),
+          (Vec3::new(0.0, 1.86, 0.0), Vec2::new(0.014, 0.03)),
           (Vec3::new(0.0, 1.76, 0.2), Vec2::new(0.014, 0.02))
         ],
-        4
+        3
       );
       let cheek = |side: f32| {
         Cage::rounded(
@@ -735,7 +724,7 @@ fn skull(band: Band, luck: u32) -> Mesh {
         )
       };
       vec![
-        plain(&dome, IRON),
+        plain(&dome(Vec3::new(0.35, 0.2, 0.37), 1.66), IRON),
         plain(&horn(1.0), BONE),
         plain(&horn(-1.0), BONE),
         plain(&crest, GOLD),
@@ -744,24 +733,20 @@ fn skull(band: Band, luck: u32) -> Mesh {
       ]
     }
     Band::Skeleton if luck % 3 == 0 => {
-      let dome = Cage::rounded(
-        Vec3::new(0.0, 1.73, 0.005),
-        Vec3::new(0.33, 0.17, 0.35),
-        UVec3::new(3, 2, 3),
-        0.6
-      )
-      .shaped(|at| at.with_y(at.y.max(1.68)))
-      .subdivided(1);
-      let brim = Cage::prism(10, 0.215, 0.022)
+      let brim = Cage::prism(8, 0.215, 0.022)
         .shaped(|at| at * Vec3::new(1.0, 1.0, 1.05) + Vec3::Y * 1.685);
       let guard = Cage::tube(
         &[
           (Vec3::new(0.0, 1.69, -0.19), Vec2::new(0.022, 0.01)),
           (Vec3::new(0.0, 1.6, -0.2), Vec2::new(0.016, 0.01))
         ],
-        4
+        3
       );
-      vec![plain(&dome, IRONRUST), plain(&brim, IRONRUST), plain(&guard, IRONRUST)]
+      vec![
+        plain(&dome(Vec3::new(0.33, 0.17, 0.35), 1.68), IRONRUST),
+        plain(&brim, IRONRUST),
+        plain(&guard, IRONRUST),
+      ]
     }
     _ => vec![]
   };
@@ -782,24 +767,11 @@ fn sword(
 ) -> Vec<(Cage, [f32; 3])> {
   let at = |x: f32, y: f32, z: f32| Vec3::new(side * 0.315 + x, y, z);
   vec![
+    (rod(at(0.0, 0.79, 0.07), at(0.0, 0.79, -0.04), 0.019, 4), HAFT),
+    (Cage::rounded(at(0.0, 0.79, 0.085), Vec3::splat(0.045), UVec3::ONE, 0.6), guard),
     (
       Cage::tube(
-        &[
-          (at(0.0, 0.79, 0.07), Vec2::splat(0.018)),
-          (at(0.0, 0.79, -0.04), Vec2::splat(0.02))
-        ],
-        5
-      ),
-      HAFT
-    ),
-    (
-      Cage::rounded(at(0.0, 0.79, 0.085), Vec3::splat(0.045), UVec3::ONE, 0.6)
-        .subdivided(1),
-      guard
-    ),
-    (
-      Cage::tube(
-        &[(-0.09, 0.765), (-0.05, 0.79), (0.05, 0.79), (0.09, 0.765)]
+        &[(-0.09, 0.765), (0.0, 0.79), (0.09, 0.765)]
           .map(|(x, y)| (at(x, y, -0.05), Vec2::new(0.016, 0.02))),
         4
       ),
@@ -807,7 +779,7 @@ fn sword(
     ),
     (
       Cage::tube(
-        &[(-0.06, 1.0), (-0.3, 0.95), (-0.75, 0.85), (-0.94, 0.55), (-1.0, 0.08)]
+        &[(-0.06, 1.0), (-0.6, 0.9), (-0.92, 0.55), (-1.0, 0.08)]
           .map(|(z, girth)| (at(0.0, 0.79, z * length), Vec2::new(0.011, wide * girth))),
         4
       ),
@@ -823,43 +795,26 @@ fn tower(side: f32) -> Vec<(Cage, [f32; 3])> {
   let bar = |from: Vec3, to: Vec3| {
     Cage::tube(
       &[(bowed(face + from), Vec2::splat(0.022)), (bowed(face + to), Vec2::splat(0.022))],
-      4
+      3
     )
   };
-  let rivets = [
-    (0.33, 0.24),
-    (0.33, -0.24),
-    (-0.33, 0.24),
-    (-0.33, -0.24),
-    (0.0, 0.27),
-    (0.0, -0.27)
-  ]
-  .map(|(y, z)| {
-    let root = bowed(face + Vec3::new(0.0, y, z));
-    (Cage::spike(root, root + Vec3::X * side * 0.035, Vec2::splat(0.018)), GOLD)
-  });
+  let boss = bowed(face + Vec3::Y * 0.1);
+  let rivets =
+    [(0.33, 0.24), (0.33, -0.24), (-0.33, 0.24), (-0.33, -0.24)].map(|(y, z)| {
+      let root = bowed(face + Vec3::new(0.0, y, z));
+      (Cage::spike(root, root + Vec3::X * side * 0.035, Vec2::splat(0.018)), GOLD)
+    });
   [
     vec![
       (
-        Cage::rounded(middle, Vec3::new(0.045, 0.78, 0.6), UVec3::new(1, 4, 3), 0.12)
+        Cage::rounded(middle, Vec3::new(0.045, 0.78, 0.6), UVec3::new(1, 2, 3), 0.12)
           .shaped(bowed),
         [0.2, 0.2, 0.24]
       ),
       (bar(Vec3::new(0.0, 0.3, 0.0), Vec3::new(0.0, -0.3, 0.0)), GOLD),
       (bar(Vec3::new(0.0, 0.1, 0.2), Vec3::new(0.0, 0.1, -0.2)), GOLD),
-      (
-        Cage::rounded(bowed(face + Vec3::Y * 0.1), Vec3::splat(0.09), UVec3::ONE, 0.6)
-          .subdivided(1),
-        IRON
-      ),
-      (
-        Cage::spike(
-          bowed(face + Vec3::Y * 0.1),
-          bowed(face + Vec3::Y * 0.1) + Vec3::X * side * 0.12,
-          Vec2::splat(0.03)
-        ),
-        STEEL
-      ),
+      (Cage::rounded(boss, Vec3::splat(0.09), UVec3::ONE, 0.6), IRON),
+      (Cage::spike(boss, boss + Vec3::X * side * 0.12, Vec2::splat(0.03)), STEEL),
     ],
     rivets.to_vec()
   ]
@@ -869,78 +824,57 @@ fn tower(side: f32) -> Vec<(Cage, [f32; 3])> {
 fn limb(side: f32, arm: bool, band: Band) -> Vec<(Cage, [f32; 3])> {
   let warden = band == Band::Warden;
   let at = |x: f32, y: f32, z: f32| Vec3::new(side * x, y, z);
+  let bit =
+    |from: Vec3, to: Vec3, thick: f32| (Cage::spike(from, to, Vec2::splat(thick)), BONE);
   let bones = match arm {
     true => [
       vec![
-        (
-          Cage::rounded(at(0.275, 1.4, 0.0), Vec3::splat(0.075), UVec3::ONE, 0.6)
-            .subdivided(1),
-          MARROW
-        ),
+        (Cage::rounded(at(0.275, 1.4, 0.0), Vec3::splat(0.075), UVec3::ONE, 0.6), MARROW),
         (long_bone(at(0.28, 1.38, 0.0), at(0.3, 1.13, 0.0), 0.032), BONE),
         (long_bone(at(0.3, 1.1, -0.01), at(0.31, 0.87, -0.03), 0.024), BONE),
-        (long_bone(at(0.325, 1.09, 0.02), at(0.33, 0.88, 0.01), 0.018), MARROW),
+        (rod(at(0.325, 1.07, 0.02), at(0.33, 0.9, 0.01), 0.018, 3), MARROW),
         (
           Cage::rounded(
             at(0.315, 0.835, -0.02),
             Vec3::new(0.05, 0.06, 0.075),
             UVec3::ONE,
             0.5
-          )
-          .subdivided(1),
+          ),
           BONE
         ),
+        bit(at(0.3, 0.84, -0.06), at(0.28, 0.8, -0.1), 0.016),
       ],
-      [-0.055, -0.03, -0.005, 0.02]
-        .map(|z| {
-          (
-            Cage::spike(
-              at(0.315, 0.81, z),
-              at(0.32, 0.745, z - 0.012),
-              Vec2::splat(0.014)
-            ),
-            BONE
-          )
-        })
-        .to_vec(),
-      vec![(
-        Cage::spike(at(0.3, 0.84, -0.06), at(0.28, 0.8, -0.1), Vec2::splat(0.014)),
-        BONE
-      )]
+      [-0.045, -0.015, 0.015]
+        .map(|z| bit(at(0.315, 0.81, z), at(0.32, 0.745, z - 0.012), 0.016))
+        .to_vec()
     ]
     .concat(),
     false => [
       vec![
         (long_bone(at(0.12, 0.77, 0.0), at(0.12, 0.43, -0.01), 0.037), BONE),
         (
-          Cage::rounded(at(0.12, 0.41, -0.045), Vec3::splat(0.05), UVec3::ONE, 0.6)
-            .subdivided(1),
+          Cage::rounded(at(0.12, 0.41, -0.045), Vec3::splat(0.05), UVec3::ONE, 0.6),
           MARROW
         ),
-        (long_bone(at(0.115, 0.39, -0.01), at(0.115, 0.09, 0.0), 0.03), BONE),
-        (long_bone(at(0.15, 0.37, 0.015), at(0.15, 0.11, 0.02), 0.016), MARROW),
         (
           Cage::rounded(
             at(0.12, 0.04, -0.04),
             Vec3::new(0.095, 0.06, 0.17),
             UVec3::new(1, 1, 2),
             0.35
-          )
-          .subdivided(1),
+          ),
           BONE
         ),
       ],
+      match warden {
+        true => vec![],
+        false => vec![
+          (long_bone(at(0.115, 0.39, -0.01), at(0.115, 0.09, 0.0), 0.03), BONE),
+          (rod(at(0.15, 0.36, 0.015), at(0.15, 0.12, 0.02), 0.016, 3), MARROW),
+        ]
+      },
       [0.09, 0.12, 0.15]
-        .map(|x| {
-          (
-            Cage::spike(
-              at(x, 0.03, -0.11),
-              at(x + 0.005, 0.02, -0.19),
-              Vec2::splat(0.016)
-            ),
-            BONE
-          )
-        })
+        .map(|x| bit(at(x, 0.03, -0.11), at(x + 0.005, 0.02, -0.19), 0.018))
         .to_vec()
     ]
     .concat()
@@ -954,8 +888,7 @@ fn limb(side: f32, arm: bool, band: Band) -> Vec<(Cage, [f32; 3])> {
           Vec3::new(0.2, 0.11, 0.22),
           UVec3::new(2, 1, 2),
           0.6
-        )
-        .subdivided(1),
+        ),
         IRON
       ),
       (Cage::spike(at(0.32, 1.47, 0.0), at(0.41, 1.6, 0.0), Vec2::splat(0.03)), STEEL),
@@ -966,8 +899,7 @@ fn limb(side: f32, arm: bool, band: Band) -> Vec<(Cage, [f32; 3])> {
         Cage::tube(
           &[
             (at(0.12, 0.37, -0.01), Vec2::splat(0.06)),
-            (at(0.12, 0.26, -0.01), Vec2::splat(0.058)),
-            (at(0.12, 0.14, 0.0), Vec2::splat(0.05))
+            (at(0.12, 0.12, 0.0), Vec2::splat(0.05))
           ],
           6
         ),
@@ -979,8 +911,7 @@ fn limb(side: f32, arm: bool, band: Band) -> Vec<(Cage, [f32; 3])> {
           Vec3::new(0.08, 0.07, 0.04),
           UVec3::ONE,
           0.5
-        )
-        .subdivided(1),
+        ),
         GOLD
       ),
     ]
@@ -995,25 +926,16 @@ fn limb(side: f32, arm: bool, band: Band) -> Vec<(Cage, [f32; 3])> {
 }
 
 fn torso(warden: bool) -> Vec<(Cage, [f32; 3])> {
-  let vertebrae = (0..10).flat_map(|step| {
-    let y = 0.87 + step as f32 * 0.056;
+  let vertebrae = (0..5).flat_map(|step| {
+    let y = 0.9 + step as f32 * 0.12;
     let z = if y > 1.08 { 0.1 } else { 0.05 };
     [
-      (
-        Cage::tube(
-          &[
-            (Vec3::new(0.0, y - 0.017, z), Vec2::splat(0.034)),
-            (Vec3::new(0.0, y + 0.017, z), Vec2::splat(0.03))
-          ],
-          5
-        ),
-        MARROW
-      ),
+      (rod(Vec3::new(0.0, y - 0.022, z), Vec3::new(0.0, y + 0.022, z), 0.036, 4), MARROW),
       (
         Cage::spike(
           Vec3::new(0.0, y, z + 0.025),
-          Vec3::new(0.0, y - 0.025, z + 0.075),
-          Vec2::splat(0.014)
+          Vec3::new(0.0, y - 0.03, z + 0.085),
+          Vec2::splat(0.016)
         ),
         BONE
       )
@@ -1022,53 +944,54 @@ fn torso(warden: bool) -> Vec<(Cage, [f32; 3])> {
   let wing = |side: f32| {
     let middle = Vec3::new(side * 0.09, 0.84, 0.02);
     (
-      Cage::rounded(middle, Vec3::new(0.13, 0.12, 0.035), UVec3::new(2, 2, 1), 0.45)
+      Cage::rounded(middle, Vec3::new(0.13, 0.12, 0.035), UVec3::new(2, 1, 1), 0.45)
         .shaped(|at| {
           Quat::from_euler(EulerRot::YXZ, side * 0.55, 0.0, side * -0.25)
             .mul_vec3(at - middle)
             + middle
-        })
-        .subdivided(1),
+        }),
       BONE
     )
   };
-  let pelvis = [
-    wing(1.0),
-    wing(-1.0),
-    (
-      Cage::rounded(
-        Vec3::new(0.0, 0.83, 0.06),
-        Vec3::new(0.08, 0.1, 0.05),
-        UVec3::ONE,
-        0.5
-      )
-      .subdivided(1),
-      MARROW
-    ),
-    (
-      Cage::tube(
-        &[(-0.1, 0.78, 0.0), (-0.04, 0.75, -0.04), (0.04, 0.75, -0.04), (0.1, 0.78, 0.0)]
-          .map(|(x, y, z)| (Vec3::new(x, y, z), Vec2::splat(0.022))),
-        5
+  let pelvis = match warden {
+    true => vec![],
+    false => vec![
+      wing(1.0),
+      wing(-1.0),
+      (
+        Cage::rounded(
+          Vec3::new(0.0, 0.83, 0.06),
+          Vec3::new(0.08, 0.1, 0.05),
+          UVec3::ONE,
+          0.5
+        ),
+        MARROW
       ),
-      BONE
-    )
-  ];
+      (
+        Cage::tube(
+          &[(-0.1, 0.78, 0.0), (0.0, 0.75, -0.045), (0.1, 0.78, 0.0)]
+            .map(|(x, y, z)| (Vec3::new(x, y, z), Vec2::splat(0.022))),
+          4
+        ),
+        BONE
+      ),
+    ]
+  };
   let sternum = Cage::tube(
     &[
       (Vec3::new(0.0, 1.36, -0.13), Vec2::new(0.03, 0.02)),
       (Vec3::new(0.0, 1.25, -0.15), Vec2::new(0.026, 0.018)),
       (Vec3::new(0.0, 1.15, -0.14), Vec2::new(0.016, 0.014))
     ],
-    4
+    3
   );
   let collar = |side: f32| {
     [
       (
         Cage::tube(
           &[(0.03, 1.37, -0.12), (0.14, 1.39, -0.09), (0.25, 1.41, -0.02)]
-            .map(|(x, y, z)| (Vec3::new(side * x, y, z), Vec2::splat(0.02))),
-          5
+            .map(|(x, y, z)| (Vec3::new(side * x, y, z), Vec2::splat(0.022))),
+          3
         ),
         BONE
       ),
@@ -1076,7 +999,7 @@ fn torso(warden: bool) -> Vec<(Cage, [f32; 3])> {
         Cage::rounded(
           Vec3::new(side * 0.13, 1.29, 0.135),
           Vec3::new(0.13, 0.16, 0.02),
-          UVec3::new(2, 2, 1),
+          UVec3::ONE,
           0.2
         )
         .shaped(|at| {
@@ -1091,17 +1014,17 @@ fn torso(warden: bool) -> Vec<(Cage, [f32; 3])> {
     false => vec![],
     true => [
       vec![(
-        Cage::prism(12, 0.17, 0.045)
+        Cage::prism(8, 0.17, 0.045)
           .shaped(|at| at * Vec3::new(1.05, 1.0, 0.8) + Vec3::new(0.0, 0.875, 0.02)),
         [0.28, 0.18, 0.1]
       )],
-      (0..5)
+      (0..4)
         .map(|plate| {
-          let turn = -1.1 + plate as f32 * 0.55;
+          let turn = -1.0 + plate as f32 * 0.667;
           let out = Vec3::new(turn.sin(), 0.0, -turn.cos());
           let middle = Vec3::new(0.0, 0.79, 0.02) + out * 0.17;
           (
-            Cage::rounded(middle, Vec3::new(0.09, 0.15, 0.02), UVec3::ONE, 0.2).shaped(
+            Cage::rounded(middle, Vec3::new(0.11, 0.15, 0.02), UVec3::ONE, 0.2).shaped(
               |at| {
                 let lean = (0.87 - at.y).max(0.0) * 0.35;
                 Quat::from_rotation_y(-turn).mul_vec3(at - middle) + middle + out * lean

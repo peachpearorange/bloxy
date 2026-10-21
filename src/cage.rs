@@ -114,7 +114,7 @@ impl Cage {
   }
 
   pub fn spike(from: Vec3, to: Vec3, thick: Vec2) -> Self {
-    Self::tube(&[(from, thick), (to, thick * 0.08)], 4)
+    Self::tube(&[(from, thick), (to, thick * 0.08)], 3)
   }
 
   fn turned_outward(self) -> Self {
