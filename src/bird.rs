@@ -519,14 +519,14 @@ fn body(breed: Breed) -> Vec<Bone> {
         IVec3::X * side as i32,
         0.75,
         [side * span * 0.35, 0.0, length * 0.1],
-        [span * 0.7, 0.05, length * 0.7],
+        [span * 0.7, 0.09, length * 0.66],
         wing
       ),
       Part::taper(
         IVec3::X * side as i32,
         0.3,
         [side * span * 0.85, 0.0, length * 0.2],
-        [span * 0.32, 0.035, length * 0.52],
+        [span * 0.32, 0.06, length * 0.48],
         tip
       ),
     ]

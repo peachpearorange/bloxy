@@ -1024,12 +1024,7 @@ fn animate(
   }
 }
 
-fn parade(
-  pilot: Res<Pilot>,
-  voxels: Res<Voxels>,
-  mut done: Local<bool>,
-  mut commands: Commands
-) {
+fn parade(pilot: Res<Pilot>, mut done: Local<bool>, mut commands: Commands) {
   if !*done && pilot.grounded {
     *done = true;
     let beasts = [
@@ -1044,10 +1039,7 @@ fn parade(
     let count = (beasts.len() + birds.len()) as f32;
     let (forward, right) = (ahead(pilot.yaw), Quat::from_rotation_y(pilot.yaw) * Vec3::X);
     let spot = |index: usize| {
-      let at =
-        pilot.at + forward * 4.5 + right * (index as f32 - (count - 1.0) * 0.5) * 1.15;
-      let cell = at.floor().as_ivec3();
-      at.with_y(generate::height(voxels.seed, cell.x, cell.z) as f32 + 1.0)
+      pilot.at + forward * 3.4 + right * (index as f32 - (count - 1.0) * 0.5) * 0.95
     };
     let yaw = pilot.yaw + PI - 0.7;
     for (index, &breed) in beasts.iter().enumerate() {
@@ -1083,10 +1075,7 @@ impl Plugin for Beasts {
       .add_systems(Update, prod.run_if(plays).run_if(resource_exists::<Pilot>))
       .add_systems(
         Update,
-        parade
-          .run_if(|| opts().parade)
-          .run_if(resource_exists::<Pilot>)
-          .run_if(resource_exists::<Voxels>)
+        parade.run_if(|| opts().parade).run_if(resource_exists::<Pilot>)
       );
   }
 }
