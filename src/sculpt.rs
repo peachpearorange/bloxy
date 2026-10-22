@@ -1,10 +1,11 @@
-use {crate::{cage::Cage, noise::unit},
+use {crate::{cage::Cage, noise::perlin3},
      bevy::{asset::RenderAssetUsages,
             mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
             platform::collections::HashMap,
             prelude::*}};
 
-const MOTTLE: f32 = 0.06;
+const MOTTLE: f32 = 0.1;
+const MOTTLE_GRAIN: f32 = 0.12;
 
 pub struct Daub {
   pub at: Vec3,
@@ -52,13 +53,16 @@ pub fn sculpt(
     .collect();
   let colors = triangles.iter().enumerate().map(|(index, triangle)| {
     let [a, b, c] = corners(triangle);
-    let color = daubed.get(&index).copied().unwrap_or_else(|| {
-      let shade = 1.0 + (unit(0x5c0f, index as i32, 0, 0) * 2.0 - 1.0) * MOTTLE;
+    daubed.get(&index).copied().unwrap_or_else(|| {
       paint(centre(triangle), (b - a).cross(c - a).normalize_or_zero())
-        .map(|channel| channel * shade)
-    });
-    Color::srgb(color[0], color[1], color[2]).to_linear().to_f32_array()
+    })
   });
+  let mottled = |color: [f32; 3], at: Vec3| {
+    let grain = at / MOTTLE_GRAIN;
+    let shade = 1.0 + perlin3(0x5c0f, grain.x, grain.y, grain.z) * MOTTLE;
+    let [r, g, b] = color.map(|channel| channel * shade);
+    Color::srgb(r, g, b).to_linear().to_f32_array()
+  };
   let (positions, shading, painted, joints): (
     Vec<[f32; 3]>,
     Vec<[f32; 3]>,
@@ -70,7 +74,12 @@ pub fn sculpt(
     .flat_map(|(triangle, color)| {
       triangle.map(|corner| {
         let at = cage.points[corner as usize];
-        (at.to_array(), normals[corner as usize].to_array(), color, [joint(at), 0, 0, 0])
+        (at.to_array(), normals[corner as usize].to_array(), mottled(color, at), [
+          joint(at),
+          0,
+          0,
+          0
+        ])
       })
     })
     .fold(
