@@ -2,7 +2,7 @@
     pbr_fragment::pbr_input_from_standard_material,
     forward_io::{Vertex, VertexOutput, FragmentOutput},
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
-    mesh_view_bindings::globals,
+    mesh_view_bindings::{globals, view},
     mesh_functions,
     view_transformations::position_world_to_clip,
 }
@@ -131,7 +131,7 @@ fn projected(top: vec2<f32>, code: f32, at: vec3<f32>, normal: vec3<f32>, dx: ve
     let covered = smoothstep(0.34, 0.5, normal.y + ragged);
     var cover = painted(top, tile, at.xz, dx.xz, dy.xz);
     if all(abs(top - surface.turf.xy) < tile * 0.5) {
-        cover = vec4<f32>(lawn(at.xz, globals.time), 1.0);
+        cover = vec4<f32>(lawn(at.xz, globals.time, distance(at.xz, view.world_position.xz)), 1.0);
     }
     return mix(mixed, cover, covered);
 }
