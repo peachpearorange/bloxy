@@ -107,10 +107,10 @@ struct Blade {
 
 fn blade(cell: vec2<i32>, slot: u32, ground: f32, tall: f32, around: Field) -> Blade {
     let seed = mixed(u32(cell.x) * 73856093u ^ u32(cell.y) * 19349663u ^ slot * 83492791u);
-    let spot = (vec2<f32>(cell) + vec2<f32>(0.3, 0.3) + vec2<f32>(unit(seed), unit(seed + 1u)) * 0.4) * CELL;
+    let spot = (vec2<f32>(cell) + vec2<f32>(0.04, 0.04) + vec2<f32>(unit(seed), unit(seed + 1u)) * 0.92) * CELL;
     let height = mix(SHORTEST, TALLEST, around.lush * 0.4 + unit(seed + 2u) * 0.6)
         * (1.0 + tall * 0.4 * (0.75 + 0.5 * unit(seed + 3u)));
-    let lean = around.lean + (vec2<f32>(unit(seed + 4u), unit(seed + 5u)) - 0.5) * 0.12;
+    let lean = around.lean + (vec2<f32>(unit(seed + 4u), unit(seed + 5u)) - 0.5) * 0.08;
     let axis = normalize(vec3<f32>(lean.x, 1.0, lean.y)) * height * (1.0 - 0.15 * min(length(lean), 1.5));
     let turn = unit(seed + 6u) * 3.14159;
     let facing = vec3<f32>(cos(turn), 0.0, sin(turn));
