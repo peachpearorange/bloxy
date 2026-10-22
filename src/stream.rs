@@ -39,7 +39,8 @@ pub struct Meshed(pub HashSet<IVec2>);
 #[derive(Resource, Default)]
 pub struct Progress {
   pub pending: usize,
-  pub distant: usize
+  pub distant: usize,
+  pub lawns: usize
 }
 
 pub fn paint(
@@ -110,7 +111,8 @@ fn stream(
   settings: Res<crate::settings::Settings>,
   mut meshes: ResMut<Assets<Mesh>>,
   mut hulls: ResMut<Hulls>,
-  mut meshed: ResMut<Meshed>
+  mut meshed: ResMut<Meshed>,
+  mut lawns: ResMut<crate::lawn::Lawns>
 ) {
   if let Some(mut voxels) = voxels
     && let Some(pilot) = pilot
@@ -183,6 +185,7 @@ fn stream(
       .collect();
     for (key, built) in built.into_iter() {
       streaming.meshing.remove(&key);
+      lawns.stale.insert(key);
       let placed = Transform::from_translation(origin_of(key).as_vec3());
       let Meshes { solid, cutout, liquid, unshadowed, hull } = built;
       hulls.0.insert(key, std::sync::Arc::new(hull));

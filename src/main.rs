@@ -47,6 +47,7 @@ mod hull;
 mod identity;
 mod imp;
 mod island;
+mod lawn;
 mod local;
 mod loose;
 mod machine;
@@ -139,6 +140,7 @@ fn snapshot(
     let settled = time.elapsed_secs() > at
       && progress.pending == 0
       && progress.distant == 0
+      && progress.lawns == 0
       && (pilot.is_some() || opts().menu.is_some());
     if time.elapsed_secs() as u32 != (time.elapsed_secs() - time.delta_secs()) as u32 {
       info!("shot waits: {} pending, pilot {}", progress.pending, pilot.is_some())
@@ -353,6 +355,7 @@ fn main() {
         chat::Chat,
         ghost::Ghosts,
         far::Distance,
+        lawn::Sowing,
         apparatus::Apparatus
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))

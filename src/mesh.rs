@@ -3,7 +3,7 @@ use {crate::{block::{Block, Fluid, Look},
              hull::{Facet, Hull},
              island::SEA,
              model::{self, Bit},
-             noise::fbm2,
+             noise::{self, fbm2},
              texture::{tile_origin, uv_corner},
              voxels::{Chunk, HEIGHT, SIZE, Voxels, chunk_of, origin_of}},
      bevy::{asset::RenderAssetUsages,
@@ -404,6 +404,17 @@ fn lit(hue: LinearRgba, sky: f32, torch: f32, shade: f32) -> [f32; 4] {
   ]
 }
 
+fn torchlight(torches: &[IVec3], point: Vec3) -> f32 {
+  torches
+    .iter()
+    .map(|torch| {
+      let flame = torch.as_vec3() + Vec3::new(0.5, 0.7, 0.5);
+      (1.0 - point.distance(flame) / TORCH_REACH).max(0.0)
+    })
+    .fold(0.0, f32::max)
+    .powf(1.4)
+}
+
 fn builders(
   padded: &Padded,
   key: IVec3,
@@ -433,16 +444,7 @@ fn builders(
         / 4.0
     )
   };
-  let torchlight = |point: Vec3| {
-    torches
-      .iter()
-      .map(|torch| {
-        let flame = torch.as_vec3() + Vec3::new(0.5, 0.7, 0.5);
-        (1.0 - point.distance(flame) / TORCH_REACH).max(0.0)
-      })
-      .fold(0.0, f32::max)
-      .powf(1.4)
-  };
+  let torchlight = |point: Vec3| torchlight(torches, point);
   let mut solid = Builder::default();
   let mut cutout = Builder::default();
   let mut liquid = Builder::default();
@@ -779,6 +781,141 @@ pub fn lone(
         .collect::<Vec<_>>()
     })
     .collect()
+}
+
+struct Blade;
+
+impl Blade {
+  const ACROSS: i32 = 5;
+  const DOWN: i32 = 4;
+  const CLUMPS: i32 = 3;
+  const SHORTEST: f32 = 0.16;
+  const TALLEST: f32 = 0.42;
+  const NARROWEST: f32 = 0.055;
+  const WIDEST: f32 = 0.1;
+  const LEAN: f32 = 0.55;
+  const GATHER: f32 = 0.35;
+  const LEVELS: [f32; 4] = [0.0, 0.3, 0.58, 0.82];
+}
+
+struct Clump {
+  at: Vec2,
+  lean: Vec2,
+  tall: f32,
+  facing: f32
+}
+
+pub fn lawn(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Option<Mesh> {
+  let origin = origin_of(key);
+  let turf = {
+    let [r, g, b] = crate::minimap::hue(Block::Grass);
+    LinearRgba::from(Color::srgb(r, g, b))
+  };
+  let tops: Vec<IVec3> = (0..SIZE * SIZE * SIZE)
+    .map(|index| IVec3::new(index % SIZE, index / (SIZE * SIZE), index / SIZE % SIZE))
+    .filter(|&local| {
+      let above = padded.get(local + IVec3::Y);
+      padded.get(local) == Block::Grass && !above.solid() && above.liquid().is_none()
+    })
+    .collect();
+  let (
+    mut positions,
+    mut normals,
+    mut steps,
+    mut seeds,
+    mut colors,
+    mut shapes,
+    mut indices
+  ) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
+  for local in tops {
+    let world = origin + local;
+    let roll = |salt: i32, index: i32| {
+      noise::unit(seed ^ 0x6A55, world.x * 64 + index, world.y * 16 + salt, world.z)
+    };
+    let depth = generate::height(seed, world.x, world.z) - world.y;
+    let sky = (1.0 - depth as f32 / SKY_FALLOFF).clamp(CAVE_DARK, 1.0);
+    let patch = (fbm2(0x9A55, world.x as f32 / 40.0, world.z as f32 / 40.0, 2) * 1.6
+      + 0.5)
+      .clamp(0.0, 1.0);
+    let tint = {
+      let field = meadow(world.as_vec3());
+      LinearRgba::rgb(
+        field.red * turf.red,
+        field.green * turf.green,
+        field.blue * turf.blue
+      )
+    };
+    let torch = torchlight(torches, world.as_vec3() + Vec3::new(0.5, 1.0, 0.5));
+    let [r, g, b, _] = lit(tint, sky, torch, 1.0);
+    let owned = owner(local);
+    let clumps: Vec<Clump> = (0..Blade::CLUMPS)
+      .map(|index| Clump {
+        at: Vec2::new(roll(0, index), roll(1, index)),
+        lean: Vec2::from_angle(roll(2, index) * std::f32::consts::TAU)
+          * roll(3, index)
+          * Blade::LEAN,
+        tall: (Blade::SHORTEST + (Blade::TALLEST - Blade::SHORTEST) * roll(4, index))
+          * (0.7 + 0.6 * patch),
+        facing: roll(5, index) * std::f32::consts::PI
+      })
+      .collect();
+    for spot in 0..Blade::ACROSS * Blade::DOWN {
+      let cell = Vec2::new(
+        ((spot % Blade::ACROSS) as f32 + roll(6, spot)) / Blade::ACROSS as f32,
+        ((spot / Blade::ACROSS) as f32 + roll(7, spot)) / Blade::DOWN as f32
+      );
+      let clump = clumps
+        .iter()
+        .min_by(|a, b| a.at.distance(cell).total_cmp(&b.at.distance(cell)))
+        .expect("clumps");
+      let spot_at =
+        cell.lerp(clump.at, Blade::GATHER).clamp(Vec2::splat(0.02), Vec2::splat(0.98));
+      let at = IVec3::new(
+        local.x * UNIT + (spot_at.x * UNIT as f32) as i32,
+        (local.y + 1) * UNIT,
+        local.z * UNIT + (spot_at.y * UNIT as f32) as i32
+      );
+      let (root, normal) = rounded(padded, at);
+      let ground = normal.unwrap_or(Vec3::Y);
+      if ground.y > 0.3 {
+        let lean =
+          clump.lean + Vec2::from_angle(roll(8, spot) * std::f32::consts::TAU) * 0.15;
+        let tall = clump.tall * (0.75 + 0.5 * roll(9, spot));
+        let facing = clump.facing + (roll(10, spot) - 0.5) * 1.4;
+        let wide = Blade::NARROWEST + (Blade::WIDEST - Blade::NARROWEST) * roll(11, spot);
+        let blade_seed = roll(12, spot);
+        let first = positions.len() as u32;
+        let corners = Blade::LEVELS
+          .iter()
+          .flat_map(|&level| [(level, -1.0), (level, 1.0)])
+          .chain([(1.0, 0.0)]);
+        for (level, side) in corners {
+          positions.push((root - ground * 0.03).to_array());
+          normals.push(ground.to_array());
+          steps.push([level, side]);
+          seeds.push([owned, blade_seed]);
+          colors.push([r, g, b, tall]);
+          shapes.push([lean.x, lean.y, facing, wide]);
+        }
+        let quads = (0..Blade::LEVELS.len() as u32 - 1).flat_map(|level| {
+          let (low, high) = (first + level * 2, first + level * 2 + 2);
+          [low, low + 1, high + 1, low, high + 1, high]
+        });
+        let top = first + (Blade::LEVELS.len() as u32 - 1) * 2;
+        indices.extend(quads.chain([top, top + 1, top + 2]))
+      }
+    }
+  }
+  (!indices.is_empty()).then(|| {
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, steps)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, seeds)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, shapes)
+      .with_inserted_indices(Indices::U32(indices))
+  })
 }
 
 #[cfg(test)]
