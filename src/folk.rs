@@ -73,7 +73,23 @@ impl Band {
   pub fn flies(self) -> bool { self.ghostly() || self == Band::Imp }
 
   pub fn sculpted(self) -> bool {
-    matches!(self, Band::Skeleton | Band::Warden | Band::Thrall | Band::Imp)
+    matches!(
+      self,
+      Band::Skeleton
+        | Band::Warden
+        | Band::Thrall
+        | Band::Imp
+        | Band::Pirate
+        | Band::Viking
+    )
+  }
+
+  pub fn variant(self, luck: u32) -> u32 {
+    match self {
+      Band::Skeleton => u32::from(luck % 3 == 0),
+      Band::Pirate | Band::Viking => luck % crate::crew::VARIANTS,
+      _ => 0
+    }
   }
 
   pub fn scale(self) -> f32 {
@@ -499,35 +515,25 @@ type Gear = Vec<(Vec3, Vec3, [f32; 3])>;
 const IRON: [f32; 3] = [0.55, 0.56, 0.6];
 const STEEL: [f32; 3] = [0.8, 0.82, 0.86];
 const GOLD: [f32; 3] = [0.86, 0.68, 0.2];
-const SOOT: [f32; 3] = [0.08, 0.07, 0.07];
 const HAFT: [f32; 3] = [0.45, 0.3, 0.16];
 const BONE: [f32; 3] = [0.92, 0.88, 0.75];
 const GHOSTLY: f32 = 0.72;
 const RUST: [f32; 3] = [0.45, 0.28, 0.18];
 const SHROUD: [f32; 3] = [0.06, 0.04, 0.09];
 
-fn hat(band: Band, luck: u32) -> Gear {
+fn hat(band: Band) -> Gear {
   let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z) * PX;
   match band {
-    Band::Pirate if luck % 2 == 0 => vec![
-      (at(0.0, 8.5, 0.0), at(11.0, 1.0, 11.0), SOOT),
-      (at(0.0, 10.0, 0.0), at(8.4, 3.0, 8.4), SOOT),
-      (at(0.0, 10.0, -4.3), at(2.0, 2.0, 0.3), BONE),
-    ],
-    Band::Pirate => vec![],
-    Band::Viking => vec![
-      (at(0.0, 6.6, 0.0), at(9.0, 3.6, 9.0), IRON),
-      (at(0.0, 4.0, -4.6), at(1.0, 3.0, 0.5), IRON),
-      (at(5.4, 7.6, 0.0), at(2.0, 2.0, 2.0), BONE),
-      (at(-5.4, 7.6, 0.0), at(2.0, 2.0, 2.0), BONE),
-      (at(6.4, 9.8, 0.0), at(1.5, 3.0, 1.5), BONE),
-      (at(-6.4, 9.8, 0.0), at(1.5, 3.0, 1.5), BONE),
-    ],
     Band::Trader => vec![
       (at(0.0, 8.6, 0.0), at(9.0, 3.0, 9.0), [0.94, 0.9, 0.8]),
       (at(0.0, 8.8, -4.6), at(1.5, 1.5, 0.4), [0.2, 0.8, 0.5]),
     ],
-    Band::Skeleton | Band::Thrall | Band::Warden | Band::Imp => vec![],
+    Band::Skeleton
+    | Band::Thrall
+    | Band::Warden
+    | Band::Imp
+    | Band::Pirate
+    | Band::Viking => vec![],
     Band::Phantom => vec![
       (at(0.0, 4.5, 0.6), at(9.2, 9.4, 9.0), [0.1, 0.16, 0.4]),
       (at(0.0, 9.6, 1.5), at(7.0, 1.4, 7.0), [0.1, 0.16, 0.4]),
@@ -569,33 +575,6 @@ fn eyes(band: Band) -> Gear {
       .into_iter()
       .map(|(centre, size)| (centre, size, crate::imp::GLARE))
       .collect(),
-    _ => vec![]
-  }
-}
-
-fn weapon(band: Band) -> Gear {
-  let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z) * PX;
-  match band {
-    Band::Pirate => vec![
-      (at(0.0, -11.0, -6.5), at(0.8, 1.6, 10.0), STEEL),
-      (at(0.0, -11.0, -1.2), at(3.0, 2.0, 0.8), GOLD),
-    ],
-    Band::Viking => vec![
-      (at(0.0, -11.0, -5.0), at(1.0, 1.0, 12.0), HAFT),
-      (at(0.0, -9.5, -10.0), at(0.8, 5.0, 3.0), IRON),
-    ],
-    _ => vec![]
-  }
-}
-
-fn shield(band: Band, luck: u32) -> Gear {
-  let paint =
-    [[0.7, 0.15, 0.12], [0.85, 0.7, 0.2], [0.18, 0.3, 0.6]][(luck % 3) as usize];
-  match band {
-    Band::Viking => vec![
-      (Vec3::new(-2.5, -6.0, 0.0) * PX, Vec3::new(0.8, 9.0, 9.0) * PX, paint),
-      (Vec3::new(-3.0, -6.0, 0.0) * PX, Vec3::new(0.6, 2.0, 2.0) * PX, IRON),
-    ],
     _ => vec![]
   }
 }
@@ -1088,9 +1067,7 @@ pub fn bindings() -> Vec<Mat4> {
 }
 
 #[derive(Resource, Default)]
-struct Ossuary(
-  HashMap<(Band, bool), (Handle<Mesh>, Handle<SkinnedMeshInverseBindposes>)>
-);
+struct Ossuary(HashMap<(Band, u32), (Handle<Mesh>, Handle<SkinnedMeshInverseBindposes>)>);
 
 #[derive(Component)]
 struct Shown {
@@ -1199,7 +1176,7 @@ fn dress(
       .id();
     if !bony {
       commands.entity(head).insert(fleshed(Part::Head));
-      gear(head, hat(folk.band, folk.luck), &mut commands)
+      gear(head, hat(folk.band), &mut commands)
     }
     for (centre, mesh, glow) in glints.into_iter() {
       commands.spawn((
@@ -1230,11 +1207,6 @@ fn dress(
         if !bony {
           commands.entity(limb).insert(fleshed(part));
         }
-        match (arm, side > 0.0) {
-          (true, true) => gear(limb, weapon(folk.band), &mut commands),
-          (true, false) => gear(limb, shield(folk.band, folk.luck), &mut commands),
-          _ => ()
-        }
         limb
       })
       .collect();
@@ -1257,10 +1229,16 @@ fn dress(
     if bony {
       let (mesh, inverse_bindposes) = ossuary
         .0
-        .entry((folk.band, folk.band == Band::Skeleton && folk.luck % 3 == 0))
-        .or_insert_with(|| match imp {
-          true => (meshes.add(crate::imp::fiendish()), poses.add(crate::imp::bindings())),
-          false => (meshes.add(ossified(folk.band, folk.luck)), poses.add(bindings()))
+        .entry((folk.band, folk.band.variant(folk.luck)))
+        .or_insert_with(|| match folk.band {
+          Band::Imp => {
+            (meshes.add(crate::imp::fiendish()), poses.add(crate::imp::bindings()))
+          }
+          Band::Pirate | Band::Viking => (
+            meshes.add(crate::crew::seafarer(folk.band, folk.band.variant(folk.luck))),
+            poses.add(bindings())
+          ),
+          _ => (meshes.add(ossified(folk.band, folk.luck)), poses.add(bindings()))
         })
         .clone();
       commands.spawn((

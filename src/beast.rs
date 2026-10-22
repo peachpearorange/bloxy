@@ -1290,7 +1290,11 @@ fn parade(pilot: Res<Pilot>, mut done: Local<bool>, mut commands: Commands) {
       (Band::Skeleton, 1),
       (Band::Thrall, 2),
       (Band::Warden, 0),
-      (Band::Imp, 0)
+      (Band::Imp, 0),
+      (Band::Pirate, 0),
+      (Band::Pirate, 5),
+      (Band::Viking, 2),
+      (Band::Viking, 3)
     ];
     let (forward, right) = (ahead(pilot.yaw), Quat::from_rotation_y(pilot.yaw) * Vec3::X);
     let spot = |index: usize| {

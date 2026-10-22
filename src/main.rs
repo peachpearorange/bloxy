@@ -22,6 +22,7 @@ mod condition;
 mod console;
 mod conveyor;
 mod crafting;
+mod crew;
 mod crumble;
 mod death;
 mod dungeon;
