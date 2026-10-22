@@ -143,7 +143,7 @@ fn prepare(
   commands.spawn((
     Crumbling { mesh: mesh.clone(), shape: None },
     Mesh3d(mesh),
-    MeshMaterial3d(palette.ground.clone()),
+    MeshMaterial3d(palette.cutout.clone()),
     NotShadowCaster,
     Transform::default(),
     Visibility::Hidden

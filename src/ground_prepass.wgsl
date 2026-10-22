@@ -10,6 +10,7 @@ struct Surface {
 @group(0) @binding(1) var<uniform> globals: Globals;
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: Surface;
 
+const HIDDEN: vec4<f32> = vec4<f32>(2.0, 2.0, 2.0, 1.0);
 const WIND: vec3<f32> = vec3<f32>(0.8, 0.0, 0.6);
 
 fn sway(at: vec3<f32>, bend: vec2<f32>, wind: f32, time: f32) -> vec3<f32> {
@@ -46,6 +47,11 @@ fn vertex(vertex: prepass_io::Vertex) -> prepass_io::VertexOutput {
 #endif
     out.world_position = world;
     out.position = position_world_to_clip(world.xyz);
+#ifdef VERTEX_UVS_B
+    if owned.x > 0.5 && owned.x < 1.5 {
+        out.position = HIDDEN;
+    }
+#endif
 #ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
     out.unclipped_depth = out.position.z;
     out.position.z = min(out.position.z, 1.0);
@@ -76,19 +82,10 @@ fn vertex(vertex: prepass_io::Vertex) -> prepass_io::VertexOutput {
     return out;
 }
 
-fn vanish(in: prepass_io::VertexOutput) {
-#ifdef VERTEX_UVS_B
-    if in.uv_b.x > 0.5 {
-        discard;
-    }
-#endif
-}
-
 #ifdef PREPASS_FRAGMENT
 @fragment
 fn fragment(in: prepass_io::VertexOutput, @builtin(front_facing) is_front: bool) -> prepass_io::FragmentOutput {
     pbr_prepass_functions::prepass_alpha_discard(in);
-    vanish(in);
     var out: prepass_io::FragmentOutput;
 #ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
     out.frag_depth = in.unclipped_depth;
@@ -105,6 +102,5 @@ fn fragment(in: prepass_io::VertexOutput, @builtin(front_facing) is_front: bool)
 @fragment
 fn fragment(in: prepass_io::VertexOutput) {
     pbr_prepass_functions::prepass_alpha_discard(in);
-    vanish(in);
 }
 #endif

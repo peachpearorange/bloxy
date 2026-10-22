@@ -21,6 +21,7 @@ const GLOW: f32 = 6.0;
 pub struct Palette {
   pub solid: Handle<StandardMaterial>,
   pub ground: Handle<Ground>,
+  pub cutout: Handle<Ground>,
   pub liquid: Handle<Water>,
   pub icons: Handle<Image>
 }
@@ -60,19 +61,23 @@ pub fn paint(
     ..default()
   };
   let solid = materials.add(base.clone());
+  let extension = Surface {
+    dug: Vec4::ZERO,
+    aimed: Vec4::ZERO,
+    weather: Vec4::ZERO,
+    atlas: base.base_color_texture.clone()
+  };
   let ground = grounds.add(Ground {
-    extension: Surface {
-      dug: Vec4::ZERO,
-      aimed: Vec4::ZERO,
-      weather: Vec4::ZERO,
-      atlas: base.base_color_texture.clone()
-    },
-    base: StandardMaterial { cull_mode: None, ..base }
+    extension: extension.clone(),
+    base: StandardMaterial { alpha_mode: AlphaMode::Opaque, ..base.clone() }
   });
+  let cutout =
+    grounds.add(Ground { extension, base: StandardMaterial { cull_mode: None, ..base } });
   let liquid = waters.add(water::water());
   commands.insert_resource(Palette {
     solid,
     ground,
+    cutout,
     liquid,
     icons: images.add(texture::icons())
   })
@@ -179,7 +184,7 @@ fn stream(
     for (key, built) in built.into_iter() {
       streaming.meshing.remove(&key);
       let placed = Transform::from_translation(origin_of(key).as_vec3());
-      let Meshes { solid, liquid, unshadowed, hull } = built;
+      let Meshes { solid, cutout, liquid, unshadowed, hull } = built;
       hulls.0.insert(key, std::sync::Arc::new(hull));
       let shown: Vec<Entity> = [
         solid.map(|mesh| {
@@ -191,11 +196,20 @@ fn stream(
             ))
             .id()
         }),
+        cutout.map(|mesh| {
+          commands
+            .spawn((
+              Mesh3d(meshes.add(mesh)),
+              MeshMaterial3d(palette.cutout.clone()),
+              placed
+            ))
+            .id()
+        }),
         unshadowed.map(|mesh| {
           commands
             .spawn((
               Mesh3d(meshes.add(mesh)),
-              MeshMaterial3d(palette.ground.clone()),
+              MeshMaterial3d(palette.cutout.clone()),
               NotShadowCaster,
               placed
             ))

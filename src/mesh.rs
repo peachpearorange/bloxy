@@ -361,6 +361,7 @@ impl Builder {
 
 pub struct Meshes {
   pub solid: Option<Mesh>,
+  pub cutout: Option<Mesh>,
   pub liquid: Option<Mesh>,
   pub unshadowed: Option<Mesh>,
   pub hull: Hull
@@ -410,7 +411,7 @@ fn builders(
   torches: &[IVec3],
   only: Option<IVec3>,
   painted: bool
-) -> (Builder, Builder, Builder, Hull) {
+) -> (Builder, Builder, Builder, Builder, Hull) {
   let origin = origin_of(key);
   let surface: Vec<i32> = (0..RIM * RIM)
     .map(|index| {
@@ -443,6 +444,7 @@ fn builders(
       .powf(1.4)
   };
   let mut solid = Builder::default();
+  let mut cutout = Builder::default();
   let mut liquid = Builder::default();
   let mut unshadowed = Builder::default();
   let mut hull = Hull::default();
@@ -486,9 +488,10 @@ fn builders(
       for (face, floor) in
         FACES.iter().filter_map(|face| floor(face).map(|floor| (face, floor)))
       {
-        let builder = match block.liquid() {
-          Some((Fluid::Water, _)) => &mut liquid,
-          _ => &mut solid
+        let builder = match (block.look(), block.liquid()) {
+          (_, Some((Fluid::Water, _))) => &mut liquid,
+          (Look::Opaque | Look::Liquid, _) => &mut solid,
+          _ => &mut cutout
         };
         let outside = local + face.normal;
         let blocks = |at: IVec3| u8::from(padded.get(at).opaque());
@@ -514,17 +517,10 @@ fn builders(
           rounded && bent_at(padded, local + face.base + face.across * a + face.up * b)
         };
         let stops = |near: bool, far: bool| -> Vec<i32> {
-          [
-            (true, 0),
-            (near, ROUND / 2),
-            (near, ROUND),
-            (far, UNIT - ROUND),
-            (far, UNIT - ROUND / 2),
-            (true, UNIT)
-          ]
-          .into_iter()
-          .filter_map(|(kept, stop)| kept.then_some(stop))
-          .collect()
+          [(true, 0), (near, ROUND), (far, UNIT - ROUND), (true, UNIT)]
+            .into_iter()
+            .filter_map(|(kept, stop)| kept.then_some(stop))
+            .collect()
         };
         let across = stops(bent(0, 0) || bent(0, 1), bent(1, 0) || bent(1, 1));
         let up = stops(bent(0, 0) || bent(1, 0), bent(0, 1) || bent(1, 1));
@@ -616,7 +612,7 @@ fn builders(
       let pose = model::pose(block);
       let modelled = match block.torch() {
         true => &mut unshadowed,
-        false => &mut solid
+        false => &mut cutout
       };
       let light = sky(local);
       let torch = torchlight(origin.as_vec3() + local.as_vec3() + 0.5);
@@ -674,7 +670,7 @@ fn builders(
               let out = (point - 0.5).normalize();
               Vec3::new(out.x, 0.0, out.y)
             };
-            solid.strip(
+            cutout.strip(
               [
                 (from, 0.0, quarter, 1.0),
                 (to, 0.0, quarter + width, 1.0),
@@ -698,7 +694,7 @@ fn builders(
         {
           let next = padded.get(local + normal);
           if !next.opaque() && next.look() != Look::Log {
-            solid.polygon(
+            cutout.polygon(
               &ring.map(|point| corner + Vec3::new(point.x, y, point.y)),
               &ring.map(|point| uv_corner(tile, point)),
               normal.as_vec3(),
@@ -711,14 +707,15 @@ fn builders(
       }
     }
   }
-  (solid, liquid, unshadowed, hull)
+  (solid, cutout, liquid, unshadowed, hull)
 }
 
 pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
-  let (solid, liquid, unshadowed, hull) =
+  let (solid, cutout, liquid, unshadowed, hull) =
     builders(padded, key, seed, torches, None, true);
   Meshes {
     solid: solid.mesh(),
+    cutout: cutout.mesh(),
     liquid: liquid.mesh(),
     unshadowed: unshadowed.mesh(),
     hull
@@ -758,9 +755,9 @@ pub fn lone(
       })
       .collect()
   );
-  let (solid, _, unshadowed, _) =
+  let (solid, cutout, _, unshadowed, _) =
     builders(&padded, key, seed, torches, Some(local), around.is_some());
-  [solid, unshadowed]
+  [solid, cutout, unshadowed]
     .iter()
     .flat_map(|built| {
       let corner = |index: u32| {

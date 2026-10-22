@@ -17,6 +17,7 @@ struct Surface {
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var atlas: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var atlas_sampler: sampler;
 
+const HIDDEN: vec4<f32> = vec4<f32>(2.0, 2.0, 2.0, 1.0);
 const WIND: vec3<f32> = vec3<f32>(0.8, 0.0, 0.6);
 
 fn sway(at: vec3<f32>, bend: vec2<f32>, wind: f32, time: f32) -> vec3<f32> {
@@ -58,6 +59,11 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #endif
     out.world_position = world;
     out.position = position_world_to_clip(world.xyz);
+#ifdef VERTEX_UVS_B
+    if owned.x > 0.5 && owned.x < 1.5 {
+        out.position = HIDDEN;
+    }
+#endif
 #ifdef VERTEX_NORMALS
     out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
 #endif
@@ -148,9 +154,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
 #endif
 #endif
-    if mark > 0.5 && mark < 1.5 {
-        discard;
-    }
     let soaked = surface.weather.y * smoothstep(0.3, 0.9, normal.y);
     pbr_input.material.base_color = vec4<f32>(pbr_input.material.base_color.rgb * (1.0 - 0.3 * soaked), pbr_input.material.base_color.a);
     pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.28, soaked);
