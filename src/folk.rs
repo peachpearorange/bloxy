@@ -565,17 +565,10 @@ fn eyes(band: Band) -> Gear {
         })
         .to_vec()
     }
-    Band::Imp => [1.0, -1.0]
-      .map(|side| {
-        let [r, g, b] = crate::imp::GLARE;
-        (
-          crate::imp::SOCKET * Vec3::new(side, 1.0, 1.0) - crate::imp::HEAD
-            + Vec3::new(0.0, 0.0, -0.012),
-          Vec3::new(0.05, 0.03, 0.012),
-          [r, g, b]
-        )
-      })
-      .to_vec(),
+    Band::Imp => crate::imp::glints()
+      .into_iter()
+      .map(|(centre, size)| (centre, size, crate::imp::GLARE))
+      .collect(),
     _ => vec![]
   }
 }

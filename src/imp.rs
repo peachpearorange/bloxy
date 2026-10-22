@@ -1,30 +1,31 @@
 use {crate::{cage::Cage,
-             sculpt::{Daub, merged, sculpt}},
+             sculpt::{merged, sculpt}},
      bevy::prelude::*};
 
 pub const SCALE: f32 = 0.62;
-pub const HEAD: Vec3 = Vec3::new(0.0, 1.46, 0.0);
-pub const SOCKET: Vec3 = Vec3::new(0.085, 1.68, -0.205);
-pub const GLARE: [f32; 3] = [1.0, 0.75, 0.12];
-const SHOULDER: Vec3 = Vec3::new(0.3, 1.32, 0.0);
-const HIP: Vec3 = Vec3::new(0.12, 0.8, 0.0);
-const WING: Vec3 = Vec3::new(0.1, 1.33, 0.17);
-const HIDE: [f32; 3] = [0.62, 0.13, 0.08];
-const BELLY: [f32; 3] = [0.8, 0.38, 0.18];
-const SCORCHED: [f32; 3] = [0.3, 0.06, 0.05];
-const HORN: [f32; 3] = [0.17, 0.12, 0.1];
-const MEMBRANE: [f32; 3] = [0.38, 0.07, 0.07];
-const CLAW: [f32; 3] = [0.09, 0.07, 0.06];
-const FANG: [f32; 3] = [0.95, 0.9, 0.74];
-const MAW: [f32; 3] = [0.12, 0.02, 0.02];
+pub const HEAD: Vec3 = Vec3::new(0.0, 1.44, 0.04);
+pub const GLARE: [f32; 3] = [1.0, 0.8, 0.15];
+const SHOULDER: Vec3 = Vec3::new(0.24, 1.31, 0.06);
+const HIP: Vec3 = Vec3::new(0.09, 0.8, 0.02);
+const WING: Vec3 = Vec3::new(0.08, 1.28, 0.14);
+const EYE: Vec3 = Vec3::new(0.07, 1.665, 0.0);
+const HIDE: [f32; 3] = [0.66, 0.12, 0.07];
+const BELLY: [f32; 3] = [0.86, 0.42, 0.2];
+const SCORCHED: [f32; 3] = [0.28, 0.05, 0.04];
+const HORN: [f32; 3] = [0.15, 0.11, 0.09];
+const MEMBRANE: [f32; 3] = [0.42, 0.06, 0.06];
+const CLAW: [f32; 3] = [0.08, 0.06, 0.05];
+const FANG: [f32; 3] = [0.96, 0.92, 0.78];
+const MAW: [f32; 3] = [0.1, 0.02, 0.02];
 
 pub fn pivot(joint: u16) -> Vec3 {
-  let side = |joint: u16| if joint % 2 == 0 { 1.0 } else { -1.0 };
+  let side = if joint % 2 == 0 { 1.0 } else { -1.0 };
+  let mirrored = |at: Vec3| at * Vec3::new(side, 1.0, 1.0);
   match joint {
     1 => HEAD,
-    2 | 3 => SHOULDER * Vec3::new(side(joint), 1.0, 1.0),
-    4 | 5 => HIP * Vec3::new(side(joint), 1.0, 1.0),
-    6 | 7 => WING * Vec3::new(side(joint), 1.0, 1.0),
+    2 | 3 => mirrored(SHOULDER),
+    4 | 5 => mirrored(HIP),
+    6 | 7 => mirrored(WING),
     _ => Vec3::ZERO
   }
 }
@@ -33,100 +34,115 @@ pub fn bindings() -> Vec<Mat4> {
   (0..8).map(|joint| Mat4::from_translation(-pivot(joint))).collect()
 }
 
-fn body() -> Cage {
-  let trunk = Cage::rounded(
-    Vec3::new(0.0, 1.08, 0.02),
-    Vec3::new(0.46, 0.56, 0.4),
-    UVec3::new(2, 3, 2),
-    0.6
+fn skull() -> Cage {
+  Cage::rounded(
+    Vec3::new(0.0, 1.63, -0.03),
+    Vec3::new(0.36, 0.32, 0.3),
+    UVec3::splat(2),
+    0.5
   )
   .shaped(|at| {
-    let low = ((1.1 - at.y) / 0.25).clamp(0.0, 1.0);
-    let high = ((at.y - 1.15) / 0.2).clamp(0.0, 1.0);
-    let paunch = low * (1.0 - low) * 4.0 * (-at.z).max(0.0) * 0.6;
-    Vec3::new(at.x * (1.0 + high * 0.15), at.y, at.z * (1.0 - high * 0.2) - paunch)
-      + Vec3::Z * high * 0.05
-  });
-  let top = trunk.faces_where(|_, normal| normal.y > 0.6);
-  let headed = trunk.grown_along(&top, &[
-    (Vec3::new(0.0, 0.1, -0.1), Vec3::new(0.5, 1.0, 0.5)),
-    (Vec3::new(0.0, 0.05, -0.02), Vec3::new(2.2, 1.0, 2.1)),
-    (Vec3::new(0.0, 0.14, 0.0), Vec3::new(1.12, 1.0, 1.1)),
-    (Vec3::new(0.0, 0.14, 0.02), Vec3::new(0.5, 1.0, 0.55))
-  ]);
-  let shoulders = |side: f32, cage: &Cage| {
-    cage.faces_where(|centre, normal| {
-      normal.x * side > 0.6 && centre.y > 1.2 && centre.y < 1.4
-    })
-  };
-  let stubbed = [1.0, -1.0].into_iter().fold(headed, |cage, side| {
-    let faces = shoulders(side, &cage);
-    cage.grown(&faces, Vec3::new(side * 0.08, -0.01, 0.0), Vec3::new(1.0, 0.75, 0.8))
-  });
-  let per_side = |cage: &Cage, pick: &dyn Fn(Vec3, Vec3) -> bool| {
-    [1.0, -1.0].map(|side| {
-      cage.faces_where(|centre, normal| centre.x * side > 0.0 && pick(centre, normal))
-    })
-  };
-  let limbed = |cage: Cage, faces: [Vec<usize>; 2], steps: &[(Vec3, Vec3)]| {
-    faces.into_iter().zip([1.0, -1.0]).fold(cage, |cage, (faces, side)| {
-      cage.grown_along(
-        &faces,
-        &steps
-          .iter()
-          .map(|&(toward, scale)| (toward * Vec3::new(side, 1.0, 1.0), scale))
-          .collect::<Vec<_>>()
-      )
-    })
-  };
-  let armpits = per_side(&stubbed, &|centre, normal| {
-    normal.y < -0.6 && centre.x.abs() > 0.2 && centre.y > 1.1
-  });
-  let armed = limbed(stubbed, armpits, &[
-    (Vec3::new(0.05, -0.12, 0.0), Vec3::new(0.7, 1.0, 0.8)),
-    (Vec3::new(0.04, -0.2, -0.04), Vec3::new(0.75, 1.0, 0.75)),
-    (Vec3::new(0.0, -0.07, -0.03), Vec3::new(1.6, 1.0, 1.6))
-  ]);
-  let seat = per_side(&armed, &|centre, normal| {
-    normal.y < -0.6 && centre.y < 0.95 && centre.x.abs() > 0.03 && centre.x.abs() < 0.2
-  });
-  let legged = limbed(armed, seat, &[
-    (Vec3::new(0.04, -0.24, -0.17), Vec3::new(0.75, 1.0, 0.75)),
-    (Vec3::new(0.0, -0.22, 0.21), Vec3::new(0.6, 1.0, 0.6)),
-    (Vec3::new(0.0, -0.2, -0.02), Vec3::new(0.85, 1.0, 0.85)),
-    (Vec3::new(0.0, -0.05, -0.07), Vec3::new(1.4, 1.0, 2.2))
-  ]);
-  let rump = legged.faces_where(|centre, normal| {
-    normal.z > 0.6 && centre.y < 1.0 && centre.y > 0.82 && centre.x.abs() < 0.2
-  });
-  legged.grown_along(&rump, &[
-    (Vec3::new(0.0, -0.04, 0.1), Vec3::new(0.55, 0.55, 1.0)),
-    (Vec3::new(0.0, -0.16, 0.26), Vec3::new(0.6, 0.6, 1.0)),
-    (Vec3::new(0.0, 0.2, 0.19), Vec3::new(0.4, 0.4, 1.0))
-  ])
+    let rise = ((at.y - 1.47) / 0.32).clamp(0.0, 1.0);
+    let jaw = (1.0 - rise / 0.5).max(0.0);
+    let width = match rise < 0.5 {
+      true => 0.35 + rise * 1.3,
+      false => 1.0 - (rise - 0.5) * 0.3
+    };
+    Vec3::new(at.x * width, at.y, at.z - jaw * 0.07 * (-at.z).max(0.0) / 0.15)
+  })
+  .subdivided(1)
 }
 
-fn joint(at: Vec3) -> u16 {
-  let side = |right: u16, left: u16| if at.x > 0.0 { right } else { left };
-  match () {
-    _ if at.y > HEAD.y => 1,
-    _ if at.x.abs() > 0.27 && at.y > 0.6 => side(2, 3),
-    _ if at.y < HIP.y - 0.06 && at.z < 0.2 => side(4, 5),
-    _ => 0
-  }
+fn face(skull: &Cage, x: f32, y: f32) -> Vec3 {
+  let z = skull
+    .points
+    .iter()
+    .filter(|at| Vec2::new(at.x - x, at.y - y).length() < 0.05)
+    .map(|at| at.z)
+    .fold(0.0, f32::min);
+  Vec3::new(x, y, z)
 }
 
-fn hide(centre: Vec3, normal: Vec3) -> [f32; 3] {
-  match () {
-    _ if centre.y < 0.12 => SCORCHED,
-    _ if centre.x.abs() > 0.27 && centre.y < 1.02 && centre.y > 0.6 => SCORCHED,
-    _ if normal.z < -0.3
-      && (centre.x / 0.16).powi(2) + ((centre.y - 1.04) / 0.22).powi(2) < 1.0 =>
-    {
-      BELLY
-    }
-    _ => HIDE
-  }
+pub fn glints() -> Vec<(Vec3, Vec3)> {
+  let skull = skull();
+  [1.0, -1.0]
+    .into_iter()
+    .flat_map(|side| {
+      [(0.025, 0.01, 0.045), (-0.02, -0.006, 0.04)].map(|(out, up, wide)| {
+        let at = face(&skull, side * (EYE.x + out), EYE.y + up) - Vec3::Z * 0.012;
+        (at - HEAD, Vec3::new(wide, 0.024, 0.01))
+      })
+    })
+    .collect()
+}
+
+fn torso() -> Cage {
+  Cage::tube(
+    &[
+      (Vec3::new(0.0, 0.76, 0.03), Vec2::new(0.07, 0.09)),
+      (Vec3::new(0.0, 0.88, 0.0), Vec2::new(0.11, 0.12)),
+      (Vec3::new(0.0, 1.03, 0.0), Vec2::new(0.11, 0.13)),
+      (Vec3::new(0.0, 1.18, 0.04), Vec2::new(0.1, 0.16)),
+      (Vec3::new(0.0, 1.3, 0.07), Vec2::new(0.08, 0.19)),
+      (Vec3::new(0.0, 1.38, 0.06), Vec2::new(0.05, 0.07)),
+      (Vec3::new(0.0, 1.5, 0.0), Vec2::new(0.04, 0.05))
+    ],
+    8
+  )
+}
+
+fn arm(side: f32) -> Cage {
+  let at = |x: f32, y: f32, z: f32| Vec3::new(side * x, y, z);
+  Cage::tube(
+    &[
+      (at(0.23, 1.33, 0.06), Vec2::splat(0.05)),
+      (at(0.27, 1.2, 0.07), Vec2::splat(0.032)),
+      (at(0.31, 1.08, 0.08), Vec2::splat(0.038)),
+      (at(0.32, 0.97, 0.03), Vec2::splat(0.026)),
+      (at(0.33, 0.87, -0.02), Vec2::splat(0.024)),
+      (at(0.335, 0.82, -0.04), Vec2::new(0.045, 0.03)),
+      (at(0.335, 0.79, -0.06), Vec2::new(0.035, 0.02))
+    ],
+    4
+  )
+}
+
+fn leg(side: f32) -> Cage {
+  let at = |x: f32, y: f32, z: f32| Vec3::new(side * x, y, z);
+  Cage::tube(
+    &[
+      (at(0.09, 0.84, 0.02), Vec2::splat(0.065)),
+      (at(0.11, 0.67, -0.06), Vec2::splat(0.055)),
+      (at(0.12, 0.52, -0.1), Vec2::splat(0.04)),
+      (at(0.12, 0.36, 0.0), Vec2::splat(0.028)),
+      (at(0.12, 0.2, 0.08), Vec2::splat(0.03)),
+      (at(0.12, 0.07, 0.04), Vec2::splat(0.03)),
+      (at(0.12, 0.04, -0.07), Vec2::new(0.025, 0.045))
+    ],
+    5
+  )
+}
+
+fn tail() -> Vec<Cage> {
+  let path = [
+    (Vec3::new(0.0, 0.84, 0.08), 0.03),
+    (Vec3::new(0.0, 0.74, 0.24), 0.024),
+    (Vec3::new(0.0, 0.78, 0.4), 0.018),
+    (Vec3::new(0.0, 0.92, 0.5), 0.012),
+    (Vec3::new(0.0, 1.03, 0.52), 0.008)
+  ];
+  let end = path[path.len() - 1].0;
+  vec![
+    Cage::tube(&path.map(|(at, thick)| (at, Vec2::splat(thick))), 4),
+    Cage::tube(
+      &[
+        (end, Vec2::new(0.008, 0.008)),
+        (end + Vec3::new(0.0, 0.05, 0.0), Vec2::new(0.012, 0.06)),
+        (end + Vec3::new(0.0, 0.13, -0.02), Vec2::splat(0.003))
+      ],
+      4
+    ),
+  ]
 }
 
 fn horns() -> Vec<Cage> {
@@ -134,10 +150,9 @@ fn horns() -> Vec<Cage> {
     .map(|side| {
       Cage::tube(
         &[
-          (Vec3::new(side * 0.11, 1.84, -0.12), Vec2::splat(0.045)),
-          (Vec3::new(side * 0.16, 1.95, -0.08), Vec2::splat(0.036)),
-          (Vec3::new(side * 0.19, 2.04, 0.02), Vec2::splat(0.024)),
-          (Vec3::new(side * 0.17, 2.08, 0.13), Vec2::splat(0.004))
+          (Vec3::new(side * 0.08, 1.76, -0.1), Vec2::splat(0.04)),
+          (Vec3::new(side * 0.13, 1.87, -0.08), Vec2::splat(0.027)),
+          (Vec3::new(side * 0.15, 1.96, -0.01), Vec2::splat(0.004))
         ],
         4
       )
@@ -150,9 +165,9 @@ fn ears() -> Vec<Cage> {
     .map(|side| {
       Cage::tube(
         &[
-          (Vec3::new(side * 0.25, 1.73, -0.02), Vec2::new(0.02, 0.06)),
-          (Vec3::new(side * 0.36, 1.8, 0.02), Vec2::new(0.012, 0.035)),
-          (Vec3::new(side * 0.45, 1.88, 0.05), Vec2::new(0.006, 0.004))
+          (Vec3::new(side * 0.15, 1.66, 0.0), Vec2::new(0.015, 0.06)),
+          (Vec3::new(side * 0.27, 1.7, 0.04), Vec2::new(0.01, 0.04)),
+          (Vec3::new(side * 0.38, 1.76, 0.08), Vec2::splat(0.004))
         ],
         4
       )
@@ -160,66 +175,53 @@ fn ears() -> Vec<Cage> {
     .to_vec()
 }
 
-fn claws(body: &Cage) -> Vec<(Cage, u16)> {
-  let tip = |pick: &dyn Fn(Vec3) -> bool, along: &dyn Fn(Vec3) -> f32| {
-    body
-      .points
-      .iter()
-      .copied()
-      .filter(|&at| pick(at))
-      .min_by(|a, b| along(*a).total_cmp(&along(*b)))
-      .unwrap_or_default()
+fn claws(side: f32) -> [(Cage, u16); 6] {
+  let at = |x: f32, y: f32, z: f32| Vec3::new(side * x, y, z);
+  let (hand, foot) = if side > 0.0 { (2, 4) } else { (3, 5) };
+  let finger = |spread: f32| {
+    (
+      Cage::spike(
+        at(0.335 + spread * 0.5, 0.79, -0.06 + spread),
+        at(0.34 + spread, 0.69, -0.12 + spread),
+        Vec2::splat(0.014)
+      ),
+      hand
+    )
   };
-  [1.0, -1.0]
-    .into_iter()
-    .flat_map(|side| {
-      let palm = tip(&|at| at.x * side > 0.27 && at.y > 0.5, &|at| at.y);
-      let toe = tip(&|at| at.x * side > 0.0 && at.y < 0.3, &|at| at.z - at.y);
-      let hand = [-0.035, 0.0, 0.035].map(|spread| {
-        let root = palm + Vec3::new(0.0, 0.03, spread - 0.02);
-        (
-          Cage::spike(root, root + Vec3::new(0.0, -0.1, -0.06), Vec2::splat(0.016)),
-          if side > 0.0 { 2 } else { 3 }
-        )
-      });
-      let foot = [-0.03, 0.0, 0.03].map(|spread| {
-        let root = toe + Vec3::new(side * spread, 0.01, 0.03);
-        (
-          Cage::spike(
-            root,
-            root + Vec3::new(side * spread, -0.02, -0.07),
-            Vec2::splat(0.015)
-          ),
-          if side > 0.0 { 4 } else { 5 }
-        )
-      });
-      hand.into_iter().chain(foot)
-    })
-    .collect()
+  let toe = |spread: f32| {
+    (
+      Cage::spike(
+        at(0.12 + spread, 0.04, -0.1),
+        at(0.12 + spread * 1.5, 0.02, -0.17),
+        Vec2::splat(0.014)
+      ),
+      foot
+    )
+  };
+  [finger(-0.03), finger(0.0), finger(0.03), toe(-0.03), toe(0.0), toe(0.03)]
 }
 
 fn wing(side: f32) -> Vec<(Cage, [f32; 3])> {
   let at = |x: f32, y: f32, z: f32| Vec3::new(side * x, y, z);
-  let (root, elbow) = (at(0.12, 1.33, 0.17), at(0.42, 1.55, 0.3));
-  let tips = [at(0.82, 1.6, 0.36), at(0.78, 1.25, 0.42), at(0.55, 1.0, 0.38)];
-  let low = at(0.16, 1.1, 0.2);
-  let bones = [Cage::tube(&[(root, Vec2::splat(0.025)), (elbow, Vec2::splat(0.02))], 3)]
+  let (root, elbow) = (at(0.08, 1.28, 0.14), at(0.36, 1.48, 0.26));
+  let tips = [at(0.72, 1.52, 0.32), at(0.68, 1.22, 0.38), at(0.48, 1.0, 0.34)];
+  let low = at(0.12, 1.08, 0.16);
+  let notch = |a: Vec3, b: Vec3| a.lerp(b, 0.5) + (elbow - a.lerp(b, 0.5)) * 0.25;
+  let bones = [Cage::tube(&[(root, Vec2::splat(0.022)), (elbow, Vec2::splat(0.018))], 3)]
     .into_iter()
-    .chain(tips.map(|tip| Cage::spike(elbow, tip, Vec2::splat(0.016))))
+    .chain(tips.map(|tip| Cage::spike(elbow, tip, Vec2::splat(0.014))))
     .map(|cage| (cage, SCORCHED));
-  let rim: Vec<Vec3> = [root, elbow, tips[0]]
-    .into_iter()
-    .chain([
-      tips[0].lerp(tips[1], 0.5) + (elbow - tips[0].lerp(tips[1], 0.5)) * 0.25,
-      tips[1],
-      tips[1].lerp(tips[2], 0.5) + (elbow - tips[1].lerp(tips[2], 0.5)) * 0.25,
-      tips[2],
-      low
-    ])
-    .map(|point| point + Vec3::Z * 0.004)
-    .collect();
   let membrane = Cage {
-    points: rim,
+    points: vec![
+      root,
+      elbow,
+      tips[0],
+      notch(tips[0], tips[1]),
+      tips[1],
+      notch(tips[1], tips[2]),
+      tips[2],
+      low,
+    ],
     faces: vec![
       vec![0, 1, 7],
       vec![1, 6, 7],
@@ -235,55 +237,75 @@ fn wing(side: f32) -> Vec<(Cage, [f32; 3])> {
 }
 
 pub fn fiendish() -> Mesh {
-  let socket = |side: f32| Daub { at: SOCKET * Vec3::new(side, 1.0, 1.0), color: MAW };
-  let grin = [-0.08, -0.04, 0.0, 0.04, 0.08]
-    .map(|x| Daub { at: Vec3::new(x, 1.6 + x.abs() * 0.3, -0.23), color: MAW });
-  let body = body();
-  let skin = sculpt(
-    &body.clone().subdivided(1),
-    hide,
-    &[socket(1.0), socket(-1.0)].into_iter().chain(grin).collect::<Vec<_>>(),
-    joint
-  );
   let plain =
     &|cage: &Cage, color: [f32; 3], bone: u16| sculpt(cage, |_, _| color, &[], |_| bone);
-  let nose = Cage::spike(
-    Vec3::new(0.0, 1.655, -0.215),
-    Vec3::new(0.0, 1.62, -0.3),
-    Vec2::new(0.035, 0.03)
-  );
-  let brow = Cage::tube(
-    &[(-0.15, 1.735, -0.165), (0.0, 1.715, -0.21), (0.15, 1.735, -0.165)]
-      .map(|(x, y, z)| (Vec3::new(x, y, z), Vec2::new(0.025, 0.02))),
+  let skull = skull();
+  let grin = Cage::tube(
+    &[-0.085, -0.045, 0.0, 0.045, 0.085].map(|x| {
+      (face(&skull, x, 1.575 + x * x * 5.0) - Vec3::Z * 0.004, Vec2::new(0.012, 0.013))
+    }),
     4
   );
   let fangs = [1.0, -1.0].map(|side| {
-    Cage::spike(
-      Vec3::new(side * 0.05, 1.6, -0.222),
-      Vec3::new(side * 0.05, 1.55, -0.22),
-      Vec2::splat(0.013)
-    )
+    let root = face(&skull, side * 0.04, 1.57) - Vec3::Z * 0.01;
+    Cage::spike(root, root + Vec3::new(0.0, -0.05, 0.004), Vec2::splat(0.013))
   });
-  let end =
-    body.points.iter().copied().max_by(|a, b| a.z.total_cmp(&b.z)).unwrap_or_default();
-  let spade = Cage::tube(
-    &[
-      (end - Vec3::new(0.0, 0.01, 0.02), Vec2::new(0.012, 0.012)),
-      (end + Vec3::new(0.0, 0.04, 0.05), Vec2::new(0.012, 0.065)),
-      (end + Vec3::new(0.0, 0.1, 0.12), Vec2::new(0.003, 0.003))
-    ],
-    4
+  let sockets = [1.0, -1.0].map(|side| {
+    let middle = face(&skull, side * EYE.x, EYE.y) - Vec3::Z * 0.004;
+    Cage::rounded(middle, Vec3::new(0.1, 0.045, 0.02), UVec3::ONE, 0.3)
+      .shaped(move |at| Quat::from_rotation_z(side * 0.3).mul_vec3(at - middle) + middle)
+  });
+  let nose = {
+    let root = face(&skull, 0.0, 1.62);
+    Cage::spike(
+      root + Vec3::Y * 0.02,
+      root + Vec3::new(0.0, -0.02, -0.06),
+      Vec2::splat(0.025)
+    )
+  };
+  let trunk = sculpt(
+    &torso(),
+    |centre, normal| match normal.z < -0.45 && centre.y < 1.22 && centre.y > 0.8 {
+      true => BELLY,
+      false => HIDE
+    },
+    &[],
+    |at| if at.y > 1.46 { 1 } else { 0 }
   );
+  let limb = |cage: &Cage, bone: u16, dark_below: f32| {
+    sculpt(
+      cage,
+      |centre, _| if centre.y < dark_below { SCORCHED } else { HIDE },
+      &[],
+      |_| bone
+    )
+  };
   merged(
-    [skin, plain(&nose, HIDE, 1), plain(&brow, SCORCHED, 1), plain(&spade, SCORCHED, 0)]
-      .into_iter()
-      .chain(horns().iter().map(|horn| plain(horn, HORN, 1)))
-      .chain(ears().iter().map(|ear| plain(ear, HIDE, 1)))
-      .chain(fangs.iter().map(|fang| plain(fang, FANG, 1)))
-      .chain(claws(&body).iter().map(|(claw, bone)| plain(claw, CLAW, *bone)))
-      .chain([(1.0, 6), (-1.0, 7)].into_iter().flat_map(|(side, bone)| {
-        wing(side).into_iter().map(move |(cage, color)| plain(&cage, color, bone))
-      }))
+    [
+      trunk,
+      plain(&skull, HIDE, 1),
+      plain(&grin, MAW, 1),
+      plain(&nose, HIDE, 1),
+      limb(&arm(1.0), 2, 0.9),
+      limb(&arm(-1.0), 3, 0.9),
+      limb(&leg(1.0), 4, 0.12),
+      limb(&leg(-1.0), 5, 0.12)
+    ]
+    .into_iter()
+    .chain(sockets.iter().map(|socket| plain(socket, MAW, 1)))
+    .chain(fangs.iter().map(|fang| plain(fang, FANG, 1)))
+    .chain(horns().iter().map(|horn| plain(horn, HORN, 1)))
+    .chain(ears().iter().map(|ear| plain(ear, HIDE, 1)))
+    .chain(tail().iter().map(|piece| plain(piece, SCORCHED, 0)))
+    .chain(
+      [1.0, -1.0]
+        .into_iter()
+        .flat_map(claws)
+        .map(|(claw, bone)| plain(&claw, CLAW, bone))
+    )
+    .chain([(1.0, 6), (-1.0, 7)].into_iter().flat_map(|(side, bone)| {
+      wing(side).into_iter().map(move |(cage, color)| plain(&cage, color, bone))
+    }))
   )
 }
 
@@ -293,5 +315,9 @@ mod tests {
 
   #[test]
   #[ignore]
-  fn imps() { sheet(&[fiendish()], "screenshots/imp.ppm") }
+  fn imps() {
+    let mesh = fiendish();
+    println!("{} triangles", mesh.count_vertices() / 3);
+    sheet(&[mesh], "screenshots/imp.ppm")
+  }
 }
