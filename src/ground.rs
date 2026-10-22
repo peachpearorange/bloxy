@@ -13,6 +13,8 @@ pub struct Surface {
   pub aimed: Vec4,
   #[uniform(100)]
   pub weather: Vec4,
+  #[uniform(100)]
+  pub turf: Vec4,
   #[texture(101)]
   #[sampler(102)]
   pub atlas: Option<Handle<Image>>
@@ -75,6 +77,7 @@ pub struct Grounds;
 impl Plugin for Grounds {
   fn build(&self, app: &mut App) {
     if app.world().resource::<Role>().plays() {
+      bevy::shader::load_shader_library!(app, "meadow.wgsl");
       embedded_asset!(app, "ground.wgsl");
       embedded_asset!(app, "ground_prepass.wgsl");
       app

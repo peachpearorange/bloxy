@@ -66,6 +66,7 @@ pub fn paint(
     dug: Vec4::ZERO,
     aimed: Vec4::ZERO,
     weather: Vec4::ZERO,
+    turf: texture::tile_origin(crate::block::Tile::GrassTop).extend(0.0).extend(0.0),
     atlas: base.base_color_texture.clone()
   };
   let ground = grounds.add(Ground {

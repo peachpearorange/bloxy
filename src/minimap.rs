@@ -34,6 +34,7 @@ struct Whereabouts;
 pub fn hue(block: Block) -> [f32; 3] {
   match block.liquid() {
     Some((Fluid::Water, _)) => [0.12, 0.42, 0.62],
+    _ if block == Block::Grass => [0.3, 0.5, 0.16],
     _ => painted(block)
   }
 }

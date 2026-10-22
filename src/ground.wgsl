@@ -6,11 +6,13 @@
     mesh_functions,
     view_transformations::position_world_to_clip,
 }
+#import bloxy::meadow::lawn
 
 struct Surface {
     dug: vec4<f32>,
     aimed: vec4<f32>,
     weather: vec4<f32>,
+    turf: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: Surface;
@@ -127,7 +129,11 @@ fn projected(top: vec2<f32>, code: f32, at: vec3<f32>, normal: vec3<f32>, dx: ve
     }
     let ragged = (lumpy(at * 2.3) - 0.5) * 0.3 + (lumpy(at * 7.0) - 0.5) * 0.12;
     let covered = smoothstep(0.34, 0.5, normal.y + ragged);
-    return mix(mixed, painted(top, tile, at.xz, dx.xz, dy.xz), covered);
+    var cover = painted(top, tile, at.xz, dx.xz, dy.xz);
+    if all(abs(top - surface.turf.xy) < tile * 0.5) {
+        cover = vec4<f32>(lawn(at.xz, globals.time), 1.0);
+    }
+    return mix(mixed, cover, covered);
 }
 
 fn glow(at: vec3<f32>, time: f32) -> f32 {
