@@ -6,7 +6,7 @@
     mesh_functions,
     view_transformations::position_world_to_clip,
 }
-#import bloxy::meadow::{CELLS, PER_CELL, Field, field, blade, blade_colour, handed, shade}
+#import bloxy::meadow::{CELLS, PER_CELL, Field, field, blade, blade_colour, handed, shade, spread}
 
 struct Blades {
     dug: vec4<f32>,
@@ -26,6 +26,13 @@ fn surveyed(block: vec2<i32>) -> vec2<f32> {
     return select(vec2<f32>(-1.0, 0.0), cell.ra, all(cell.gb == vec2<f32>(block)) && !dug);
 }
 
+fn tallness(at: vec2<f32>) -> f32 {
+    let around = spread(at);
+    let low = mix(surveyed(around.base).y, surveyed(around.base + vec2<i32>(1, 0)).y, around.blend.x);
+    let high = mix(surveyed(around.base + vec2<i32>(0, 1)).y, surveyed(around.base + vec2<i32>(1, 1)).y, around.blend.x);
+    return mix(low, high, around.blend.y);
+}
+
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
@@ -41,7 +48,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let surface = surveyed(block);
     let centre = (vec2<f32>(cell) + 0.5) / f32(CELLS);
     let around = field(centre, globals.time, blades.weather.x, blades.tread);
-    let grown = blade(cell, slot % PER_CELL, surface.x, surface.y, around);
+    let grown = blade(cell, slot % PER_CELL, surface.x, tallness(centre), around);
     let root = grown.root;
     let kept = grown.chance < handed(root.xz, eye.xz);
 

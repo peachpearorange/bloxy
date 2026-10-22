@@ -6,7 +6,7 @@
     mesh_functions,
     view_transformations::position_world_to_clip,
 }
-#import bloxy::meadow::{CELL, PER_CELL, TALLEST, OUT, Field, Blade, field, blade, blade_colour, handed, thinned, shade}
+#import bloxy::meadow::{CELL, PER_CELL, BAND, OUT, spread, Field, Blade, field, blade, blade_colour, handed, thinned, shade}
 
 struct Blades {
     dug: vec4<f32>,
@@ -28,9 +28,13 @@ fn surveyed(block: vec2<i32>) -> vec2<f32> {
     return select(vec2<f32>(-1.0, 0.0), cell.ra, all(cell.gb == vec2<f32>(block)) && !dug);
 }
 
-fn band(tall: f32) -> f32 {
-    return TALLEST * (1.0 + tall * 1.3) + 0.05;
+fn tallness(at: vec2<f32>) -> f32 {
+    let around = spread(at);
+    let low = mix(surveyed(around.base).y, surveyed(around.base + vec2<i32>(1, 0)).y, around.blend.x);
+    let high = mix(surveyed(around.base + vec2<i32>(0, 1)).y, surveyed(around.base + vec2<i32>(1, 1)).y, around.blend.x);
+    return mix(low, high, around.blend.y);
 }
+
 
 const SIDES: array<vec2<i32>, 5> = array<vec2<i32>, 5>(
     vec2<i32>(0, 0), vec2<i32>(-1, 0), vec2<i32>(1, 0), vec2<i32>(0, -1), vec2<i32>(0, 1)
@@ -48,12 +52,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let corner = vertex.position;
     let world = vec3<f32>(
         f32(block.x) + corner.x,
-        select(ground - 0.3, ground + band(surface.y), corner.y > 0.5),
+        select(ground - 0.3, ground + BAND, corner.y > 0.5),
         f32(block.y) + corner.z
     );
     let beside = surveyed(block + SIDES[face]);
-    let top = ground + band(surface.y);
-    let covered = (beside.x == ground && beside.x + band(beside.y) >= top) || beside.x >= top;
+    let top = ground + BAND;
+    let covered = beside.x == ground || beside.x >= top;
     let inner = face > 0 && covered;
     let away = distance(vec2<f32>(block) + 0.5, view.world_position.xz);
     out.world_position = vec4<f32>(world, 1.0);
@@ -85,6 +89,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Painted 
     let toward = normalize(entry - eye);
     let around = field(entry.xz, globals.time, blades.weather.x, blades.tread);
     let shear = around.lean;
+    let tall = tallness(entry.xz);
     let pixel = 2.0 / (view.clip_from_view[1][1] * view.viewport.w);
 
     var t = max(distance(entry, eye) - 0.01, 0.0);
@@ -100,7 +105,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Painted 
         let surface = surveyed(block);
         let ground = surface.x;
         let grassy = ground >= 0.0;
-        let top = ground + band(surface.y);
+        let top = ground + BAND;
         let buried = grassy && at.y < ground - 0.02;
         let risen = (!grassy || at.y > top) && toward.y >= 0.0;
         ended = buried || risen;
@@ -111,7 +116,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Painted 
         if grassy && !ended {
             let cell = vec2<i32>(floor(sheared / CELL));
             for (var slot = 0u; slot < PER_CELL; slot++) {
-                let grown = blade(cell, slot, ground, surface.y, around);
+                let grown = blade(cell, slot, ground, tall, around);
                 let kept = grown.chance >= handed(grown.root.xz, eye.xz) && grown.chance >= thinned(grown.root.xz, eye.xz);
                 let facing = normalize(cross(grown.axis, grown.across));
                 let towards = dot(toward, facing);

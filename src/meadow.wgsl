@@ -10,8 +10,8 @@ const SHEEN: vec3<f32> = vec3<f32>(0.08, 0.12, 0.02);
 const CELL: f32 = 0.0625;
 const CELLS: i32 = 16;
 const PER_CELL: u32 = 2u;
-const SHORTEST: f32 = 0.15;
-const TALLEST: f32 = 0.35;
+const SHORTEST: f32 = 0.17;
+const TALLEST: f32 = 0.3;
 const NEAR: f32 = 4.0;
 const HANDOVER: f32 = 1.5;
 const OUT: f32 = 46.0;
@@ -40,7 +40,7 @@ fn gust(at: vec2<f32>, time: f32) -> f32 {
 
 fn lush(at: vec2<f32>) -> f32 {
     let broad = noise(at / 46.0) * 0.65 + noise(at / 13.0 + vec2<f32>(5.0, 9.0)) * 0.35;
-    return smoothstep(0.2, 0.6, broad);
+    return 0.3 + 0.5 * smoothstep(0.2, 0.7, broad);
 }
 
 fn blade_colour(lushness: f32, along: f32) -> vec3<f32> {
@@ -64,6 +64,19 @@ fn mixed(seed: u32) -> u32 {
 
 fn unit(seed: u32) -> f32 {
     return f32(mixed(seed) & 0xffffffu) / 16777216.0;
+}
+
+const BAND: f32 = TALLEST * 1.45 + 0.05;
+
+struct Spread {
+    base: vec2<i32>,
+    blend: vec2<f32>,
+}
+
+fn spread(at: vec2<f32>) -> Spread {
+    let warped = at + (vec2<f32>(noise(at * 0.6), noise(at * 0.6 + vec2<f32>(7.0, 3.0))) - 0.5) * 1.2;
+    let low = floor(warped - 0.5);
+    return Spread(vec2<i32>(low), smoothstep(vec2<f32>(0.0), vec2<f32>(1.0), warped - 0.5 - low));
 }
 
 struct Field {
@@ -95,8 +108,8 @@ struct Blade {
 fn blade(cell: vec2<i32>, slot: u32, ground: f32, tall: f32, around: Field) -> Blade {
     let seed = mixed(u32(cell.x) * 73856093u ^ u32(cell.y) * 19349663u ^ slot * 83492791u);
     let spot = (vec2<f32>(cell) + vec2<f32>(0.3, 0.3) + vec2<f32>(unit(seed), unit(seed + 1u)) * 0.4) * CELL;
-    let height = mix(SHORTEST, TALLEST, around.lush * 0.55 + unit(seed + 2u) * 0.45)
-        * (1.0 + tall * (0.5 + 0.8 * unit(seed + 3u)));
+    let height = mix(SHORTEST, TALLEST, around.lush * 0.4 + unit(seed + 2u) * 0.6)
+        * (1.0 + tall * 0.4 * (0.75 + 0.5 * unit(seed + 3u)));
     let lean = around.lean + (vec2<f32>(unit(seed + 4u), unit(seed + 5u)) - 0.5) * 0.12;
     let axis = normalize(vec3<f32>(lean.x, 1.0, lean.y)) * height * (1.0 - 0.15 * min(length(lean), 1.5));
     let turn = unit(seed + 6u) * 3.14159;
@@ -121,5 +134,5 @@ fn thinned(blade_root: vec2<f32>, eye: vec2<f32>) -> f32 {
 }
 
 fn shade(colour: vec3<f32>, along: f32, gusting: f32, odd: f32) -> vec3<f32> {
-    return colour * (0.88 + 0.24 * odd) + SHEEN * gusting * along;
+    return colour * (0.95 + 0.1 * odd) + SHEEN * gusting * along;
 }
