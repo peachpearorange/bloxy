@@ -372,7 +372,8 @@ fn draw(
         dot(&mut paint, at, 3, [0.05, 0.02, 0.02]);
         dot(&mut paint, at, 2, match dungeon.style {
           crate::dungeon::Style::Spire => [0.95, 0.55, 0.2],
-          crate::dungeon::Style::Descent => [0.85, 0.12, 0.1]
+          crate::dungeon::Style::Descent => [0.85, 0.12, 0.1],
+          crate::dungeon::Style::Precursor => [0.2, 0.95, 1.0]
         })
       }
     }

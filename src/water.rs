@@ -1,8 +1,4 @@
-use {crate::{block::{Block, Fluid},
-             opts::opts,
-             player::Eye,
-             protocol::Role,
-             sky::daylight,
+use {crate::{block::Block, opts::opts, player::Eye, protocol::Role, sky::daylight,
              voxels::Voxels},
      bevy::{asset::embedded_asset,
             core_pipeline::fullscreen_material::{FullscreenMaterial,
@@ -51,20 +47,16 @@ impl FullscreenMaterial for Submerged {
 
 fn below_surface(voxels: &Voxels, eye: Vec3) -> f32 {
   let cell = eye.floor().as_ivec3();
-  let water = |block: Option<Block>| {
-    block.and_then(Block::liquid).is_some_and(|(fluid, _)| fluid == Fluid::Water)
-  };
-  (1..48)
+  let water = |block: Option<Block>| block.is_some_and(Block::wet);
+  (1..72)
     .find(|&rise| !water(voxels.block(cell + IVec3::Y * rise)))
-    .map_or(48.0, |rise| (cell.y + rise) as f32 - 1.0 + SURFACE - eye.y)
+    .map_or(72.0, |rise| (cell.y + rise) as f32 - 1.0 + SURFACE - eye.y)
     .max(0.0)
 }
 
 fn underwater(voxels: &Voxels, eye: Vec3) -> bool {
   let cell = eye.floor().as_ivec3();
-  let water = |block: Option<Block>| {
-    block.and_then(Block::liquid).is_some_and(|(fluid, _)| fluid == Fluid::Water)
-  };
+  let water = |block: Option<Block>| block.is_some_and(Block::wet);
   water(voxels.block(cell))
     && (water(voxels.block(cell + IVec3::Y)) || eye.y - eye.y.floor() < SURFACE)
 }

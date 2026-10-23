@@ -33,6 +33,9 @@ impl Recipe {
       (Some(Block::ManaCistern), Cost::Mana(mana)) => {
         Some(format!("Toss {} into a Mana Cistern: {mana} mana each", all.join(" and ")))
       }
+      (Some(Block::BioLab), _) => {
+        Some(format!("Culture {} at a Bio Lab", all.join(" and ")))
+      }
       (Some(Block::Crusher), Cost::Free) => {
         Some(format!("Feed {first} to a powered Crusher"))
       }
@@ -169,6 +172,129 @@ const fn bloom_font(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Re
     cost: Cost::Free
   }
 }
+
+const fn bio(inputs: &'static [(Block, u16)], output: (Block, u16)) -> Recipe {
+  Recipe {
+    inputs,
+    output,
+    station: Some(Block::BioLab),
+    material: None,
+    cost: Cost::Free
+  }
+}
+
+const DEPTHS: &[Recipe] = &[
+  table(
+    &[(Block::Glass, 4), (Block::IronOre, 2), (Block::CopperPipe, 1), (Block::Kelp, 2)],
+    (Block::BioLab, 1)
+  ),
+  bio(&[(Block::Kelp, 2), (Block::BoneDust, 1)], (Block::Kelp, 6)),
+  bio(&[(Block::Seagrass, 2), (Block::BoneDust, 1)], (Block::Seagrass, 6)),
+  bio(
+    &[(Block::BrainCoral, 1), (Block::BoneDust, 1), (Block::Sand, 1)],
+    (Block::BrainCoral, 3)
+  ),
+  bio(
+    &[(Block::FanCoral, 1), (Block::BoneDust, 1), (Block::Sand, 1)],
+    (Block::FanCoral, 3)
+  ),
+  bio(
+    &[(Block::TubeCoral, 1), (Block::BoneDust, 1), (Block::Sand, 1)],
+    (Block::TubeCoral, 3)
+  ),
+  bio(&[(Block::Anemone, 1), (Block::Cod, 1)], (Block::Anemone, 3)),
+  bio(&[(Block::GlowPolyp, 1), (Block::ArcaneDust, 1)], (Block::GlowPolyp, 3)),
+  bio(&[(Block::Sponge, 1), (Block::Clay, 2)], (Block::Sponge, 3)),
+  bio(&[(Block::VentWorms, 1), (Block::CoalOre, 2)], (Block::VentWorms, 3)),
+  bio(&[(Block::Clam, 1), (Block::Sand, 4), (Block::Kelp, 2)], (Block::Clam, 2)),
+  bio(&[(Block::Clam, 1), (Block::Sand, 6)], (Block::Pearl, 2)),
+  bio(&[(Block::BrainCoral, 2), (Block::Sponge, 1)], (Block::Reefstone, 8)),
+  bio(&[(Block::Pearl, 2), (Block::Clam, 1)], (Block::Nacre, 8)),
+  bio(&[(Block::GlowPolyp, 2), (Block::Clay, 2)], (Block::Biolume, 4)),
+  bio(
+    &[(Block::Kelp, 3), (Block::GlowPolyp, 1), (Block::ArcaneDust, 1)],
+    (Block::Glowkelp, 3)
+  ),
+  bio(&[(Block::Anemone, 2), (Block::JellyGel, 1)], (Block::SpellFrost, 6)),
+  bio(
+    &[(Block::Sponge, 2), (Block::JellyGel, 1), (Block::Pearl, 1)],
+    (Block::SpellHeal, 2)
+  ),
+  bio(&[(Block::VentWorms, 3), (Block::Battery, 1)], (Block::PowerCell, 1)),
+  bio(
+    &[(Block::Biolume, 4), (Block::Glass, 2), (Block::CopperCable, 1)],
+    (Block::Floodlight, 1)
+  ),
+  bio(
+    &[(Block::JellyGel, 3), (Block::Pearl, 1), (Block::CopperCable, 2)],
+    (Block::SonarModule, 1)
+  ),
+  table(
+    &[
+      (Block::IronOre, 10),
+      (Block::Glass, 6),
+      (Block::CopperPipe, 4),
+      (Block::Battery, 1),
+      (Block::Tank, 1)
+    ],
+    (Block::Submarine, 1)
+  ),
+  table(
+    &[(Block::CopperCable, 4), (Block::Glass, 2), (Block::JellyGel, 2)],
+    (Block::SonarModule, 1)
+  ),
+  table(
+    &[(Block::SonarModule, 1), (Block::ResonantCrystal, 2), (Block::Datacore, 1)],
+    (Block::DeepSonar, 1)
+  ),
+  furnace(
+    &[(Block::IronOre, 6), (Block::DiamondOre, 1), (Block::CoalOre, 1)],
+    (Block::DrillModule, 1)
+  ),
+  table(
+    &[(Block::DrillModule, 1), (Block::AetherCell, 1), (Block::AlloyScrap, 4)],
+    (Block::PlasmaDrill, 1)
+  ),
+  table(
+    &[(Block::ElectricLamp, 2), (Block::Glass, 2), (Block::CopperCable, 2)],
+    (Block::Floodlight, 1)
+  ),
+  table(
+    &[(Block::CopperPipe, 4), (Block::IronOre, 4), (Block::Battery, 1)],
+    (Block::Thruster, 1)
+  ),
+  table(
+    &[(Block::Thruster, 1), (Block::AlloyScrap, 6), (Block::AetherCell, 1)],
+    (Block::Hydrojet, 1)
+  ),
+  furnace(
+    &[(Block::IronOre, 8), (Block::NoduleOre, 4), (Block::CoalOre, 2)],
+    (Block::HullPlating, 1)
+  ),
+  table(
+    &[(Block::HullPlating, 1), (Block::AlloyScrap, 8), (Block::ResonantCrystal, 1)],
+    (Block::ResonantPlating, 1)
+  ),
+  table(
+    &[(Block::IronOre, 3), (Block::CopperCable, 2), (Block::Kelp, 2)],
+    (Block::SampleClaw, 1)
+  ),
+  table(
+    &[(Block::IronOre, 6), (Block::CopperPipe, 2), (Block::CopperCable, 2)],
+    (Block::TorpedoBay, 1)
+  ),
+  table(&[(Block::IronOre, 1), (Block::CoalOre, 2)], (Block::Torpedo, 4)),
+  table(&[(Block::Battery, 2), (Block::CopperCable, 2)], (Block::PowerCell, 1)),
+  table(&[(Block::AlloyScrap, 4)], (Block::PrecursorAlloy, 4)),
+  table(&[(Block::AlloyScrap, 2), (Block::Glass, 4)], (Block::PrecursorGlass, 4)),
+  table(
+    &[(Block::AlloyScrap, 2), (Block::ResonantCrystal, 1)],
+    (Block::AetherConduit, 6)
+  ),
+  table(&[(Block::AetherConduit, 1), (Block::Glass, 1)], (Block::AetherLamp, 2)),
+  furnace(&[(Block::NoduleOre, 2), (Block::CoalOre, 1)], (Block::IronOre, 2)),
+  furnace(&[(Block::Abyssite, 4), (Block::CoalOre, 1)], (Block::Basalt, 4))
+];
 
 const fn rite(
   inputs: &'static [(Block, u16)],
@@ -592,6 +718,7 @@ pub static RECIPES: std::sync::LazyLock<Vec<Recipe>> = std::sync::LazyLock::new(
   BASICS
     .iter()
     .chain(ARCANA)
+    .chain(DEPTHS)
     .copied()
     .chain(Block::TOOLS.into_iter().flat_map(|tool| {
       Material::ALL.into_iter().filter_map(move |material| forge(tool, material))

@@ -47,6 +47,8 @@ impl Foe {
       Foe::Shade => Band::Shade.speed(),
       Foe::Warden => Band::Warden.speed(),
       Foe::Imp => Band::Imp.speed(),
+      Foe::Sentinel => Band::Sentinel.speed(),
+      Foe::Custodian => Band::Custodian.speed(),
       Foe::Spider => 4.6
     }
   }
@@ -54,6 +56,7 @@ impl Foe {
   fn reach(self) -> f32 {
     match self {
       Foe::Warden => 2.4,
+      Foe::Custodian => 2.8,
       Foe::Spider | Foe::Imp => 1.3,
       _ => 1.45
     }
@@ -64,7 +67,9 @@ impl Foe {
       Foe::Skeleton => 1.1,
       Foe::Shade => 1.6,
       Foe::Spider | Foe::Imp => 0.9,
-      Foe::Warden => 2.0
+      Foe::Warden => 2.0,
+      Foe::Sentinel => 1.4,
+      Foe::Custodian => 2.4
     }
   }
 
@@ -74,6 +79,8 @@ impl Foe {
       Foe::Shade => Band::Shade.blow(),
       Foe::Warden => Band::Warden.blow(),
       Foe::Imp => Band::Imp.blow(),
+      Foe::Sentinel => Band::Sentinel.blow(),
+      Foe::Custodian => Band::Custodian.blow(),
       Foe::Spider => 1
     }
   }
@@ -84,6 +91,8 @@ impl Foe {
       Foe::Warden => Bulk { half: 0.45, tall: 2.9 },
       Foe::Shade => Bulk { half: 0.3, tall: 1.7 },
       Foe::Imp => Bulk { half: 0.25, tall: 1.1 },
+      Foe::Sentinel => Bulk { half: 0.4, tall: 1.4 },
+      Foe::Custodian => Bulk { half: 0.5, tall: 2.6 },
       Foe::Skeleton => Bulk::PERSON
     }
   }
@@ -94,15 +103,27 @@ impl Foe {
       Foe::Shade => &[(Kind::Chilled, 5.0), (Kind::Frightened, 5.0)],
       Foe::Warden => &[(Kind::Weakened, 8.0)],
       Foe::Imp => &[(Kind::Burning, 3.0)],
+      Foe::Sentinel => &[(Kind::Chilled, 3.0)],
+      Foe::Custodian => &[(Kind::Weakened, 6.0)],
       Foe::Skeleton => &[]
     }
   }
 
-  fn flies(self) -> bool { matches!(self, Foe::Shade | Foe::Imp) }
+  fn flies(self) -> bool { matches!(self, Foe::Shade | Foe::Imp | Foe::Sentinel) }
+
+  fn heavy(self) -> bool { self == Foe::Custodian }
+
+  fn hurls(self) -> Option<(Block, Kind)> {
+    match self {
+      Foe::Imp => Some((Block::SpellFirebolt, Kind::Burning)),
+      Foe::Sentinel => Some((Block::SpellFrost, Kind::Chilled)),
+      _ => None
+    }
+  }
 
   fn respawn(self) -> f32 {
     match self {
-      Foe::Warden => WARDEN_RESPAWN,
+      Foe::Warden | Foe::Custodian => WARDEN_RESPAWN,
       _ => RESPAWN
     }
   }
@@ -137,7 +158,8 @@ pub struct Blamed(pub Entity);
 #[derive(Component)]
 struct Ember {
   velocity: Vec3,
-  life: f32
+  life: f32,
+  afflicts: Kind
 }
 
 enum Prey {
@@ -177,6 +199,8 @@ pub fn rise(commands: &mut Commands, foe: Foe, at: Vec3, lair: Lair, luck: u32) 
     Foe::Shade => Some(Band::Shade),
     Foe::Warden => Some(Band::Warden),
     Foe::Imp => Some(Band::Imp),
+    Foe::Sentinel => Some(Band::Sentinel),
+    Foe::Custodian => Some(Band::Custodian),
     Foe::Spider => None
   };
   match band {
@@ -306,6 +330,7 @@ fn prowl(
     (With<Servant>, Without<Haunt>, Without<Controller>, Without<Dying>)
   >,
   mut knocks: MessageWriter<ToClients<Knock>>,
+  mut subs: Query<&mut crate::submarine::Sub>,
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -371,8 +396,9 @@ fn prowl(
           }
           match prey {
             Prey::Player(player) => {
-              if let Ok((_, controller, _, mut health, mut vigour, mut afflicted)) =
-                players.get_mut(player)
+              if !crate::submarine::shield(&mut subs, player, foe.blow())
+                && let Ok((_, controller, _, mut health, mut vigour, mut afflicted)) =
+                  players.get_mut(player)
               {
                 hurt(&mut health, &mut vigour, foe.blow());
                 for &(kind, secs) in foe.afflicts() {
@@ -399,7 +425,7 @@ fn prowl(
           }
         }
         let distance = offset.length();
-        if foe == Foe::Imp
+        if let Some((spell, afflicts)) = foe.hurls()
           && matches!(prey, Prey::Player(_))
           && (HURL_BEYOND..HURL_WITHIN).contains(&distance)
           && haunt.hurl <= 0.0
@@ -408,11 +434,11 @@ fn prowl(
           haunt.hurl = HURL_EVERY
             * (0.8 + unit(haunt.luck, 9, (time.elapsed_secs() * 4.0) as i32, 1) * 0.6);
           let toward = (spot + Vec3::Y * EYE * 0.7 - eye).normalize_or_zero();
-          commands.spawn((
-            Replicated,
-            Bolt { spell: Block::SpellFirebolt, at: eye + toward * 0.3 },
-            Ember { velocity: toward * EMBER_SPEED, life: EMBER_LIFE }
-          ));
+          commands.spawn((Replicated, Bolt { spell, at: eye + toward * 0.3 }, Ember {
+            velocity: toward * EMBER_SPEED,
+            life: EMBER_LIFE,
+            afflicts
+          }));
         }
         let weave = match foe == Foe::Imp {
           true => {
@@ -448,9 +474,10 @@ fn prowl(
       }
     };
     let swimming = !flying
+      && !foe.heavy()
       && voxels
         .block((at + Vec3::Y * bulk.tall * 0.6).floor().as_ivec3())
-        .is_some_and(Block::fluid);
+        .is_some_and(Block::sunk);
     let horizontal = match haunt.stagger > 0.0 {
       true => haunt.velocity * (1.0 - dt * 3.0),
       false => wish
@@ -501,9 +528,17 @@ fn scorch(
   time: Res<Time>,
   voxels: Res<Voxels>,
   mut embers: Query<(Entity, &mut Bolt, &mut Ember)>,
-  mut players: Query<(&Controller, &Avatar, &mut Health, &mut Vigour, &mut Conditions)>,
+  mut players: Query<(
+    Entity,
+    &Controller,
+    &Avatar,
+    &mut Health,
+    &mut Vigour,
+    &mut Conditions
+  )>,
   mut knocks: MessageWriter<ToClients<Knock>>,
   mut flourishes: MessageWriter<ToClients<Flourish>>,
+  mut subs: Query<&mut crate::submarine::Sub>,
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -515,9 +550,9 @@ fn scorch(
       .map(|hit| (hit.at.as_vec3() + 0.5).distance(from) - 0.5);
     let struck = players
       .iter_mut()
-      .filter(|(_, _, health, ..)| health.0 > 0)
+      .filter(|(_, _, _, health, ..)| health.0 > 0)
       .filter_map(|player| {
-        let at = player.1.at;
+        let at = player.2.at;
         ray_box(
           from,
           direction,
@@ -530,9 +565,14 @@ fn scorch(
       .min_by(|a, b| a.0.total_cmp(&b.0));
     ember.life -= dt;
     let ended = match (struck, wall) {
-      (Some((near, (controller, _, mut health, mut vigour, mut afflicted))), _) => {
+      (Some((near, (player, _, _, _, _, _))), _)
+        if crate::submarine::shield(&mut subs, player, EMBER_BLOW) =>
+      {
+        Some(from + direction * near)
+      }
+      (Some((near, (_, controller, _, mut health, mut vigour, mut afflicted))), _) => {
         hurt(&mut health, &mut vigour, EMBER_BLOW);
-        afflicted.afflict(Kind::Burning, EMBER_BURNS);
+        afflicted.afflict(ember.afflicts, EMBER_BURNS);
         knocks.write(ToClients {
           targets: SendTargets::Single(controller.client),
           message: Knock(
@@ -549,7 +589,7 @@ fn scorch(
       Some(at) => {
         flourishes.write(ToClients {
           targets: SendTargets::All,
-          message: Flourish { spell: Block::SpellFirebolt, at, reach: 0.7 }
+          message: Flourish { spell: bolt.spell, at, reach: 0.7 }
         });
         commands.entity(entity).despawn()
       }
@@ -608,6 +648,18 @@ fn spoils(
       ],
       160
     ),
+    (Some(Band::Sentinel), ..) => {
+      (vec![(Block::AlloyScrap, some(1, 2)), (Block::ResonantCrystal, some(0, 2))], 30)
+    }
+    (Some(Band::Custodian), ..) => (
+      vec![
+        (Block::AlloyScrap, 5),
+        (Block::AetherCell, 1),
+        (Block::ResonantCrystal, 2),
+        (Block::Datacore, 1),
+      ],
+      140
+    ),
     (Some(Band::Pirate), ..) => (vec![], 10),
     (Some(Band::Viking), ..) => (vec![], 14),
     (_, Some(Breed::Spider), _) => (vec![(Block::Cobweb, 1), (Block::LizardClaw, 1)], 12),
@@ -620,7 +672,9 @@ fn spoils(
     ),
     (_, Some(Breed::Sheep(_)), _) => (vec![], 3),
     (_, Some(Breed::Glowray), _) => (vec![(Block::ArcaneDust, 1)], 6),
-    (_, Some(Breed::Lanternjelly), _) => (vec![(Block::ArcaneDust, 1)], 5),
+    (_, Some(Breed::Lanternjelly), _) => {
+      (vec![(Block::JellyGel, 1 + (luck % 2) as u16), (Block::ArcaneDust, 1)], 5)
+    }
     (_, Some(Breed::Snapjaw), _) => (vec![(Block::Cod, 2), (Block::BoneDust, 1)], 16),
     (_, Some(Breed::Brinewyrm), _) => {
       (vec![(Block::Tidepearl, 1), (Block::BoneDust, 3), (Block::DiamondOre, 1)], 80)

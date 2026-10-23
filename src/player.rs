@@ -58,7 +58,8 @@ pub struct Pilot {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Craft {
   Boat,
-  Balloon
+  Balloon,
+  Submarine
 }
 
 #[derive(Clone, Copy)]
@@ -492,7 +493,7 @@ fn fly(
     for _ in 0..steps as u32 {
       let swimming = voxels
         .block((pilot.at + Vec3::Y * 0.6).floor().as_ivec3())
-        .is_some_and(Block::fluid);
+        .is_some_and(Block::sunk);
       let (low, high) = Bulk::PERSON.body(pilot.at);
       let climbing = cells(low - Vec3::splat(0.05), high + Vec3::splat(0.05))
         .any(|cell| voxels.block(cell).is_some_and(Block::ladder));
@@ -507,7 +508,7 @@ fn fly(
       let rising = jumping || (pressed(KeyCode::KeyW) && !mining);
       let surfacing = voxels
         .block((pilot.at + Vec3::Y * 1.5).floor().as_ivec3())
-        .is_none_or(|block| !block.fluid());
+        .is_none_or(|block| !block.sunk());
       pilot.dried = if swimming { 0.0 } else { pilot.dried + STEP };
       let scrambling = pilot.walled && rising && surfacing && pilot.dried < SCRAMBLE_FOR;
       pilot.staggered -= STEP;
@@ -729,12 +730,13 @@ fn work(
     MessageWriter<Pour>,
     MessageWriter<Shuffle>
   ),
-  (boats, folk, balloons, units, keys): (
+  (boats, folk, balloons, units, keys, subs): (
     Query<&Vessel>,
     Query<&Folk>,
     Query<&crate::balloon::Aerostat>,
     Query<&crate::machine::Unit>,
-    Res<ButtonInput<KeyCode>>
+    Res<ButtonInput<KeyCode>>,
+    Query<(Entity, &crate::submarine::Sub)>
   ),
   (mut inscription, signs, mut rests, mut pokes, mut swings, mut sounds): (
     ResMut<Inscription>,
@@ -748,10 +750,16 @@ fn work(
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
     let (eye, toward) = (pilot.eye(), pilot.facing() * Vec3::NEG_Z);
-    let cubic = voxels.cast(eye, toward, REACH);
+    let piloting = pilot
+      .riding
+      .filter(|riding| riding.kind == crate::player::Craft::Submarine)
+      .and_then(|riding| subs.get(riding.craft).ok())
+      .map(|(_, sub)| sub.drill());
+    let reach = piloting.flatten().map_or(REACH, |drill| drill.reach);
+    let cubic = voxels.cast(eye, toward, reach);
     let sighted = match hulls.ready(chunk_of(eye.floor().as_ivec3())) {
       true => {
-        let smooth = hulls.cast(eye, toward, REACH).and_then(|(distance, at, normal)| {
+        let smooth = hulls.cast(eye, toward, reach).and_then(|(distance, at, normal)| {
           voxels
             .block(at)
             .filter(|block| block.solid())
@@ -786,7 +794,12 @@ fn work(
       let balloon = balloons.iter().any(|aerostat| {
         crate::balloon::struck(aerostat, eye, toward).is_some_and(|near| near < distance)
       });
-      !boat && !person && !balloon
+      let sub = subs.iter().any(|(entity, sub)| {
+        pilot.riding.is_none_or(|riding| riding.craft != entity)
+          && crate::submarine::struck(sub, eye, toward)
+            .is_some_and(|near| near < distance)
+      });
+      !boat && !person && !balloon && !sub
     });
     let active = captured(&cursor, &menu);
     let target = aim.hit.as_ref().map(|hit| (hit.at, hit.block));
@@ -804,13 +817,16 @@ fn work(
     };
     match (target, active && buttons.pressed(MouseButton::Left)) {
       (Some((at, block)), true) if block.breakable() => {
+        let speed = match piloting {
+          Some(drill) => drill.map_or(0.0, |drill| drill.speed),
+          None => delve * tool(block)
+        };
         aim.progress = match aim.digging == Some(at) {
           true => {
             aim.progress
               + time.delta_secs() / block.seconds_to_break()
                 * if opts().creative { 8.0 } else { 1.0 }
-                * delve
-                * tool(block)
+                * speed
           }
           false => 0.0
         };
@@ -822,7 +838,10 @@ fn work(
           let middle = at.as_vec3() + 0.5;
           sounds.write(Sound::at(breaking(block), middle));
           if *role == Role::Guest {
-            voxels.set(at, Block::Air)
+            voxels.set(at, match block.waterlogged() {
+              true => Block::Water,
+              false => Block::Air
+            })
           }
         }
       }

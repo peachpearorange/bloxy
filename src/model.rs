@@ -801,6 +801,127 @@ const RAMP_EAST_BITS: [Bit; 16] = turned(RAMP_BITS, 1);
 const RAMP_SOUTH_BITS: [Bit; 16] = turned(RAMP_BITS, 2);
 const RAMP_WEST_BITS: [Bit; 16] = turned(RAMP_BITS, 3);
 
+const KELP_GREEN: [f32; 3] = [0.36, 0.46, 0.12];
+const KELP_DARK: [f32; 3] = [0.24, 0.32, 0.08];
+const SEAGRASS_GREEN: [f32; 3] = [0.22, 0.5, 0.2];
+const FAN_RED: [f32; 3] = [0.86, 0.26, 0.32];
+const FAN_PINK: [f32; 3] = [0.98, 0.52, 0.5];
+const TUBE_VIOLET: [f32; 3] = [0.56, 0.32, 0.8];
+const TUBE_DARK: [f32; 3] = [0.16, 0.06, 0.24];
+const ANEMONE_FOOT: [f32; 3] = [0.7, 0.3, 0.14];
+const ANEMONE_ARM: [f32; 3] = [1.0, 0.58, 0.3];
+const ANEMONE_TIP: [f32; 3] = [1.0, 0.86, 0.6];
+const WORM_WHITE: [f32; 3] = [0.9, 0.88, 0.82];
+const WORM_RED: [f32; 3] = [0.9, 0.12, 0.1];
+const SHELL_GREY: [f32; 3] = [0.6, 0.58, 0.68];
+const MANTLE_BLUE: [f32; 3] = [0.25, 0.5, 0.9];
+const STEM_CYAN: [f32; 3] = [0.2, 0.5, 0.55];
+
+const KELP_BITS: &[Bit] = &[
+  bit([7, 0, 7], [9, 16, 8], KELP_DARK),
+  bit([4, 1, 7], [7, 5, 8], KELP_GREEN),
+  bit([9, 4, 7], [12, 8, 8], KELP_GREEN),
+  bit([3, 8, 7], [7, 12, 8], KELP_GREEN),
+  bit([9, 11, 7], [13, 15, 8], KELP_GREEN),
+  bit([7, 2, 5], [8, 6, 7], KELP_GREEN),
+  bit([8, 9, 8], [9, 13, 11], KELP_GREEN)
+];
+
+const GLOWKELP_BITS: &[Bit] = &[
+  bit([7, 0, 7], [9, 16, 8], STEM_CYAN),
+  skin([4, 1, 7], [7, 5, 8], Tile::Biolume),
+  skin([9, 4, 7], [12, 8, 8], Tile::Biolume),
+  skin([3, 8, 7], [7, 12, 8], Tile::Biolume),
+  skin([9, 11, 7], [13, 15, 8], Tile::Biolume),
+  skin([6, 14, 6], [10, 16, 10], Tile::Biolume)
+];
+
+const SEAGRASS_BITS: &[Bit] = &[
+  bit([3, 0, 4], [4, 10, 5], SEAGRASS_GREEN),
+  bit([6, 0, 9], [7, 13, 10], SEAGRASS_GREEN),
+  bit([9, 0, 5], [10, 8, 6], SEAGRASS_GREEN),
+  bit([12, 0, 10], [13, 11, 11], SEAGRASS_GREEN),
+  bit([4, 0, 12], [5, 7, 13], SEAGRASS_GREEN),
+  bit([11, 0, 2], [12, 9, 3], SEAGRASS_GREEN)
+];
+
+const FAN_BITS: &[Bit] = &[
+  bit([7, 0, 7], [9, 3, 9], FAN_RED),
+  bit([5, 3, 7], [11, 6, 8], FAN_RED),
+  bit([3, 6, 7], [13, 9, 8], FAN_PINK),
+  bit([2, 9, 7], [14, 12, 8], FAN_RED),
+  bit([3, 12, 7], [13, 14, 8], FAN_PINK),
+  bit([5, 14, 7], [11, 15, 8], FAN_RED)
+];
+
+const TUBE_BITS: &[Bit] = &[
+  bit([2, 0, 3], [5, 9, 6], TUBE_VIOLET),
+  bit([3, 9, 4], [4, 10, 5], TUBE_DARK),
+  bit([7, 0, 7], [10, 13, 10], TUBE_VIOLET),
+  bit([8, 13, 8], [9, 14, 9], TUBE_DARK),
+  bit([11, 0, 2], [14, 7, 5], TUBE_VIOLET),
+  bit([12, 7, 3], [13, 8, 4], TUBE_DARK),
+  bit([4, 0, 10], [7, 5, 13], TUBE_VIOLET)
+];
+
+const ANEMONE_BITS: &[Bit] = &[
+  bit([5, 0, 5], [11, 4, 11], ANEMONE_FOOT),
+  bit([4, 4, 7], [5, 9, 8], ANEMONE_ARM),
+  bit([11, 4, 8], [12, 10, 9], ANEMONE_ARM),
+  bit([7, 4, 4], [8, 8, 5], ANEMONE_ARM),
+  bit([8, 4, 11], [9, 9, 12], ANEMONE_ARM),
+  bit([6, 4, 6], [7, 11, 7], ANEMONE_ARM),
+  bit([9, 4, 9], [10, 10, 10], ANEMONE_ARM),
+  bit([4, 9, 7], [5, 10, 8], ANEMONE_TIP),
+  bit([11, 10, 8], [12, 11, 9], ANEMONE_TIP),
+  bit([6, 11, 6], [7, 12, 7], ANEMONE_TIP),
+  bit([9, 10, 9], [10, 11, 10], ANEMONE_TIP)
+];
+
+const POLYP_BITS: &[Bit] = &[
+  bit([4, 0, 4], [5, 6, 5], STEM_CYAN),
+  skin([3, 6, 3], [6, 9, 6], Tile::GlowPolyp),
+  bit([9, 0, 8], [10, 9, 9], STEM_CYAN),
+  skin([8, 9, 7], [11, 12, 10], Tile::GlowPolyp),
+  bit([11, 0, 3], [12, 4, 4], STEM_CYAN),
+  skin([10, 4, 2], [13, 6, 5], Tile::GlowPolyp),
+  bit([5, 0, 11], [6, 3, 12], STEM_CYAN),
+  skin([4, 3, 10], [7, 5, 13], Tile::GlowPolyp)
+];
+
+const WORM_BITS: &[Bit] = &[
+  bit([3, 0, 4], [5, 10, 6], WORM_WHITE),
+  bit([3, 10, 4], [5, 13, 6], WORM_RED),
+  bit([8, 0, 8], [10, 13, 10], WORM_WHITE),
+  bit([8, 13, 8], [10, 16, 10], WORM_RED),
+  bit([11, 0, 3], [13, 8, 5], WORM_WHITE),
+  bit([11, 8, 3], [13, 11, 5], WORM_RED),
+  bit([5, 0, 11], [7, 6, 13], WORM_WHITE),
+  bit([5, 6, 11], [7, 8, 13], WORM_RED)
+];
+
+const CLAM_BITS: &[Bit] = &[
+  bit([2, 0, 3], [14, 3, 13], SHELL_GREY),
+  bit([3, 3, 4], [13, 4, 12], MANTLE_BLUE),
+  bit([2, 4, 5], [14, 6, 13], SHELL_GREY),
+  bit([4, 6, 7], [12, 7, 13], SHELL_GREY)
+];
+
+const AETHER_LAMP_BITS: &[Bit] = &[
+  skin([2, 0, 2], [14, 3, 14], Tile::PrecursorAlloy),
+  skin([4, 3, 4], [12, 5, 12], Tile::PrecursorAlloy),
+  skin([5, 5, 5], [11, 13, 11], Tile::AetherLamp),
+  skin([4, 13, 4], [12, 15, 12], Tile::PrecursorAlloy),
+  skin([7, 15, 7], [9, 16, 9], Tile::AetherConduit)
+];
+
+const BIO_LAB_BITS: &[Bit] = &[
+  skin([0, 0, 0], [16, 4, 16], Tile::Steel),
+  skin([2, 4, 2], [14, 13, 14], Tile::BioLabSide),
+  skin([1, 13, 1], [15, 16, 15], Tile::BioLabTop),
+  skin([3, 4, 0], [6, 9, 1], Tile::Steel)
+];
+
 pub fn bits(block: Block) -> &'static [Bit] {
   match block {
     torch if torch.torch() => TORCH_BITS,
@@ -873,6 +994,17 @@ pub fn bits(block: Block) -> &'static [Bit] {
     Block::BloomFont => APOTHECARY_BITS,
     Block::Moonlace => MOONLACE_BITS,
     Block::Crusher => CRUSHER_BITS,
+    Block::Kelp => KELP_BITS,
+    Block::Glowkelp => GLOWKELP_BITS,
+    Block::Seagrass => SEAGRASS_BITS,
+    Block::FanCoral => FAN_BITS,
+    Block::TubeCoral => TUBE_BITS,
+    Block::Anemone => ANEMONE_BITS,
+    Block::GlowPolyp => POLYP_BITS,
+    Block::VentWorms => WORM_BITS,
+    Block::Clam => CLAM_BITS,
+    Block::AetherLamp => AETHER_LAMP_BITS,
+    Block::BioLab => BIO_LAB_BITS,
     _ => &[]
   }
 }

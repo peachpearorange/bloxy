@@ -41,7 +41,9 @@ impl Band {
       Band::Warden => 60,
       Band::Thrall => 12,
       Band::Phantom => 10,
-      Band::Imp => 7
+      Band::Imp => 7,
+      Band::Sentinel => 14,
+      Band::Custodian => 70
     }
   }
 
@@ -54,6 +56,8 @@ impl Band {
       Band::Thrall => 3.9,
       Band::Phantom => 3.6,
       Band::Imp => 4.4,
+      Band::Sentinel => 3.8,
+      Band::Custodian => 2.6,
       _ => 3.4
     }
   }
@@ -63,6 +67,7 @@ impl Band {
       Band::Viking => 3,
       Band::Shade | Band::Imp => 1,
       Band::Warden => 5,
+      Band::Custodian => 6,
       Band::Thrall => 3,
       _ => 2
     }
@@ -70,7 +75,17 @@ impl Band {
 
   pub fn ghostly(self) -> bool { matches!(self, Band::Shade | Band::Phantom) }
 
-  pub fn flies(self) -> bool { self.ghostly() || self == Band::Imp }
+  pub fn flies(self) -> bool {
+    self.ghostly() || matches!(self, Band::Imp | Band::Sentinel)
+  }
+
+  pub fn construct(self) -> Option<crate::construct::Kind> {
+    match self {
+      Band::Sentinel => Some(crate::construct::Kind::Sentinel),
+      Band::Custodian => Some(crate::construct::Kind::Custodian),
+      _ => None
+    }
+  }
 
   pub fn sculpted(self) -> bool {
     matches!(
@@ -81,6 +96,8 @@ impl Band {
         | Band::Imp
         | Band::Pirate
         | Band::Viking
+        | Band::Sentinel
+        | Band::Custodian
     )
   }
 
@@ -96,6 +113,7 @@ impl Band {
     match self {
       Band::Warden => 1.6,
       Band::Imp => crate::imp::SCALE,
+      Band::Custodian => crate::construct::CUSTODIAN_SCALE,
       _ => 1.0
     }
   }
@@ -533,7 +551,9 @@ fn hat(band: Band) -> Gear {
     | Band::Warden
     | Band::Imp
     | Band::Pirate
-    | Band::Viking => vec![],
+    | Band::Viking
+    | Band::Sentinel
+    | Band::Custodian => vec![],
     Band::Phantom => vec![
       (at(0.0, 4.5, 0.6), at(9.2, 9.4, 9.0), [0.1, 0.16, 0.4]),
       (at(0.0, 9.6, 1.5), at(7.0, 1.4, 7.0), [0.1, 0.16, 0.4]),
@@ -574,6 +594,13 @@ fn eyes(band: Band) -> Gear {
     Band::Imp => crate::imp::glints()
       .into_iter()
       .map(|(centre, size)| (centre, size, crate::imp::GLARE))
+      .collect(),
+    Band::Sentinel | Band::Custodian => band
+      .construct()
+      .map(crate::construct::glints)
+      .unwrap_or_default()
+      .into_iter()
+      .map(|(centre, size)| (centre, size, crate::construct::GLARE))
       .collect(),
     _ => vec![]
   }
@@ -1095,9 +1122,11 @@ fn dress(
   for (entity, folk) in arrivals.iter() {
     let bony = folk.band.sculpted();
     let imp = folk.band == Band::Imp;
-    let bone = |joint: u16| match imp {
-      true => crate::imp::pivot(joint),
-      false => pivot(joint)
+    let made = folk.band.construct();
+    let bone = |joint: u16| match (imp, made) {
+      (true, _) => crate::imp::pivot(joint),
+      (_, Some(kind)) => crate::construct::pivot(kind, joint),
+      _ => pivot(joint)
     };
     let clad = match bony {
       true => Clad {
@@ -1234,6 +1263,13 @@ fn dress(
           Band::Imp => {
             (meshes.add(crate::imp::fiendish()), poses.add(crate::imp::bindings()))
           }
+          Band::Sentinel | Band::Custodian => {
+            let kind = made.unwrap_or(crate::construct::Kind::Sentinel);
+            (
+              meshes.add(crate::construct::mesh(kind)),
+              poses.add(crate::construct::bindings(kind))
+            )
+          }
           Band::Pirate | Band::Viking => (
             meshes.add(crate::crew::seafarer(folk.band, folk.band.variant(folk.luck))),
             poses.add(bindings())
@@ -1338,6 +1374,12 @@ fn animate(
             side * (0.15 + beat.sin() * 0.6),
             0.0
           ),
+          Joint::Arm(phase) if folk.band == Band::Sentinel => {
+            Quat::from_rotation_z((now * 2.0 + phase).sin() * 0.25)
+          }
+          Joint::Leg(phase) if folk.band == Band::Sentinel => {
+            Quat::from_rotation_x((now * 1.6 + phase).sin() * 0.3)
+          }
           Joint::Arm(_) if floating => {
             Quat::from_rotation_x(1.3 + (now * 3.0).sin() * 0.15)
           }

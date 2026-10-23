@@ -278,7 +278,7 @@ fn seek(
 }
 
 fn wet(voxels: &Voxels, cell: IVec3) -> bool {
-  voxels.block(cell).is_some_and(Block::fluid)
+  voxels.block(cell).is_some_and(Block::sunk)
 }
 
 fn standable(voxels: &Voxels, cell: IVec3) -> bool {
@@ -1357,6 +1357,8 @@ fn parade(pilot: Res<Pilot>, mut done: Local<bool>, mut commands: Commands) {
       (Band::Thrall, 2),
       (Band::Warden, 0),
       (Band::Imp, 0),
+      (Band::Sentinel, 0),
+      (Band::Custodian, 0),
       (Band::Pirate, 0),
       (Band::Pirate, 5),
       (Band::Viking, 2),

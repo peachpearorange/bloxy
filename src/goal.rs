@@ -45,6 +45,8 @@ impl Prey {
       Prey::Folk(Band::Shade) => "shades",
       Prey::Folk(Band::Imp) => "imps",
       Prey::Folk(Band::Warden) => "Bone Wardens",
+      Prey::Folk(Band::Sentinel) => "precursor sentinels",
+      Prey::Folk(Band::Custodian) => "custodians",
       Prey::Folk(_) => "folk",
       Prey::Bird => "birds"
     }
@@ -67,7 +69,8 @@ pub enum Chapter {
   Voyages,
   Hunts,
   Arcana,
-  Industry
+  Industry,
+  Depths
 }
 
 impl Chapter {
@@ -78,7 +81,8 @@ impl Chapter {
       Chapter::Voyages => Color::srgb(0.35, 0.8, 0.95),
       Chapter::Hunts => Color::srgb(0.95, 0.38, 0.32),
       Chapter::Arcana => Color::srgb(0.75, 0.5, 1.0),
-      Chapter::Industry => Color::srgb(0.9, 0.55, 0.25)
+      Chapter::Industry => Color::srgb(0.9, 0.55, 0.25),
+      Chapter::Depths => Color::srgb(0.25, 0.95, 0.8)
     }
   }
 
@@ -89,7 +93,8 @@ impl Chapter {
       Chapter::Voyages => "Voyages",
       Chapter::Hunts => "Hunts",
       Chapter::Arcana => "Arcana",
-      Chapter::Industry => "Industry"
+      Chapter::Industry => "Industry",
+      Chapter::Depths => "Depths"
     }
   }
 }
@@ -106,6 +111,8 @@ pub struct Goal {
 
 const SEA_MONSTERS: &[Prey] = &[Prey::Beast(Breed::Snapjaw)];
 const RAIDERS: &[Prey] = &[Prey::Folk(Band::Pirate), Prey::Folk(Band::Viking)];
+const SENTINELS: &[Prey] = &[Prey::Folk(Band::Sentinel)];
+const CUSTODIANS: &[Prey] = &[Prey::Folk(Band::Custodian)];
 
 const fn goal(
   title: &'static str,
@@ -119,7 +126,7 @@ const fn goal(
   Goal { title, about, task, after, at, xp, chapter }
 }
 
-pub const GOALS: [Goal; 51] = [
+pub const GOALS: [Goal; 77] = [
   goal(
     "Timber",
     "Punch a tree for its log.",
@@ -578,6 +585,240 @@ pub const GOALS: [Goal; 51] = [
     (9.0, 13.0),
     80,
     Chapter::Industry
+  ),
+  goal(
+    "Kelp Forest",
+    "Swim down and gather kelp from a cool-water forest.",
+    Task::Have(Block::Kelp, 1),
+    &[22],
+    (6.0, -5.0),
+    20,
+    Chapter::Depths
+  ),
+  goal(
+    "Coral Reef",
+    "Collect brain coral from a warm reef.",
+    Task::Have(Block::BrainCoral, 1),
+    &[51],
+    (7.0, -5.0),
+    25,
+    Chapter::Depths
+  ),
+  goal(
+    "Fan Coral",
+    "Catalogue a red fan coral.",
+    Task::Have(Block::FanCoral, 1),
+    &[52],
+    (8.0, -5.0),
+    20,
+    Chapter::Depths
+  ),
+  goal(
+    "Tube Coral",
+    "Catalogue violet tube coral.",
+    Task::Have(Block::TubeCoral, 1),
+    &[52],
+    (8.0, -4.0),
+    20,
+    Chapter::Depths
+  ),
+  goal(
+    "Sea Anemone",
+    "Catalogue a sea anemone.",
+    Task::Have(Block::Anemone, 1),
+    &[53],
+    (9.0, -5.0),
+    25,
+    Chapter::Depths
+  ),
+  goal(
+    "Sea Sponge",
+    "Catalogue a sea sponge.",
+    Task::Have(Block::Sponge, 1),
+    &[54],
+    (9.0, -4.0),
+    25,
+    Chapter::Depths
+  ),
+  goal(
+    "Giant Clam",
+    "Find a giant clam on the sea floor.",
+    Task::Have(Block::Clam, 1),
+    &[55],
+    (10.0, -5.0),
+    40,
+    Chapter::Depths
+  ),
+  goal(
+    "Glow Polyp",
+    "Glow polyps light the deep sea. Bring one up.",
+    Task::Have(Block::GlowPolyp, 1),
+    &[56],
+    (10.0, -4.0),
+    40,
+    Chapter::Depths
+  ),
+  goal(
+    "Vent Worms",
+    "Tube worms crowd the hot vents in the trenches.",
+    Task::Have(Block::VentWorms, 1),
+    &[58],
+    (8.0, -8.0),
+    60,
+    Chapter::Depths
+  ),
+  goal(
+    "Bio Lab",
+    "Build a bio lab to culture what you collect.",
+    Task::Have(Block::BioLab, 1),
+    &[51],
+    (6.0, -6.0),
+    40,
+    Chapter::Depths
+  ),
+  goal(
+    "Cultivator",
+    "Culture kelp at the bio lab.",
+    Task::Have(Block::Kelp, 16),
+    &[60],
+    (7.0, -6.0),
+    30,
+    Chapter::Depths
+  ),
+  goal(
+    "Living Stone",
+    "Grow reefstone from coral and sponge.",
+    Task::Have(Block::Reefstone, 8),
+    &[60, 52],
+    (8.0, -6.0),
+    40,
+    Chapter::Depths
+  ),
+  goal(
+    "Pearl Diver",
+    "Culture a clam until it yields pearls.",
+    Task::Have(Block::Pearl, 1),
+    &[57, 60],
+    (9.0, -6.0),
+    50,
+    Chapter::Depths
+  ),
+  goal(
+    "Mother of Pearl",
+    "Turn pearls into nacre.",
+    Task::Have(Block::Nacre, 8),
+    &[63],
+    (10.0, -6.0),
+    50,
+    Chapter::Depths
+  ),
+  goal(
+    "Splicer",
+    "Splice kelp with glow polyps into glowkelp.",
+    Task::Have(Block::Glowkelp, 1),
+    &[60, 58],
+    (11.0, -6.0),
+    60,
+    Chapter::Depths
+  ),
+  goal(
+    "Submersible",
+    "Build a submarine: launch it into water and fit modules.",
+    Task::Have(Block::Submarine, 1),
+    &[22, 12],
+    (6.0, -7.0),
+    80,
+    Chapter::Depths
+  ),
+  goal(
+    "Echoes",
+    "Make a sonar module.",
+    Task::Have(Block::SonarModule, 1),
+    &[66],
+    (7.0, -7.0),
+    50,
+    Chapter::Depths
+  ),
+  goal(
+    "Pressure Hull",
+    "Smelt hull plating from iron and manganese nodules.",
+    Task::Have(Block::HullPlating, 1),
+    &[66],
+    (8.0, -7.0),
+    60,
+    Chapter::Depths
+  ),
+  goal(
+    "Drill Arm",
+    "Build a drill arm for the submarine.",
+    Task::Have(Block::DrillModule, 1),
+    &[66],
+    (7.0, -8.0),
+    50,
+    Chapter::Depths
+  ),
+  goal(
+    "Sunken Ruins",
+    "Salvage precursor alloy from a ruin on the sea floor.",
+    Task::Have(Block::AlloyScrap, 1),
+    &[67],
+    (9.0, -7.0),
+    80,
+    Chapter::Depths
+  ),
+  goal(
+    "Silence the Watch",
+    "Destroy precursor sentinels.",
+    Task::Slay(SENTINELS, 3),
+    &[70],
+    (10.0, -7.0),
+    100,
+    Chapter::Depths
+  ),
+  goal(
+    "Custodian",
+    "Bring down a custodian.",
+    Task::Slay(CUSTODIANS, 1),
+    &[71],
+    (11.0, -7.0),
+    200,
+    Chapter::Depths
+  ),
+  goal(
+    "Aether Cell",
+    "Recover an aether cell.",
+    Task::Have(Block::AetherCell, 1),
+    &[70],
+    (10.0, -8.0),
+    100,
+    Chapter::Depths
+  ),
+  goal(
+    "Abyssal Hull",
+    "Fit resonant plating: no depth can crush it.",
+    Task::Have(Block::ResonantPlating, 1),
+    &[72],
+    (12.0, -7.0),
+    150,
+    Chapter::Depths
+  ),
+  goal(
+    "Aether Lance",
+    "Build the precursor drill.",
+    Task::Have(Block::PlasmaDrill, 1),
+    &[73],
+    (11.0, -8.0),
+    150,
+    Chapter::Depths
+  ),
+  goal(
+    "Deep Resonance",
+    "Build the deep resonance sonar.",
+    Task::Have(Block::DeepSonar, 1),
+    &[73],
+    (12.0, -8.0),
+    150,
+    Chapter::Depths
   )
 ];
 

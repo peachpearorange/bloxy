@@ -1843,6 +1843,428 @@ fn model_icon(block: Block, x: u32, y: u32) -> Texel {
   })
 }
 
+fn clear() -> Texel { Texel::rgb(0.0, 0.0, 0.0).alpha(0.0) }
+
+fn lit(x: u32, y: u32) -> f32 { 1.12 - (x + y) as f32 / 30.0 * 0.32 }
+
+fn tone(palette: &Palette, along: f32, x: u32, y: u32) -> Texel {
+  ramp(palette, along).scaled(lit(x, y))
+}
+
+const KELP: Palette =
+  [[0.12, 0.2, 0.06], [0.28, 0.38, 0.1], [0.44, 0.52, 0.14], [0.66, 0.7, 0.26]];
+const GLOWKELP: Palette =
+  [[0.04, 0.22, 0.24], [0.08, 0.42, 0.42], [0.2, 0.68, 0.62], [0.6, 1.0, 0.9]];
+const SEAGRASS: Palette =
+  [[0.08, 0.24, 0.1], [0.16, 0.42, 0.16], [0.28, 0.58, 0.22], [0.5, 0.76, 0.36]];
+const FAN: Palette =
+  [[0.42, 0.06, 0.12], [0.72, 0.16, 0.24], [0.92, 0.36, 0.4], [1.0, 0.66, 0.62]];
+const TUBE: Palette =
+  [[0.2, 0.08, 0.36], [0.42, 0.2, 0.66], [0.62, 0.38, 0.86], [0.86, 0.68, 1.0]];
+const ANEMONE: Palette =
+  [[0.5, 0.16, 0.08], [0.88, 0.38, 0.16], [1.0, 0.62, 0.32], [1.0, 0.88, 0.7]];
+const POLYP: Palette =
+  [[0.04, 0.3, 0.4], [0.1, 0.62, 0.72], [0.36, 0.9, 0.95], [0.82, 1.0, 1.0]];
+const WORM: Palette =
+  [[0.5, 0.48, 0.42], [0.74, 0.72, 0.66], [0.9, 0.88, 0.82], [1.0, 0.98, 0.94]];
+const PLUME: Palette =
+  [[0.4, 0.02, 0.04], [0.72, 0.06, 0.08], [0.95, 0.2, 0.16], [1.0, 0.5, 0.42]];
+const SHELL: Palette =
+  [[0.26, 0.24, 0.34], [0.46, 0.44, 0.56], [0.64, 0.62, 0.72], [0.84, 0.82, 0.9]];
+const MANTLE: Palette =
+  [[0.08, 0.14, 0.42], [0.14, 0.34, 0.7], [0.3, 0.6, 0.9], [0.6, 0.88, 1.0]];
+const BRAIN: Palette =
+  [[0.42, 0.26, 0.2], [0.66, 0.46, 0.34], [0.82, 0.64, 0.48], [0.94, 0.82, 0.66]];
+const SPONGE: Palette =
+  [[0.5, 0.32, 0.04], [0.8, 0.56, 0.1], [0.94, 0.74, 0.2], [1.0, 0.9, 0.44]];
+const ABYSS: Palette =
+  [[0.04, 0.05, 0.09], [0.08, 0.1, 0.16], [0.13, 0.15, 0.23], [0.2, 0.23, 0.32]];
+const VENT: Palette =
+  [[0.07, 0.05, 0.04], [0.14, 0.1, 0.08], [0.22, 0.16, 0.12], [0.32, 0.24, 0.18]];
+const SILT: Palette =
+  [[0.16, 0.15, 0.13], [0.24, 0.23, 0.2], [0.32, 0.3, 0.26], [0.4, 0.38, 0.33]];
+const ALLOY: Palette =
+  [[0.12, 0.16, 0.18], [0.22, 0.28, 0.3], [0.34, 0.42, 0.44], [0.52, 0.62, 0.64]];
+const AETHER: [f32; 3] = [0.35, 0.95, 1.0];
+const REEF: Palette =
+  [[0.5, 0.46, 0.38], [0.68, 0.64, 0.54], [0.82, 0.78, 0.68], [0.94, 0.92, 0.84]];
+const BIOLUME: Palette =
+  [[0.06, 0.32, 0.28], [0.14, 0.6, 0.5], [0.34, 0.86, 0.68], [0.76, 1.0, 0.9]];
+const PEARLY: Palette =
+  [[0.6, 0.58, 0.64], [0.8, 0.78, 0.84], [0.92, 0.9, 0.95], [1.0, 1.0, 1.0]];
+const RESONANT: Palette =
+  [[0.24, 0.08, 0.42], [0.46, 0.2, 0.74], [0.68, 0.44, 0.96], [0.92, 0.8, 1.0]];
+const SUBMARINE: Palette =
+  [[0.44, 0.3, 0.04], [0.78, 0.56, 0.08], [0.96, 0.76, 0.16], [1.0, 0.92, 0.5]];
+
+fn frond(palette: &Palette, glow: f32, x: u32, y: u32) -> Texel {
+  let (fx, fy) = (x as f32, y as f32);
+  let middle = 7.5 + (fy * 0.55).sin() * 2.2;
+  let width = 1.6 + (fy * 0.9 + 1.0).sin().abs() * 1.0;
+  let bladder = [(4.0, 1.0), (10.0, -1.0)]
+    .into_iter()
+    .any(|(row, side)| Vec2::new(fx - (middle + side * 2.6), fy - row).length() < 1.4);
+  let offset = fx - middle;
+  match (bladder, offset.abs() <= width) {
+    (true, _) => tone(palette, 0.95, x, y).glowing(glow * 2.0),
+    (_, true) => {
+      tone(palette, 0.35 + (1.0 - offset.abs() / width) * 0.5, x, y).glowing(glow)
+    }
+    _ => clear()
+  }
+}
+
+fn blades(x: u32, y: u32) -> Texel {
+  let (fx, fy) = (x as f32, y as f32);
+  [(3.0, 3.0, 0.6), (6.0, 1.0, -0.4), (9.0, 4.0, 0.5), (12.0, 2.0, -0.7)]
+    .into_iter()
+    .find(|&(root, top, lean)| {
+      fy >= top && (fx - (root + (15.0 - fy) * lean * 0.25)).abs() < 0.8
+    })
+    .map_or(clear(), |(_, top, _)| tone(&SEAGRASS, 0.3 + (fy - top) / 20.0, x, y))
+}
+
+fn fan(x: u32, y: u32) -> Texel {
+  let offset = Vec2::new(x as f32 - 7.5, 14.5 - y as f32);
+  let (reach, angle) = (offset.length(), offset.y.atan2(offset.x));
+  let spoke = ((angle * 7.0).sin().abs() < 0.28) || reach.fract() < 0.22 && reach > 3.0;
+  match (reach < 12.5 && offset.y > 0.0, spoke || reach < 2.0) {
+    (true, true) => tone(&FAN, 0.75 - reach / 30.0, x, y),
+    (true, false) if speck(0xFA4, x, y) < 0.35 => tone(&FAN, 0.3, x, y),
+    _ => clear()
+  }
+}
+
+fn tubes(x: u32, y: u32) -> Texel {
+  [(2u32, 6u32), (6, 2), (10, 5), (13, 8)]
+    .into_iter()
+    .find(|&(left, top)| (left..left + 3).contains(&x) && y >= top)
+    .map_or(clear(), |(left, top)| match y == top || y == top + 1 && x == left + 1 {
+      true => Texel::rgb(0.12, 0.04, 0.2),
+      false => tone(&TUBE, 0.35 + (x - left) as f32 * 0.2, x, y)
+    })
+}
+
+fn tentacles(palette: &Palette, glow: f32, x: u32, y: u32) -> Texel {
+  let offset = Vec2::new(x as f32 - 7.5, 11.0 - y as f32);
+  let base = y >= 11 && (4..12).contains(&x);
+  let arm = (0..7).any(|arm| {
+    let angle = 0.35 + arm as f32 * 0.4;
+    let toward = Vec2::from_angle(angle);
+    let along = offset.dot(toward);
+    (0.0..9.0).contains(&along) && (offset - toward * along).length() < 0.75
+  });
+  match (base, arm) {
+    (true, _) => tone(palette, 0.3, x, y),
+    (_, true) => tone(palette, 0.45 + offset.length() / 18.0, x, y)
+      .glowing(glow * offset.length() / 9.0),
+    _ => clear()
+  }
+}
+
+fn polyps(x: u32, y: u32) -> Texel {
+  let bulbs = [(4.0, 5.0), (9.0, 3.0), (12.0, 7.0), (6.0, 9.0)];
+  let bulb = bulbs
+    .into_iter()
+    .find(|&(bx, by)| Vec2::new(x as f32 - bx, y as f32 - by).length() < 1.9);
+  let stalk = bulbs.into_iter().any(|(bx, by)| {
+    y as f32 > by && (x as f32 - (bx + (y as f32 - by) * (7.5 - bx) / 9.0)).abs() < 0.6
+  });
+  match (bulb, stalk) {
+    (Some((bx, by)), _) => {
+      let light =
+        1.0 - Vec2::new(x as f32 - bx + 0.6, y as f32 - by + 0.6).length() / 2.5;
+      ramp(&POLYP, 0.5 + light * 0.5).glowing(1.4)
+    }
+    (_, true) => tone(&POLYP, 0.15, x, y).glowing(0.3),
+    _ => clear()
+  }
+}
+
+fn worms(x: u32, y: u32) -> Texel {
+  [(3u32, 3u32), (7, 1), (11, 4)]
+    .into_iter()
+    .find(|&(left, top)| (left..left + 2).contains(&x) && y >= top)
+    .map_or(clear(), |(left, top)| match y < top + 3 {
+      true => tone(&PLUME, 0.4 + speck(0x3E4, x, y) * 0.5, x, y),
+      false => tone(&WORM, 0.3 + (x - left) as f32 * 0.4, x, y)
+    })
+}
+
+fn clam(x: u32, y: u32) -> Texel {
+  let offset = Vec2::new((x as f32 - 7.5) / 7.5, (y as f32 - 10.0) / 5.0);
+  let inside = offset.length() < 1.0 && y >= 6;
+  let lip = (y as f32 - (10.0 + ((x as f32) * 1.6).sin() * 0.7)).abs() < 0.7;
+  match (inside, lip) {
+    (true, true) => tone(&MANTLE, 0.55 + speck(0xC1A, x, y) * 0.4, x, y),
+    (true, false) => tone(&SHELL, 0.3 + (x % 3) as f32 * 0.2 - offset.y * 0.2, x, y),
+    _ => clear()
+  }
+}
+
+fn meander(x: u32, y: u32) -> f32 {
+  let (fx, fy) = (x as f32, y as f32);
+  let warp = lattice(0xB4A1, 4, x, y) * 6.0;
+  ((fx * 0.8 + warp).sin() + (fy * 0.8 - warp * 0.7).cos()).abs()
+}
+
+fn brain(x: u32, y: u32) -> Texel {
+  match meander(x, y) < 0.35 {
+    true => tone(&BRAIN, 0.12, x, y),
+    false => tone(&BRAIN, 0.4 + lattice(0xB4A2, 8, x, y) * 0.5, x, y)
+  }
+}
+
+fn pores(palette: &Palette, salt: u32, x: u32, y: u32) -> Texel {
+  let hole = (-1..=1).any(|dx: i32| {
+    (-1..=1).any(|dy: i32| {
+      let (cx, cy) =
+        (((x as i32 + dx).rem_euclid(16) / 4), ((y as i32 + dy).rem_euclid(16) / 4));
+      let (px, py) = (
+        cx * 4 + 1 + (speck(salt, cx as u32, cy as u32) * 2.0) as i32,
+        cy * 4 + 1 + (speck(salt + 1, cx as u32, cy as u32) * 2.0) as i32
+      );
+      (x as i32 + dx * 0 - px).abs() + (y as i32 - py).abs() <= 1
+        && speck(salt + 2, cx as u32, cy as u32) < 0.7
+    })
+  });
+  match hole {
+    true => ramp(palette, 0.05),
+    false => ramp(palette, 0.45 + lattice(salt + 3, 4, x, y) * 0.5)
+  }
+}
+
+fn abyssal(x: u32, y: u32) -> Texel {
+  let fleck = speck(0xAB1, x, y) < 0.04;
+  match fleck {
+    true => Texel::rgb(0.3, 0.75, 0.85).glowing(0.6),
+    false => smooth(&ABYSS, x, y)
+  }
+}
+
+fn vent(x: u32, y: u32) -> Texel {
+  let crack = (lattice(0x7E1, 4, x, y) - 0.5).abs() < 0.05;
+  match crack {
+    true => Texel::rgb(1.0, 0.45, 0.1).glowing(1.2),
+    false => smooth(&VENT, x, y)
+  }
+}
+
+fn nodules(x: u32, y: u32) -> Texel {
+  let lump = [(4.0, 4.0, 2.3), (11.0, 6.0, 2.0), (6.0, 11.0, 2.6), (13.0, 13.0, 1.6)]
+    .into_iter()
+    .find(|&(nx, ny, r)| Vec2::new(x as f32 - nx, y as f32 - ny).length() < r);
+  match lump {
+    Some((nx, ny, r)) => {
+      let shine = 1.0 - Vec2::new(x as f32 - nx + 0.7, y as f32 - ny + 0.7).length() / r;
+      Texel::rgb(0.12, 0.09, 0.08).scaled(0.8 + shine.max(0.0) * 1.6)
+    }
+    None => solid(&DRIFT, &SILT, x, y)
+  }
+}
+
+fn alloy(x: u32, y: u32) -> Texel {
+  let edge = x == 0 || y == 0;
+  let shadow = x == 15 || y == 15;
+  let seam = y == 8 && (2..14).contains(&x);
+  match (edge, shadow, seam) {
+    (true, ..) => ramp(&ALLOY, 0.95),
+    (_, true, _) => ramp(&ALLOY, 0.05),
+    (.., true) => {
+      let [r, g, b] = AETHER;
+      Texel::rgb(r, g, b).glowing(0.8)
+    }
+    _ => ramp(&ALLOY, 0.42 + lattice(0xA11, 2, x, y * 6) * 0.2)
+  }
+}
+
+fn precursor_glass(x: u32, y: u32) -> Texel {
+  let frame = x == 0 || y == 0 || x == 15 || y == 15;
+  let shine = (x + y == 9 || x + y == 11) && x < 9;
+  match (frame, shine) {
+    (true, _) => ramp(&ALLOY, 0.6),
+    (_, true) => Texel::rgb(0.7, 1.0, 1.0).alpha(0.7),
+    _ => Texel::rgb(0.2, 0.55, 0.6).alpha(0.32)
+  }
+}
+
+fn conduit(x: u32, y: u32) -> Texel {
+  let trace = (x == 4 || x == 11) && y % 8 != 7 || y == 4 && (4..12).contains(&x);
+  let node = (x == 4 || x == 11) && y == 4;
+  match (node, trace) {
+    (true, _) => Texel::rgb(0.9, 1.0, 1.0).glowing(2.0),
+    (_, true) => {
+      let [r, g, b] = AETHER;
+      Texel::rgb(r, g, b).glowing(1.3)
+    }
+    _ => ramp(&ALLOY, 0.2 + lattice(0xC0D, 4, x, y) * 0.2)
+  }
+}
+
+fn nacre(x: u32, y: u32) -> Texel {
+  let band = ((x as f32 + lattice(0x9AC, 4, x, y) * 5.0) * 0.6 + y as f32 * 0.3).sin();
+  let [r, g, b] =
+    [0.85 + band * 0.1, 0.84 + (band * 1.7).sin() * 0.08, 0.92 + band * 0.06];
+  Texel::rgb(r, g, b).scaled(0.9 + lattice(0x9AD, 8, x, y) * 0.15)
+}
+
+fn biolume(x: u32, y: u32) -> Texel {
+  let cell = lattice(0xB10, 4, x, y);
+  ramp(&BIOLUME, 0.3 + cell * 0.7).glowing(0.4 + cell * 0.9)
+}
+
+fn lab(top: bool, x: u32, y: u32) -> Texel {
+  let tank = match top {
+    true => Vec2::new(x as f32 - 7.5, y as f32 - 7.5).length() < 5.0,
+    false => (3..13).contains(&x) && (3..13).contains(&y)
+  };
+  let bubble = tank && speck(0x1AB, x, y) < 0.1;
+  match (tank, bubble) {
+    (true, true) => Texel::rgb(0.8, 1.0, 0.8).glowing(0.6),
+    (true, false) => {
+      Texel::rgb(0.2, 0.7, 0.35).scaled(0.7 + y as f32 / 30.0).glowing(0.35)
+    }
+    _ => brushed(STEEL, x, y)
+  }
+}
+
+fn cell(x: u32, y: u32) -> Texel {
+  let (fx, fy) = (x as f32 - 7.5, y as f32 - 7.5);
+  let along = (fx + fy) / 2.0_f32.sqrt();
+  let across = (fx - fy) / 2.0_f32.sqrt();
+  match (along.abs() < 6.0, across.abs()) {
+    (true, across) if across < 1.6 && along.abs() < 4.0 => {
+      Texel::rgb(0.6, 1.0, 1.0).glowing(1.8)
+    }
+    (true, across) if across < 3.0 => ramp(&ALLOY, 0.8 - across / 6.0),
+    (false, across) if across < 1.4 && along.abs() < 7.0 => ramp(&ALLOY, 0.95),
+    _ => clear()
+  }
+}
+
+fn scrap(x: u32, y: u32) -> Texel {
+  let (fx, fy) = (x as f32, y as f32);
+  let inside = fy > 3.0 + (fx * 1.3).sin() * 1.5
+    && fy < 12.0 - (fx * 0.9).cos() * 1.5
+    && (2..14).contains(&x)
+    && fx + fy > 7.0;
+  match (inside, y % 5 == 2) {
+    (true, true) => Texel::rgb(0.35, 0.9, 0.95).glowing(0.6),
+    (true, false) => tone(&ALLOY, 0.4 + (16 - y) as f32 / 30.0, x, y),
+    _ => clear()
+  }
+}
+
+fn datacore(x: u32, y: u32) -> Texel {
+  let inside = (4..12).contains(&x) && (2..14).contains(&y);
+  let line = y % 3 == 0 && (5..11).contains(&x);
+  match (inside, line) {
+    (true, true) => Texel::rgb(0.5, 1.0, 1.0).glowing(1.5),
+    (true, false) => tone(&ALLOY, 0.5, x, y),
+    _ => clear()
+  }
+}
+
+fn gel(x: u32, y: u32) -> Texel {
+  let offset = Vec2::new(x as f32 - 7.5, (y as f32 - 9.0) * 1.3);
+  let wobble = (offset.y.atan2(offset.x) * 5.0).sin() * 0.6;
+  match offset.length() < 6.0 + wobble {
+    true => Texel::rgb(0.55, 0.85, 0.95)
+      .scaled(0.7 + (1.0 - offset.length() / 6.0) * 0.5)
+      .alpha(0.85)
+      .glowing(0.5),
+    false => clear()
+  }
+}
+
+fn torpedo(x: u32, y: u32) -> Texel {
+  let (fx, fy) = (x as f32 - 7.5, y as f32 - 7.5);
+  let along = (fx - fy) / 2.0_f32.sqrt();
+  let across = (fx + fy) / 2.0_f32.sqrt();
+  let radius = match along {
+    along if along > 4.5 => (7.0 - along).max(0.0) * 0.8,
+    along if along < -5.5 => 0.0,
+    _ => 2.0
+  };
+  let fin = along < -3.5 && along > -6.0 && across.abs() < 3.4 && across.abs() > 1.8;
+  match (across.abs() < radius, fin) {
+    (true, _) if along > 4.0 => tone(&PLUME, 0.6, x, y),
+    (true, _) => ramp(&STONY, 0.5 - across / 6.0),
+    (_, true) => ramp(&ALLOY, 0.4),
+    _ => clear()
+  }
+}
+
+fn submarine(x: u32, y: u32) -> Texel {
+  let offset = Vec2::new((x as f32 - 7.5) / 7.0, (y as f32 - 9.0) / 3.6);
+  let tower = (6..10).contains(&x) && (3..6).contains(&y);
+  let port = [4u32, 8, 12].contains(&x) && y == 9;
+  let screw = x == 0 && (7..11).contains(&y);
+  match (offset.length() < 1.0 || tower, port, screw) {
+    (_, _, true) => ramp(&ALLOY, 0.5),
+    (true, true, _) => Texel::rgb(0.6, 0.9, 1.0),
+    (true, false, _) => tone(&SUBMARINE, 0.6 - offset.y * 0.35, x, y),
+    _ => clear()
+  }
+}
+
+fn emblem(tile: Tile, x: u32, y: u32) -> Option<f32> {
+  let (fx, fy) = (x as f32 - 7.5, y as f32 - 7.5);
+  let reach = Vec2::new(fx, fy).length();
+  let shown = match tile {
+    Tile::SonarModule | Tile::DeepSonar => {
+      (reach - 1.5).abs() < 0.6 || (reach - 4.0).abs() < 0.6 && fy < 1.0
+    }
+    Tile::DrillModule | Tile::PlasmaDrill => fx.abs() < (fy + 4.0) * 0.45 && fy > -4.0,
+    Tile::Floodlight => reach < 2.0 || (reach < 4.6 && (fx * fy).abs() < 0.8),
+    Tile::Thruster | Tile::Hydrojet => {
+      ((fx - fy.abs()) - 1.0).abs() < 0.8 || ((fx - fy.abs()) + 2.5).abs() < 0.8
+    }
+    Tile::HullPlating | Tile::ResonantPlating => {
+      fx.abs() < 4.0 && fy.abs() < 4.0 && (fy.rem_euclid(3.0) > 1.0 || fx.abs() > 3.0)
+    }
+    Tile::SampleClaw => {
+      (reach - 3.0).abs() < 0.7 && fy < 2.0 || fx.abs() < 0.7 && fy > 0.0
+    }
+    Tile::TorpedoBay => fy.abs() < 1.4 && fx.abs() < 4.5,
+    Tile::PowerCell => fx.abs() < 2.4 && fy.abs() < 4.0 && (fy as i32) % 2 == 0,
+    _ => false
+  };
+  shown.then_some(1.0 - reach / 9.0)
+}
+
+fn module(tile: Tile, x: u32, y: u32) -> Texel {
+  let precursor = matches!(
+    tile,
+    Tile::DeepSonar | Tile::PlasmaDrill | Tile::Hydrojet | Tile::ResonantPlating
+  );
+  let body = match precursor {
+    true => ALLOY,
+    false => SLATE_GREY
+  };
+  let inside = (1..15).contains(&x) && (1..15).contains(&y);
+  let rim = x == 1 || y == 1 || x == 14 || y == 14;
+  let rivet = (x == 3 || x == 12) && (y == 3 || y == 12);
+  match (inside, emblem(tile, x, y)) {
+    (false, _) => clear(),
+    (true, Some(light)) => match precursor {
+      true => Texel::rgb(0.4 + light * 0.4, 0.95, 1.0).glowing(1.2),
+      false => Texel::rgb(0.95, 0.72 + light * 0.2, 0.22)
+    },
+    (true, None) if rivet => ramp(&body, 0.9),
+    (true, None) if rim => ramp(&body, 0.75).scaled(lit(x, y)),
+    (true, None) => ramp(&body, 0.35 + lattice(0x30D, 2, x, y * 5) * 0.15)
+  }
+}
+
+fn aether_lamp(x: u32, y: u32) -> Texel {
+  let core = (5..11).contains(&x) && (4..12).contains(&y);
+  match core {
+    true => Texel::rgb(0.5, 1.0, 1.0).glowing(1.6),
+    false => alloy(x, y)
+  }
+}
+
 pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
   match tile {
     Tile::Stone => smooth(&GREY, x, y),
@@ -1876,6 +2298,49 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     Tile::Leaves => cutout(&FOLIAGE, &OAK_LEAVES, x, y),
     Tile::Planks => planks([0.64, 0.48, 0.28], x, y),
     Tile::StoneBricks => masonry(&STONE_BRICKS, x, y),
+    Tile::Kelp => frond(&KELP, 0.0, x, y),
+    Tile::Glowkelp => frond(&GLOWKELP, 0.5, x, y),
+    Tile::Seagrass => blades(x, y),
+    Tile::BrainCoral => brain(x, y),
+    Tile::FanCoral => fan(x, y),
+    Tile::TubeCoral => tubes(x, y),
+    Tile::Anemone => tentacles(&ANEMONE, 0.0, x, y),
+    Tile::GlowPolyp => polyps(x, y),
+    Tile::VentWorms => worms(x, y),
+    Tile::Sponge => pores(&SPONGE, 0x5B0, x, y),
+    Tile::Clam => clam(x, y),
+    Tile::Pearl => cutout(&PEARL, &PEARLY, x, y).glowing(0.15),
+    Tile::Abyssite => abyssal(x, y),
+    Tile::VentStone => vent(x, y),
+    Tile::NoduleOre => nodules(x, y),
+    Tile::PrecursorAlloy => alloy(x, y),
+    Tile::PrecursorGlass => precursor_glass(x, y),
+    Tile::AetherConduit => conduit(x, y),
+    Tile::AetherLamp => aether_lamp(x, y),
+    Tile::AetherCell => cell(x, y),
+    Tile::AlloyScrap => scrap(x, y),
+    Tile::ResonantCrystal => glinting(&GEM, &RESONANT, 0.9, x, y),
+    Tile::Datacore => datacore(x, y),
+    Tile::JellyGel => gel(x, y),
+    Tile::BioLabTop => lab(true, x, y),
+    Tile::BioLabSide => lab(false, x, y),
+    Tile::Reefstone => pores(&REEF, 0x2EE, x, y),
+    Tile::Nacre => nacre(x, y),
+    Tile::Biolume => biolume(x, y),
+    Tile::Submarine => submarine(x, y),
+    Tile::Torpedo => torpedo(x, y),
+    Tile::SonarModule
+    | Tile::DeepSonar
+    | Tile::DrillModule
+    | Tile::PlasmaDrill
+    | Tile::Floodlight
+    | Tile::Thruster
+    | Tile::Hydrojet
+    | Tile::HullPlating
+    | Tile::ResonantPlating
+    | Tile::SampleClaw
+    | Tile::TorpedoBay
+    | Tile::PowerCell => module(tile, x, y),
     Tile::Glass => {
       let frame = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
       let streak = (x + y == 5 || x + y == 7 || x + y == 20) && x > 1 && y > 1;

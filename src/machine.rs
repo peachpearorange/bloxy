@@ -235,6 +235,8 @@ pub fn biomass(block: Block) -> Option<f32> {
     Block::RedMushroom | Block::BrownMushroom => Some(50.0),
     Block::RedCap | Block::BrownCap => Some(120.0),
     Block::MushroomStem => Some(80.0),
+    Block::Kelp | Block::Glowkelp => Some(45.0),
+    Block::Seagrass => Some(20.0),
     fish if fish.fish() => Some(60.0),
     _ => None
   }

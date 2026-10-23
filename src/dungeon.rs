@@ -20,6 +20,7 @@ pub enum Stamp {
   Clear,
   Floor(Block),
   Open,
+  Flood,
   Put(Block)
 }
 
@@ -28,7 +29,7 @@ impl Stamp {
     match self {
       Stamp::Shell(_) | Stamp::Seal(_) | Stamp::Clear => 0,
       Stamp::Floor(_) => 1,
-      Stamp::Open => 2,
+      Stamp::Open | Stamp::Flood => 2,
       Stamp::Put(_) => 3
     }
   }
@@ -39,7 +40,8 @@ impl Stamp {
       Stamp::Seal(block) if was.fluid() => block,
       Stamp::Shell(_) | Stamp::Seal(_) => was,
       Stamp::Floor(block) | Stamp::Put(block) => block,
-      Stamp::Open | Stamp::Clear => Block::Air
+      Stamp::Open | Stamp::Clear => Block::Air,
+      Stamp::Flood => Block::Water
     }
   }
 }
@@ -50,7 +52,9 @@ pub enum Foe {
   Shade,
   Spider,
   Warden,
-  Imp
+  Imp,
+  Sentinel,
+  Custodian
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -63,7 +67,8 @@ pub struct Lair {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Style {
   Descent,
-  Spire
+  Spire,
+  Precursor
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -97,15 +102,15 @@ struct Chamber {
   depth: i32
 }
 
-struct Plan {
-  key: u32,
-  rolls: u32,
-  centre: Vec2,
-  radius: f32,
-  cells: HashMap<IVec3, Stamp>,
-  lights: Vec<IVec3>,
-  lairs: Vec<Lair>,
-  chests: Vec<(IVec3, u8)>
+pub(crate) struct Plan {
+  pub(crate) key: u32,
+  pub(crate) rolls: u32,
+  pub(crate) centre: Vec2,
+  pub(crate) radius: f32,
+  pub(crate) cells: HashMap<IVec3, Stamp>,
+  pub(crate) lights: Vec<IVec3>,
+  pub(crate) lairs: Vec<Lair>,
+  pub(crate) chests: Vec<(IVec3, u8)>
 }
 
 const WAYS: [IVec3; 4] = [IVec3::X, IVec3::Z, IVec3::NEG_X, IVec3::NEG_Z];
@@ -113,20 +118,22 @@ const WAYS: [IVec3; 4] = [IVec3::X, IVec3::Z, IVec3::NEG_X, IVec3::NEG_Z];
 fn side(way: IVec3) -> IVec3 { IVec3::new(-way.z, 0, way.x) }
 
 impl Plan {
-  fn roll(&mut self) -> f32 {
+  pub(crate) fn roll(&mut self) -> f32 {
     self.rolls += 1;
     unit(self.key, self.rolls as i32, 0x0D, 0x1E)
   }
 
-  fn range(&mut self, low: i32, high: i32) -> i32 {
+  pub(crate) fn range(&mut self, low: i32, high: i32) -> i32 {
     (low + (self.roll() * (high - low + 1) as f32) as i32).min(high)
   }
 
-  fn chance(&mut self, odds: f32) -> bool { self.roll() < odds }
+  pub(crate) fn chance(&mut self, odds: f32) -> bool { self.roll() < odds }
 
-  fn speck(&self, at: IVec3, salt: u32) -> f32 { unit(self.key ^ salt, at.x, at.y, at.z) }
+  pub(crate) fn speck(&self, at: IVec3, salt: u32) -> f32 {
+    unit(self.key ^ salt, at.x, at.y, at.z)
+  }
 
-  fn stamp(&mut self, at: IVec3, stamp: Stamp) {
+  pub(crate) fn stamp(&mut self, at: IVec3, stamp: Stamp) {
     if at.y > 0 && self.cells.get(&at).is_none_or(|old| old.rank() <= stamp.rank()) {
       self.cells.insert(at, stamp);
     }
@@ -140,7 +147,9 @@ impl Plan {
     }
   }
 
-  fn put(&mut self, at: IVec3, block: Block) { self.stamp(at, Stamp::Put(block)) }
+  pub(crate) fn put(&mut self, at: IVec3, block: Block) {
+    self.stamp(at, Stamp::Put(block))
+  }
 
   fn light(&mut self, at: IVec3) {
     self.put(at, Block::Brazier);
@@ -741,7 +750,7 @@ impl Plan {
     at
   }
 
-  fn finish(self, cell: IVec2, style: Style, entry: IVec3) -> Dungeon {
+  pub(crate) fn finish(self, cell: IVec2, style: Style, entry: IVec3) -> Dungeon {
     let (low, high) = self
       .cells
       .keys()
@@ -853,7 +862,14 @@ fn delve(plan: &mut Plan, mut at: IVec3, mut way: IVec3, levels: i32) {
 }
 
 fn found(seed: u32, cell: IVec2) -> Option<Dungeon> {
-  Island::at(seed, cell).and_then(|island| {
+  match Island::at(seed, cell) {
+    Some(island) => delved(seed, cell, island),
+    None => crate::precursor::found(seed, cell)
+  }
+}
+
+fn delved(seed: u32, cell: IVec2, island: Island) -> Option<Dungeon> {
+  {
     let key = hash(seed ^ 0xD0C0, cell.x, 0x77, cell.y);
     let home = cell == IVec2::ZERO;
     let mut plan = Plan {
@@ -903,7 +919,7 @@ fn found(seed: u32, cell: IVec2) -> Option<Dungeon> {
           plan.section(start, way);
           delve(&mut plan, start, way, levels)
         }
-        Style::Spire => {
+        Style::Spire | Style::Precursor => {
           let base = plan.spire(entry, way);
           let down = if way.x == 0 { IVec3::X } else { IVec3::Z };
           let start = base + down;
@@ -913,7 +929,7 @@ fn found(seed: u32, cell: IVec2) -> Option<Dungeon> {
       }
       plan.finish(cell, style, entry)
     })
-  })
+  }
 }
 
 impl Dungeon {
@@ -931,9 +947,11 @@ impl Dungeon {
   }
 
   pub fn within(seed: u32, low: IVec2, high: IVec2) -> Vec<Arc<Dungeon>> {
-    Island::within(seed, low - REACH, high + REACH)
-      .into_iter()
-      .filter_map(|island| Dungeon::at(seed, island.cell))
+    let cell_of = |at: IVec2| at.div_euclid(IVec2::splat(crate::island::CELL));
+    let (from, to) = (cell_of(low - REACH), cell_of(high + REACH));
+    (from.x..=to.x)
+      .flat_map(|x| (from.y..=to.y).map(move |y| IVec2::new(x, y)))
+      .filter_map(|cell| Dungeon::at(seed, cell))
       .filter(|dungeon| {
         dungeon.low.xz().cmple(high).all() && dungeon.high.xz().cmpge(low).all()
       })
@@ -975,6 +993,19 @@ pub fn loot(seed: u32, at: IVec3, tier: u8) -> Vec<Stack> {
     (Block::Torch, 4, 8),
     (Block::Lumen, 1, 3)
   ];
+  let precursor: [(Block, u16, u16); 7] = [
+    (Block::AlloyScrap, 3, 9),
+    (Block::AetherCell, 1, 2),
+    (Block::ResonantCrystal, 1, 2),
+    (Block::Datacore, 1, 1),
+    (Block::Pearl, 1, 3),
+    (Block::Torpedo, 2, 6),
+    (Block::Biolume, 2, 5)
+  ];
+  let table: &[(Block, u16, u16)] = match tier >= crate::precursor::TIER {
+    true => &precursor,
+    false => &table
+  };
   let picks = 2 + u32::from(tier) * 2;
   let mut found: Vec<(Block, u16)> = (0..picks)
     .map(|pick| {
@@ -991,10 +1022,9 @@ pub fn loot(seed: u32, at: IVec3, tier: u8) -> Vec<Stack> {
   found
     .into_iter()
     .map(|(block, count)| Stack::of(block, count))
-    .chain(
-      (0..u32::from(tier.max(1)))
-        .map(|pick| crate::gear::found(seed, salt.wrapping_add(pick * 0x9E37), tier))
-    )
+    .chain((0..u32::from(tier.clamp(1, 2))).map(|pick| {
+      crate::gear::found(seed, salt.wrapping_add(pick * 0x9E37), tier.min(2))
+    }))
     .collect()
 }
 

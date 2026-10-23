@@ -9,6 +9,7 @@ mod audio;
 mod authority;
 mod balloon;
 mod beast;
+mod biology;
 mod bird;
 mod block;
 mod boat;
@@ -21,6 +22,7 @@ mod claim;
 mod climate;
 mod condition;
 mod console;
+mod construct;
 mod conveyor;
 mod crafting;
 mod crew;
@@ -62,6 +64,7 @@ mod noise;
 mod opts;
 mod plate;
 mod player;
+mod precursor;
 mod protocol;
 mod recipe;
 mod save;
@@ -77,6 +80,7 @@ mod sky;
 mod spell;
 mod stance;
 mod stream;
+mod submarine;
 mod summon;
 mod texture;
 mod trade;
@@ -322,7 +326,14 @@ fn main() {
       audio::Sounds,
       machine::Machines
     ))
-    .add_plugins((conveyor::Conveying, arcana::Arcana, sea::SeaLife, goal::Goals))
+    .add_plugins((
+      conveyor::Conveying,
+      arcana::Arcana,
+      sea::SeaLife,
+      goal::Goals,
+      submarine::Submarines,
+      biology::Biology
+    ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
   app.add_plugins((net::server::ServerNet, admin::Admin));

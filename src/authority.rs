@@ -38,23 +38,23 @@ fn starter(creative: bool) -> Inventory {
     Block::OakSign,
     Block::Log,
     Block::Stone,
-    Block::Lamp,
-    Block::Bricks,
+    Block::Reefstone,
+    Block::Abyssite,
     Block::StoneBricks,
     Block::Dirt,
     Block::Sand,
-    Block::Granite,
-    Block::Diorite,
-    Block::Andesite,
-    Block::Limestone,
-    Block::Slate,
-    Block::BirchSign,
-    Block::SpruceSign,
-    Block::PalmSign,
+    Block::Submarine,
+    Block::SonarModule,
+    Block::DrillModule,
+    Block::Floodlight,
+    Block::TorpedoBay,
+    Block::Torpedo,
+    Block::BioLab,
+    Block::PrecursorAlloy,
     Block::ArcaneDust,
     Block::BoneDust,
     Block::Candle,
-    Block::LizardClaw,
+    Block::Nacre,
     Block::SpellFirebolt,
     Block::SpellMissile,
     Block::SpellThunder,
@@ -190,7 +190,8 @@ fn found_world(mut commands: Commands) {
     balloons,
     works,
     packs,
-    pockets
+    pockets,
+    subs
   } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
@@ -205,7 +206,8 @@ fn found_world(mut commands: Commands) {
     balloons: default(),
     works: default(),
     packs: default(),
-    pockets: default()
+    pockets: default(),
+    subs: default()
   });
   let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
   if migrating {
@@ -225,6 +227,9 @@ fn found_world(mut commands: Commands) {
   }
   for (at, yaw) in boats.into_iter() {
     commands.spawn((Replicated, Vessel { at, yaw, rider: None }));
+  }
+  for sub in subs.into_iter() {
+    crate::submarine::spawn(&mut commands, sub)
   }
   for (at, yaw, fuel, pattern) in balloons.into_iter() {
     crate::balloon::spawn(
@@ -506,6 +511,7 @@ fn dig(
   (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>,
   mut earned: MessageWriter<Earned>,
+  subs: Query<&crate::submarine::Sub>,
   mut commands: Commands
 ) {
   for &FromClient { client_id, message: Dig { at } } in digs.read() {
@@ -526,13 +532,55 @@ fn dig(
     let account = account_of(&players, client_id);
     let allowed = account
       .is_some_and(|account| guarded(&claims, &mut notices, client_id, account, at));
+    let drilling = |player: Entity| {
+      subs.iter().find(|sub| sub.rider == Some(player)).and_then(|sub| sub.drill())
+    };
     let digger = player_of(players.iter_mut(), client_id)
-      .filter(|(_, avatar, ..)| allowed && block.breakable() && within_reach(avatar, at))
+      .filter(|(player, avatar, ..)| {
+        let bored = drilling(*player).is_some_and(|drill| {
+          (avatar.at + Vec3::Y * EYE).distance(at.as_vec3() + 0.5) <= drill.reach + 2.0
+        });
+        allowed && block.breakable() && (within_reach(avatar, at) || bored)
+      })
       .map(|(player, avatar, inventory, skills)| {
-        (player, skills.geared(Some(&inventory), avatar.hand).fortune)
+        (player, avatar.at, skills.geared(Some(&inventory), avatar.hand).fortune)
       });
     match digger {
-      Some((player, fortune)) => {
+      Some((player, from, fortune)) => {
+        let along = (at.as_vec3() + 0.5 - from - Vec3::Y * EYE).abs();
+        let axis = match (along.x >= along.y && along.x >= along.z, along.y >= along.z) {
+          (true, _) => 0,
+          (_, true) => 1,
+          _ => 2
+        };
+        let flank: Vec<IVec3> = match drilling(player).is_some_and(|drill| drill.wide) {
+          true => (-1..=1)
+            .flat_map(|a| (-1..=1).map(move |b| (a, b)))
+            .filter(|&pair| pair != (0, 0))
+            .map(|(a, b)| {
+              let mut offset = IVec3::ZERO;
+              offset[(axis + 1) % 3] = a;
+              offset[(axis + 2) % 3] = b;
+              at + offset
+            })
+            .collect(),
+          false => vec![]
+        };
+        for cell in flank {
+          let beside = voxels.ensure(cell);
+          if beside.breakable()
+            && beside.solid()
+            && account.is_some_and(|account| barred(&claims, account, cell).is_none())
+          {
+            crate::loose::fall(&mut commands, beside.drop(), cell);
+            voxels.set(cell, Block::Air);
+            flows.stir(cell, time.elapsed_secs() + Fluid::Water.delay());
+            changes.write(ToClients {
+              targets: SendTargets::All,
+              message: Altered { at: cell, block: Block::Air }
+            });
+          }
+        }
         let lucky = ore(block) > 0
           && crate::noise::unit(voxels.seed ^ 0xF0F, at.x, at.y, at.z) < fortune;
         let found = (block == Block::Urn)
@@ -540,7 +588,12 @@ fn dig(
             crate::dungeon::urn(voxels.seed, at, (time.elapsed_secs() * 10.0) as u32)
           })
           .flatten();
+        let rig = subs.iter().find(|sub| sub.rider == Some(player));
+        let clawed = rig.is_some_and(|sub| sub.has(Block::SampleClaw));
+        let shredded = block.organism() && rig.is_some() && !clawed;
         for dropped in std::iter::once(block.drop())
+          .filter(|_| !shredded)
+          .chain((block.organism() && clawed).then_some(block.drop()))
           .chain(perched.iter().map(|&(_, block)| block.drop()))
           .chain(lucky.then_some(block.drop()))
           .chain((block == Block::PipedDrain).then_some(Block::CopperPipe))
@@ -552,7 +605,11 @@ fn dig(
         if ore(block) > 0 {
           earned.write(Earned { player, xp: ore(block) });
         }
-        voxels.set(at, Block::Air);
+        let left = match block.waterlogged() {
+          true => Block::Water,
+          false => Block::Air
+        };
+        voxels.set(at, left);
         flows.stir(at, time.elapsed_secs() + Fluid::Water.delay());
         for cell in partner.into_iter() {
           voxels.set(cell, Block::Air);
@@ -570,7 +627,7 @@ fn dig(
         }
         changes.write(ToClients {
           targets: SendTargets::All,
-          message: Altered { at, block: Block::Air }
+          message: Altered { at, block: left }
         })
       }
       None => changes.write(ToClients {

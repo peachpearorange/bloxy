@@ -247,7 +247,7 @@ fn disperse(
 fn afloat(voxels: &Voxels, at: Vec3) -> bool {
   [at + Vec3::Y * 0.3, at - Vec3::Y * 0.6]
     .into_iter()
-    .any(|spot| voxels.block(spot.floor().as_ivec3()).is_some_and(Block::fluid))
+    .any(|spot| voxels.block(spot.floor().as_ivec3()).is_some_and(Block::sunk))
 }
 
 fn swim(
@@ -262,7 +262,8 @@ fn swim(
     &mut Conditions
   )>,
   mut swimmers: Query<(&mut Beast, &mut Swimmer), Without<Dying>>,
-  mut knocks: MessageWriter<ToClients<Knock>>
+  mut knocks: MessageWriter<ToClients<Knock>>,
+  mut subs: Query<&mut crate::submarine::Sub>
 ) {
   let dt = time.delta_secs().min(0.1);
   let seed = voxels.seed;
@@ -354,7 +355,7 @@ fn swim(
     let open = |spot: Vec3| {
       voxels
         .block(spot.with_y(spot.y.min(SEA as f32 - 0.2)).floor().as_ivec3())
-        .is_some_and(Block::fluid)
+        .is_some_and(Block::sunk)
     };
     let next = at + ahead(yaw) * speed * dt;
     let probe = at + ahead(yaw) * (1.0 + size);
@@ -383,8 +384,9 @@ fn swim(
     beast.set_if_neq(Beast { breed, at, yaw: yaw.rem_euclid(TAU), pose });
   }
   for (victim, away, damage, breed) in wounds {
-    if let Ok((_, controller, _, mut health, mut vigour, mut conditions)) =
-      players.get_mut(victim)
+    if !crate::submarine::shield(&mut subs, victim, damage)
+      && let Ok((_, controller, _, mut health, mut vigour, mut conditions)) =
+        players.get_mut(victim)
     {
       hurt(&mut health, &mut vigour, damage);
       let push = match breed {

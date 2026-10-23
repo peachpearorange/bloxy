@@ -155,6 +155,40 @@ fn projection(block: Block) -> Option<f32> {
 }
 
 const UNOWNED: f32 = -2.0;
+pub const SURFACED: f32 = 100000.0;
+
+fn tangents(normal: IVec3) -> (IVec3, IVec3) {
+  match normal.abs() {
+    IVec3::X => (IVec3::Z, IVec3::Y),
+    IVec3::Y => (IVec3::X, IVec3::Z),
+    _ => (IVec3::X, IVec3::Y)
+  }
+}
+
+fn surfaced(padded: &Padded, local: IVec3, block: Block, normal: IVec3) -> Option<f32> {
+  block.surface().map(|surface| {
+    let (first, second) = tangents(normal);
+    let continues = |step: IVec3| {
+      let beside = padded.get(local + step);
+      beside.surface().is_some_and(|other| surface.joins(other))
+        && !padded.get(local + step + normal).opaque()
+    };
+    let mask = [
+      first,
+      -first,
+      second,
+      -second,
+      first + second,
+      second - first,
+      first - second,
+      -first - second
+    ]
+    .into_iter()
+    .enumerate()
+    .fold(0, |mask, (bit, step)| mask | (u32::from(continues(step)) << bit));
+    -(SURFACED + (surface.code() * 256 + mask) as f32)
+  })
+}
 
 fn owner(local: IVec3) -> f32 {
   ((local.y * SIZE + local.z) * SIZE + local.x) as f32 * 2.0
@@ -277,6 +311,7 @@ fn kind(block: Block) -> Option<Fluid> { block.liquid().map(|(fluid, _)| fluid) 
 
 fn shows(block: Block, neighbour: Block) -> bool {
   match (block.look(), neighbour.look()) {
+    (Look::Liquid, _) if neighbour.waterlogged() => kind(block) != Some(Fluid::Water),
     (Look::Invisible | Look::Model | Look::Log, _) => false,
     (_, Look::Invisible | Look::Model | Look::Log) => true,
     (_, Look::Opaque) => false,
@@ -523,7 +558,8 @@ fn builders(
           (values[0] * (1.0 - u) + values[1] * u) * (1.0 - v)
             + (values[3] * (1.0 - u) + values[2] * u) * v
         };
-        let projected = projection(block).filter(|_| painted);
+        let surfaced = surfaced(padded, local, block, face.normal).filter(|_| painted);
+        let projected = projection(block).filter(|_| painted && surfaced.is_none());
         let first = builder.positions.len() as u32;
         let mut shading = Vec::with_capacity(across.len() * up.len());
         for &b in &up {
@@ -564,7 +600,7 @@ fn builders(
             builder.colors.push(lit(hue, blend(skies, u, v), torch, shade));
             builder.sways.push([
               owned + f32::from(u8::from(block.leafy() && only.is_none())),
-              projected.unwrap_or(0.0)
+              surfaced.or(projected).unwrap_or(0.0)
             ])
           }
         }

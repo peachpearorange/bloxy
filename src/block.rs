@@ -16,7 +16,7 @@ use {bevy::math::IVec3,
   Deserialize,
   VariantArray,
 )]
-#[repr(u8)]
+#[repr(u16)]
 pub enum Block {
   #[default]
   Air,
@@ -236,7 +236,49 @@ pub enum Block {
   ExpeditionPack,
   LesserRift,
   GreaterRift,
-  StoneBricks
+  StoneBricks,
+  Kelp,
+  Seagrass,
+  BrainCoral,
+  FanCoral,
+  TubeCoral,
+  Anemone,
+  GlowPolyp,
+  VentWorms,
+  Sponge,
+  Clam,
+  Pearl,
+  Abyssite,
+  VentStone,
+  NoduleOre,
+  PrecursorAlloy,
+  PrecursorGlass,
+  AetherConduit,
+  AetherLamp,
+  AetherCell,
+  AlloyScrap,
+  ResonantCrystal,
+  Datacore,
+  JellyGel,
+  BioLab,
+  Reefstone,
+  Nacre,
+  Biolume,
+  Glowkelp,
+  Submarine,
+  SonarModule,
+  DeepSonar,
+  DrillModule,
+  PlasmaDrill,
+  Floodlight,
+  Thruster,
+  Hydrojet,
+  HullPlating,
+  ResonantPlating,
+  SampleClaw,
+  TorpedoBay,
+  PowerCell,
+  Torpedo
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
@@ -413,7 +455,50 @@ pub enum Tile {
   ExpeditionPack,
   LesserRift,
   GreaterRift,
-  StoneBricks
+  StoneBricks,
+  Kelp,
+  Seagrass,
+  BrainCoral,
+  FanCoral,
+  TubeCoral,
+  Anemone,
+  GlowPolyp,
+  VentWorms,
+  Sponge,
+  Clam,
+  Pearl,
+  Abyssite,
+  VentStone,
+  NoduleOre,
+  PrecursorAlloy,
+  PrecursorGlass,
+  AetherConduit,
+  AetherLamp,
+  AetherCell,
+  AlloyScrap,
+  ResonantCrystal,
+  Datacore,
+  JellyGel,
+  BioLabTop,
+  BioLabSide,
+  Reefstone,
+  Nacre,
+  Biolume,
+  Glowkelp,
+  Submarine,
+  SonarModule,
+  DeepSonar,
+  DrillModule,
+  PlasmaDrill,
+  Floodlight,
+  Thruster,
+  Hydrojet,
+  HullPlating,
+  ResonantPlating,
+  SampleClaw,
+  TorpedoBay,
+  PowerCell,
+  Torpedo
 }
 
 impl Tile {
@@ -470,6 +555,31 @@ impl Fluid {
   }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Surface {
+  Alloy,
+  Conduit,
+  Abyssal,
+  Vent,
+  Reef,
+  Nacre,
+  Brain,
+  Sponge,
+  Biolume
+}
+
+impl Surface {
+  pub fn code(self) -> u32 { self as u32 }
+
+  pub fn joins(self, other: Surface) -> bool {
+    self == other
+      || matches!(
+        (self, other),
+        (Surface::Alloy, Surface::Conduit) | (Surface::Conduit, Surface::Alloy)
+      )
+  }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Look {
   Invisible,
@@ -517,11 +627,41 @@ impl Block {
         | Block::LizardClaw
         | Block::Candle
     ) || self.fish()
+      || self.salvage()
+      || self.module()
+      || self == Block::Submarine
       || self.trinket()
       || self.spell()
       || self.forged()
       || self.worn()
   }
+
+  pub fn salvage(self) -> bool {
+    matches!(
+      self,
+      Block::Pearl
+        | Block::AetherCell
+        | Block::AlloyScrap
+        | Block::ResonantCrystal
+        | Block::Datacore
+        | Block::JellyGel
+        | Block::Torpedo
+    )
+  }
+
+  pub fn module(self) -> bool { (Block::SonarModule..=Block::PowerCell).contains(&self) }
+
+  pub fn organism(self) -> bool { (Block::Kelp..=Block::Clam).contains(&self) }
+
+  pub fn waterlogged(self) -> bool {
+    self.organism() && !matches!(self, Block::BrainCoral | Block::Sponge)
+  }
+
+  pub fn wet(self) -> bool {
+    self.waterlogged() || self.liquid().is_some_and(|(fluid, _)| fluid == Fluid::Water)
+  }
+
+  pub fn sunk(self) -> bool { self.fluid() || self.waterlogged() }
 
   pub const TOOLS: [Block; 4] = [Block::Pickaxe, Block::Axe, Block::Shovel, Block::Sword];
 
@@ -587,6 +727,8 @@ impl Block {
         | Block::CraftingTable
         | Block::Furnace
         | Block::BloomFont
+        | Block::BioLab
+        | Block::AetherLamp
     ) || self.machine()
   }
 
@@ -622,7 +764,15 @@ impl Block {
   }
 
   pub fn lit(self) -> bool {
-    self.torch() || self == Block::Brazier || self == Block::ElectricLampLit
+    self.torch()
+      || matches!(
+        self,
+        Block::Brazier
+          | Block::ElectricLampLit
+          | Block::AetherLamp
+          | Block::Biolume
+          | Block::Glowkelp
+      )
   }
 
   pub const FISH: [Block; 4] =
@@ -703,7 +853,9 @@ impl Block {
       Block::RitualKnife | Block::WellspringSigil | Block::Heartstone => 1,
       portable if portable.portable() => 1,
       gear if gear.forged() || gear.worn() => 1,
-      Block::Bucket => 16,
+      Block::Submarine => 1,
+      module if module.module() => 1,
+      Block::Bucket | Block::Torpedo => 16,
       spell if spell.spell() => 16,
       _ => 64
     }
@@ -731,7 +883,11 @@ impl Block {
   pub fn station(self) -> bool {
     matches!(
       self,
-      Block::CraftingTable | Block::Furnace | Block::ElectricFurnace | Block::BloomFont
+      Block::CraftingTable
+        | Block::Furnace
+        | Block::ElectricFurnace
+        | Block::BloomFont
+        | Block::BioLab
     )
   }
 
@@ -752,7 +908,7 @@ impl Block {
   pub fn look(self) -> Look {
     match self {
       Block::Air => Look::Invisible,
-      Block::Glass | Block::Cobweb => Look::Cutout,
+      Block::Glass | Block::Cobweb | Block::PrecursorGlass => Look::Cutout,
       leaves if leaves.leafy() => Look::Cutout,
       fluid if fluid.fluid() => Look::Liquid,
       model if model.modelled() || model.waystone() || model.furnished() => Look::Model,
@@ -791,16 +947,34 @@ impl Block {
       || self.conveyor()
       || self.bloomer()
       || self.vessel()
+      || self.waterlogged()
+      || self == Block::Glowkelp
   }
 
   pub fn plant(self) -> bool {
     (Block::Poppy..=Block::BrownMushroom).contains(&self)
       || self == Block::TallGrass
       || self == Block::Moonlace
+      || matches!(self, Block::Kelp | Block::Seagrass | Block::Glowkelp)
       || self.glimmer()
   }
 
   pub fn opaque(self) -> bool { self.look() == Look::Opaque }
+
+  pub fn surface(self) -> Option<Surface> {
+    match self {
+      Block::PrecursorAlloy => Some(Surface::Alloy),
+      Block::AetherConduit => Some(Surface::Conduit),
+      Block::Abyssite => Some(Surface::Abyssal),
+      Block::VentStone => Some(Surface::Vent),
+      Block::Reefstone => Some(Surface::Reef),
+      Block::Nacre => Some(Surface::Nacre),
+      Block::BrainCoral => Some(Surface::Brain),
+      Block::Sponge => Some(Surface::Sponge),
+      Block::Biolume => Some(Surface::Biolume),
+      _ => None
+    }
+  }
 
   pub fn softness(self) -> f32 {
     match self {
@@ -813,7 +987,12 @@ impl Block {
       | Block::Leaves
       | Block::BirchLeaves
       | Block::SpruceLeaves
-      | Block::PalmLeaves => 1.0,
+      | Block::PalmLeaves
+      | Block::Sponge => 1.0,
+      Block::BrainCoral => 0.8,
+      Block::Abyssite | Block::VentStone | Block::NoduleOre => 0.6,
+      Block::Reefstone => 0.4,
+      Block::Nacre | Block::Biolume => 0.25,
       Block::Gravel | Block::RedCap | Block::BrownCap | Block::MushroomStem => 0.8,
       Block::Stone
       | Block::Granite
@@ -881,6 +1060,17 @@ impl Block {
       | Block::CrackedBrick
       | Block::CarvedStone => 3.0,
       Block::Lumen => 2.2,
+      Block::PrecursorAlloy => 12.0,
+      Block::AetherConduit => 7.0,
+      Block::PrecursorGlass => 2.5,
+      Block::AetherLamp => 1.5,
+      Block::Abyssite => 3.0,
+      Block::VentStone | Block::NoduleOre | Block::Nacre => 2.5,
+      Block::Reefstone | Block::BioLab => 2.0,
+      Block::BrainCoral | Block::Biolume => 0.8,
+      Block::Sponge => 0.5,
+      Block::Kelp | Block::Seagrass | Block::Glowkelp => 0.05,
+      coral if coral.organism() => 0.4,
       sign if sign.sign() => 0.6,
       vessel if vessel.vessel() => 1.5,
       flower if flower.bloomer() => 0.3,
@@ -924,6 +1114,7 @@ impl Block {
         Block::Urn => Block::Air,
         Block::EmptyChest => Block::Planks,
         Block::CrackedBrick => Block::AncientBrick,
+        Block::PrecursorAlloy | Block::AetherConduit => Block::AlloyScrap,
         other => other.held()
       },
       |&(_, cobble)| cobble
@@ -1147,7 +1338,49 @@ impl Block {
       Block::Rucksack => "Riveted Rucksack",
       Block::ExpeditionPack => "Expedition Pack",
       Block::LesserRift => "Lesser Pocket Rift",
-      Block::GreaterRift => "Greater Pocket Rift"
+      Block::GreaterRift => "Greater Pocket Rift",
+      Block::Kelp => "Kelp",
+      Block::Seagrass => "Seagrass",
+      Block::BrainCoral => "Brain Coral",
+      Block::FanCoral => "Fan Coral",
+      Block::TubeCoral => "Tube Coral",
+      Block::Anemone => "Sea Anemone",
+      Block::GlowPolyp => "Glow Polyp",
+      Block::VentWorms => "Vent Worms",
+      Block::Sponge => "Sea Sponge",
+      Block::Clam => "Giant Clam",
+      Block::Pearl => "Pearl",
+      Block::Abyssite => "Abyssite",
+      Block::VentStone => "Vent Stone",
+      Block::NoduleOre => "Manganese Nodules",
+      Block::PrecursorAlloy => "Precursor Alloy",
+      Block::PrecursorGlass => "Precursor Glass",
+      Block::AetherConduit => "Aether Conduit",
+      Block::AetherLamp => "Aether Lamp",
+      Block::AetherCell => "Aether Cell",
+      Block::AlloyScrap => "Alloy Scrap",
+      Block::ResonantCrystal => "Resonant Crystal",
+      Block::Datacore => "Datacore",
+      Block::JellyGel => "Jelly Gel",
+      Block::BioLab => "Bio Lab",
+      Block::Reefstone => "Reefstone",
+      Block::Nacre => "Nacre",
+      Block::Biolume => "Biolume",
+      Block::Glowkelp => "Glowkelp",
+      Block::Submarine => "Submarine",
+      Block::SonarModule => "Sonar Module",
+      Block::DeepSonar => "Deep Resonance Sonar",
+      Block::DrillModule => "Drill Arm",
+      Block::PlasmaDrill => "Aether Lance",
+      Block::Floodlight => "Floodlight",
+      Block::Thruster => "Thruster",
+      Block::Hydrojet => "Aether Hydrojet",
+      Block::HullPlating => "Hull Plating",
+      Block::ResonantPlating => "Resonant Plating",
+      Block::SampleClaw => "Sample Claw",
+      Block::TorpedoBay => "Torpedo Bay",
+      Block::PowerCell => "Power Cell",
+      Block::Torpedo => "Torpedo"
     }
   }
 
@@ -1360,6 +1593,48 @@ impl Block {
       Block::LesserRift => all(Tile::LesserRift),
       Block::GreaterRift => all(Tile::GreaterRift),
       Block::StoneBricks => all(Tile::StoneBricks),
+      Block::Kelp => all(Tile::Kelp),
+      Block::Seagrass => all(Tile::Seagrass),
+      Block::BrainCoral => all(Tile::BrainCoral),
+      Block::FanCoral => all(Tile::FanCoral),
+      Block::TubeCoral => all(Tile::TubeCoral),
+      Block::Anemone => all(Tile::Anemone),
+      Block::GlowPolyp => all(Tile::GlowPolyp),
+      Block::VentWorms => all(Tile::VentWorms),
+      Block::Sponge => all(Tile::Sponge),
+      Block::Clam => all(Tile::Clam),
+      Block::Pearl => all(Tile::Pearl),
+      Block::Abyssite => all(Tile::Abyssite),
+      Block::VentStone => all(Tile::VentStone),
+      Block::NoduleOre => all(Tile::NoduleOre),
+      Block::PrecursorAlloy => all(Tile::PrecursorAlloy),
+      Block::PrecursorGlass => all(Tile::PrecursorGlass),
+      Block::AetherConduit => all(Tile::AetherConduit),
+      Block::AetherLamp => all(Tile::AetherLamp),
+      Block::AetherCell => all(Tile::AetherCell),
+      Block::AlloyScrap => all(Tile::AlloyScrap),
+      Block::ResonantCrystal => all(Tile::ResonantCrystal),
+      Block::Datacore => all(Tile::Datacore),
+      Block::JellyGel => all(Tile::JellyGel),
+      Block::BioLab => [Tile::BioLabTop, Tile::BioLabSide, Tile::BioLabSide],
+      Block::Reefstone => all(Tile::Reefstone),
+      Block::Nacre => all(Tile::Nacre),
+      Block::Biolume => all(Tile::Biolume),
+      Block::Glowkelp => all(Tile::Glowkelp),
+      Block::Submarine => all(Tile::Submarine),
+      Block::SonarModule => all(Tile::SonarModule),
+      Block::DeepSonar => all(Tile::DeepSonar),
+      Block::DrillModule => all(Tile::DrillModule),
+      Block::PlasmaDrill => all(Tile::PlasmaDrill),
+      Block::Floodlight => all(Tile::Floodlight),
+      Block::Thruster => all(Tile::Thruster),
+      Block::Hydrojet => all(Tile::Hydrojet),
+      Block::HullPlating => all(Tile::HullPlating),
+      Block::ResonantPlating => all(Tile::ResonantPlating),
+      Block::SampleClaw => all(Tile::SampleClaw),
+      Block::TorpedoBay => all(Tile::TorpedoBay),
+      Block::PowerCell => all(Tile::PowerCell),
+      Block::Torpedo => all(Tile::Torpedo),
       Block::ElectricPump
       | Block::Refinery
       | Block::BiofuelGenerator

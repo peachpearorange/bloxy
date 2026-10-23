@@ -41,7 +41,9 @@ pub struct World {
   #[serde(default)]
   pub packs: Vec<(u32, Vec<Option<crate::protocol::Stack>>)>,
   #[serde(default)]
-  pub pockets: Vec<(u32, Vec<Option<crate::protocol::Stack>>)>
+  pub pockets: Vec<(u32, Vec<Option<crate::protocol::Stack>>)>,
+  #[serde(default)]
+  pub subs: Vec<crate::submarine::Sub>
 }
 
 pub fn load() -> Option<World> {
@@ -70,7 +72,11 @@ fn store(
   players: Query<(&Controller, Kept)>,
   shroomlings: Query<(&Hopper, &Wander)>,
   dormant: Res<Dormant>,
-  (boats, balloons): (Query<&Vessel>, Query<&crate::balloon::Aerostat>),
+  (boats, balloons, subs): (
+    Query<&Vessel>,
+    Query<&crate::balloon::Aerostat>,
+    Query<&crate::submarine::Sub>
+  ),
   signs: Query<&Sign>,
   claims: Query<(&Claim, &Holding)>,
   (coffers, works, hoards): (
@@ -90,6 +96,7 @@ fn store(
       Changed<Hopper>,
       Changed<Vessel>,
       Changed<crate::balloon::Aerostat>,
+      Changed<crate::submarine::Sub>,
       Changed<Sign>,
       Changed<Claim>,
       Changed<Holding>
@@ -149,7 +156,11 @@ fn store(
         .collect(),
       works: works.states.iter().map(|(&at, &state)| (at, state)).collect(),
       packs: hoards.packs.iter().map(|(&id, slots)| (id, slots.clone())).collect(),
-      pockets: hoards.pockets.iter().map(|(&id, slots)| (id, slots.clone())).collect()
+      pockets: hoards.pockets.iter().map(|(&id, slots)| (id, slots.clone())).collect(),
+      subs: subs
+        .iter()
+        .map(|sub| crate::submarine::Sub { rider: None, ..sub.clone() })
+        .collect()
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

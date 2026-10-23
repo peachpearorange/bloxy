@@ -21,7 +21,8 @@ impl Flows {
 }
 
 fn replaceable(block: Block) -> bool {
-  block == Block::Air || (block.modelled() && !block.ladder() && !block.bed())
+  block == Block::Air
+    || (block.modelled() && !block.ladder() && !block.bed() && !block.waterlogged())
 }
 
 fn next(voxels: &mut Voxels, at: IVec3) -> Option<Block> {
@@ -49,9 +50,16 @@ fn next(voxels: &mut Voxels, at: IVec3) -> Option<Block> {
       })
       .min_by_key(|&(_, level)| level)
   });
+  let springs =
+    sides.iter().filter(|&&(side, _)| side == Block::Water || side.waterlogged()).count();
+  let refills = (here == Block::Air
+    || here.liquid().is_some_and(|(fluid, level)| fluid == Fluid::Water && level > 0))
+    && springs >= 2
+    && !touching.contains(&Fluid::Lava);
   let wanted = match (here.liquid(), incoming) {
     (Some((Fluid::Lava, 0)), _) if touching.contains(&Fluid::Water) => Block::Basalt,
     (Some((_, 0)), _) => here,
+    _ if refills => Block::Water,
     (Some(_), None) => Block::Air,
     (Some(_), Some((fluid, level))) | (None, Some((fluid, level)))
       if replaceable(here) || here.fluid() =>

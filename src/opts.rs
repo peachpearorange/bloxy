@@ -27,7 +27,8 @@ pub struct Opts {
   pub raid: Option<(f32, String)>,
   pub weather: Option<String>,
   pub admin: Option<u16>,
-  pub parade: bool
+  pub parade: bool,
+  pub dive: bool
 }
 
 impl Default for Opts {
@@ -55,7 +56,8 @@ impl Default for Opts {
       raid: None,
       weather: None,
       admin: None,
-      parade: false
+      parade: false,
+      dive: false
     }
   }
 }

@@ -422,7 +422,9 @@ pub enum Band {
   Warden,
   Thrall,
   Phantom,
-  Imp
+  Imp,
+  Sentinel,
+  Custodian
 }
 
 impl Band {
@@ -593,7 +595,16 @@ impl Plugin for Protocol {
       .add_mapped_client_message::<crate::balloon::Deflate>(Channel::Ordered)
       .add_mapped_client_message::<crate::balloon::Stoke>(Channel::Ordered)
       .add_client_message::<crate::balloon::Drift>(Channel::Unreliable)
-      .replicate::<crate::goal::Deeds>();
+      .replicate::<crate::goal::Deeds>()
+      .replicate::<crate::submarine::Sub>()
+      .replicate::<crate::submarine::Air>()
+      .add_client_message::<crate::submarine::Submerge>(Channel::Ordered)
+      .add_mapped_client_message::<crate::submarine::Hatch>(Channel::Ordered)
+      .add_mapped_client_message::<crate::submarine::Dock>(Channel::Ordered)
+      .add_mapped_client_message::<crate::submarine::Fit>(Channel::Ordered)
+      .add_mapped_client_message::<crate::submarine::Strip>(Channel::Ordered)
+      .add_client_message::<crate::submarine::Dive>(Channel::Unreliable)
+      .add_client_message::<crate::submarine::Fire>(Channel::Ordered);
   }
 }
 

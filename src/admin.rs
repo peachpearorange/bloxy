@@ -213,6 +213,8 @@ fn kind_named(name: &str) -> Option<Kind> {
     "spider" => Some(Kind::Haunt(crate::dungeon::Foe::Spider)),
     "warden" => Some(Kind::Haunt(crate::dungeon::Foe::Warden)),
     "imp" => Some(Kind::Haunt(crate::dungeon::Foe::Imp)),
+    "sentinel" => Some(Kind::Haunt(crate::dungeon::Foe::Sentinel)),
+    "custodian" => Some(Kind::Haunt(crate::dungeon::Foe::Custodian)),
     _ => None
   }
 }

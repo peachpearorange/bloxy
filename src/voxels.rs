@@ -83,23 +83,39 @@ pub fn generated(seed: u32, kept: &Kept, key: IVec3) -> Chunk {
   }
 }
 
+const ESCAPE: u8 = u8::MAX;
+
 pub fn pack(column: &[Block]) -> Vec<u8> {
-  miniz_oxide::deflate::compress_to_vec(
-    &column.iter().map(|&block| block as u8).collect::<Vec<u8>>(),
-    6
-  )
+  let bytes: Vec<u8> = column
+    .iter()
+    .flat_map(|&block| match block as u16 {
+      small if small < u16::from(ESCAPE) => vec![small as u8],
+      large => vec![ESCAPE, (large - u16::from(ESCAPE)) as u8]
+    })
+    .collect();
+  miniz_oxide::deflate::compress_to_vec(&bytes, 6)
 }
 
 pub fn unpack(packed: &[u8]) -> Option<Vec<Block>> {
   miniz_oxide::inflate::decompress_to_vec(packed)
     .ok()
-    .filter(|bytes| bytes.len() == COLUMN)
     .map(|bytes| {
       bytes
-        .into_iter()
-        .map(|byte| Block::ALL.get(usize::from(byte)).copied().unwrap_or_default())
-        .collect()
+        .iter()
+        .scan(false, |escaped, &byte| {
+          let decoded = match (*escaped, byte) {
+            (true, _) => Some(usize::from(byte) + usize::from(ESCAPE)),
+            (false, ESCAPE) => None,
+            (false, _) => Some(usize::from(byte))
+          };
+          *escaped = !*escaped && byte == ESCAPE;
+          Some(decoded)
+        })
+        .flatten()
+        .map(|index| Block::ALL.get(index).copied().unwrap_or_default())
+        .collect::<Vec<Block>>()
     })
+    .filter(|blocks| blocks.len() == COLUMN)
 }
 
 fn pierces(from: Vec3, toward: Vec3, low: Vec3, high: Vec3) -> bool {
@@ -334,5 +350,18 @@ impl Voxels {
         })
         .map(|block| Hit { at, normal, block })
     })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn packed_columns_keep_blocks_past_the_first_byte() {
+    let column: Vec<Block> =
+      (0..COLUMN).map(|index| Block::ALL[index % Block::ALL.len()]).collect();
+    assert!(column.iter().any(|&block| block as u16 >= 255));
+    assert_eq!(unpack(&pack(&column)), Some(column))
   }
 }

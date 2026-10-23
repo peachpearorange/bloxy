@@ -31,10 +31,30 @@ struct Surface {
   ice: bool
 }
 
+pub const ABYSS: i32 = SEA - 28;
+pub const TRENCH: i32 = SEA - 42;
+const SEA_FLOOR_LOWEST: f32 = 6.0;
+
+fn trench(seed: u32, at: Vec2, land: f32) -> f32 {
+  let warp = Vec2::new(
+    perlin2(seed ^ 0x7E3D, at.x / 300.0, at.y / 300.0),
+    perlin2(seed ^ 0x7E3E, at.x / 300.0, at.y / 300.0)
+  ) * 120.0;
+  let ridge =
+    1.0 - perlin2(seed ^ 0x7E3C, (at.x + warp.x) / 380.0, (at.y + warp.y) / 380.0).abs();
+  smoothstep(0.9, 0.975, ridge) * smoothstep(-0.05, -0.25, land)
+}
+
 fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
-  let deep = smoothstep(0.12, -0.16, landmass(seed, Vec2::new(x as f32, z as f32)));
-  let floor = SEA as f32 - 9.0 - deep * 18.0
-    + fbm2(seed.wrapping_add(32), x as f32 / 60.0, z as f32 / 60.0, 2) * 4.0;
+  let point = Vec2::new(x as f32, z as f32);
+  let land = landmass(seed, point);
+  let deep = smoothstep(0.12, -0.16, land);
+  let abyss = smoothstep(-0.14, -0.34, land);
+  let floor =
+    (SEA as f32 - 9.0 - deep * 18.0 - abyss * 12.0 - trench(seed, point, land) * 22.0
+      + fbm2(seed.wrapping_add(32), x as f32 / 60.0, z as f32 / 60.0, 2)
+        * (4.0 + abyss * 3.0))
+      .max(SEA_FLOOR_LOWEST);
   let mainland = climate::mainland(seed, Vec2::new(x as f32, z as f32));
   islands
     .iter()
@@ -51,7 +71,7 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     )
 }
 
-pub const GENERATION: u32 = 9;
+pub const GENERATION: u32 = 10;
 
 fn seeping(seed: u32, seep: IVec2, column: IVec2) -> bool {
   let ragged = 1.4 + unit(seed ^ 0x0115, column.x, 0, column.y) * 1.6;
@@ -116,6 +136,10 @@ fn column(seed: u32, surface: Surface, steep: bool, x: i32, z: i32) -> Column {
     _ if height < SEA && beach && height >= SEA - 4 && !frozen => {
       (Block::Sand, Block::Sand)
     }
+    _ if height < ABYSS => match bed {
+      bed if bed < 0.3 => (Block::Clay, Block::Abyssite),
+      _ => (Block::Abyssite, Block::Abyssite)
+    },
     _ if height < SEA => match bed {
       bed if frozen && bed < 0.5 => (Block::Gravel, Block::Gravel),
       bed if bed < 0.2 => (Block::Clay, Block::Clay),
@@ -142,6 +166,15 @@ fn column(seed: u32, surface: Surface, steep: bool, x: i32, z: i32) -> Column {
     && perlin2(seed.wrapping_add(70), point.x / 11.0, point.y / 11.0)
       + (FROZEN - 0.12 - warmth) * 2.5
       > 0.3;
+  let nodule = height < ABYSS
+    && unit(seed ^ 0x40D, x, 9, z)
+      < 0.06
+        * smoothstep(
+          0.1,
+          0.5,
+          fbm2(seed.wrapping_add(45), point.x / 30.0, point.y / 30.0, 2)
+        );
+  let top = if nodule { Block::NoduleOre } else { top };
   let pool = island
     .filter(|(island, rise)| island.kind == Kind::Volcano && rise.inward > 0.7)
     .map_or((Block::Water, SEA), |(island, _)| (Block::Lava, island.crater()));
@@ -522,6 +555,75 @@ fn bloom(seed: u32, x: i32, z: i32, ground: &Column) -> Option<Block> {
     })
 }
 
+fn reef(seed: u32, x: i32, z: i32, ground: &Column) -> Option<(Block, i32)> {
+  let &Column { height, heat, top, ice, pool, .. } = ground;
+  let depth = SEA - height;
+  let room = depth - 2;
+  let field = |salt: u32, scale: f32| {
+    fbm2(seed.wrapping_add(salt), x as f32 / scale, z as f32 / scale, 2) * 0.5 + 0.5
+  };
+  let roll = unit(seed ^ 0x2F0, x, 9, z);
+  let pick = unit(seed ^ 0x2EF, x, 8, z);
+  let reef = field(51, 22.0) * smoothstep(-0.05, 0.3, heat);
+  let forest = field(52, 30.0) * smoothstep(0.4, 0.1, heat);
+  let meadow = field(53, 16.0);
+  let living = pool.0 == Block::Water && !ice && room >= 1 && top != Block::Lava;
+  let placed = match () {
+    () if !living => None,
+    () if depth <= 18 && reef > 0.42 && roll < 0.6 * smoothstep(0.42, 0.6, reef) => {
+      let mound = ((reef - 0.45) * 12.0) as i32;
+      Some(match pick {
+        pick if pick < 0.32 => (Block::BrainCoral, 1 + mound),
+        pick if pick < 0.5 => (Block::FanCoral, 1),
+        pick if pick < 0.65 => (Block::TubeCoral, 1),
+        pick if pick < 0.77 => (Block::Anemone, 1),
+        pick if pick < 0.87 => (Block::Sponge, 1),
+        pick if pick < 0.95 => (Block::Seagrass, 1),
+        _ => (Block::GlowPolyp, 1)
+      })
+    }
+    () if (5..=26).contains(&depth) && forest > 0.5 && roll < 0.3 => {
+      Some((Block::Kelp, ((room as f32) * (0.4 + pick * 0.5)).max(1.0) as i32))
+    }
+    () if depth <= 12 && top == Block::Sand && meadow > 0.48 && roll < 0.45 => {
+      Some((Block::Seagrass, 1))
+    }
+    () if depth > 20 => match roll {
+      roll if roll < 0.004 + 0.012 * smoothstep(20.0, 40.0, depth as f32) => {
+        Some((Block::GlowPolyp, 1))
+      }
+      roll if roll < 0.022 => Some((Block::Anemone, 1)),
+      roll if roll < 0.027 && depth < 34 => Some((Block::Clam, 1)),
+      roll if roll < 0.034 => Some((Block::Sponge, 1)),
+      _ => None
+    },
+    () if depth > 7 && roll < 0.004 => Some((Block::Clam, 1)),
+    () => None
+  };
+  placed.map(|(block, tall)| (block, tall.min(room)))
+}
+
+const VENT_GRID: i32 = 14;
+
+fn vents(seed: u32, low: IVec2, high: IVec2) -> Vec<(IVec2, i32)> {
+  let (from, to) =
+    (low.div_euclid(IVec2::splat(VENT_GRID)), high.div_euclid(IVec2::splat(VENT_GRID)));
+  (from.x..=to.x)
+    .flat_map(|x| (from.y..=to.y).map(move |y| IVec2::new(x, y)))
+    .filter(|cell| unit(seed ^ 0x7E7, cell.x, 3, cell.y) < 0.4)
+    .map(|cell| {
+      let jitter = |salt: u32| {
+        (hash(seed ^ salt, cell.x, 4, cell.y) % (VENT_GRID as u32 - 4)) as i32 + 2
+      };
+      (
+        cell * VENT_GRID + IVec2::new(jitter(0x7E8), jitter(0x7E9)),
+        3 + (hash(seed ^ 0x7EA, cell.x, 5, cell.y) % 5) as i32
+      )
+    })
+    .filter(|&(at, _)| height(seed, at.x, at.y) < TRENCH)
+    .collect()
+}
+
 fn trunk(block: Block) -> bool {
   matches!(
     block,
@@ -634,6 +736,7 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
           () if depth < 0 || open => Block::Air,
           () if depth == 0 => ground.top,
           () if depth < 4 => ground.under,
+          () if ground.height < ABYSS && depth < 12 => Block::Abyssite,
           () => Block::Stone
         };
         blocks[Chunk::index(local)] = match block {
@@ -705,6 +808,58 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
             && (local.y == 0 || blocks[Chunk::index(local - IVec3::Y)] == ground.top)
           {
             blocks[Chunk::index(local)] = plant
+          }
+        }
+      }
+      for x in 0..SIZE {
+        for z in 0..SIZE {
+          let ground = column_at(x, z);
+          if let Some((life, tall)) = reef(seed, origin.x + x, origin.z + z, &ground) {
+            for rise in 1..=tall {
+              let local = IVec3::new(x, ground.height + rise - origin.y, z);
+              if inside(local) && blocks[Chunk::index(local)] == Block::Water {
+                blocks[Chunk::index(local)] = life
+              }
+            }
+          }
+        }
+      }
+      let chimneys = match lowest < TRENCH {
+        true => vents(seed, origin.xz() - 4, origin.xz() + SIZE + 4),
+        false => vec![]
+      };
+      for &(vent, tall) in chimneys.iter() {
+        for dx in -4..=4 {
+          for dz in -4..=4 {
+            let local = vent - origin.xz() + IVec2::new(dx, dz);
+            if (0..SIZE).contains(&local.x) && (0..SIZE).contains(&local.y) {
+              let ground = column_at(local.x, local.y).height;
+              let reach = dx * dx + dz * dz;
+              let column = IVec2::new(origin.x + local.x, origin.z + local.y);
+              let rising = match reach {
+                0 => tall,
+                1 | 2 => tall / 2,
+                _ => 0
+              };
+              for y in ground - 1..=ground + rising {
+                let cell = IVec3::new(local.x, y - origin.y, local.y);
+                let wormed = reach > 2
+                  && reach <= 13
+                  && y == ground + 1
+                  && unit(seed ^ 0x7EB, column.x, y, column.y) < 0.5;
+                let block = match () {
+                  () if y <= ground && reach <= 8 => Some(Block::VentStone),
+                  () if y > ground && rising > 0 => Some(Block::VentStone),
+                  () if wormed => Some(Block::VentWorms),
+                  () => None
+                };
+                if let Some(block) = block
+                  && inside(cell)
+                {
+                  blocks[Chunk::index(cell)] = block
+                }
+              }
+            }
           }
         }
       }
@@ -967,6 +1122,48 @@ mod tests {
 
   #[test]
   #[ignore]
+  fn sea_life_near_home() {
+    let islands = Island::within(1, IVec2::splat(-700), IVec2::splat(700));
+    let mut found: Vec<(Block, IVec2, i32)> = (-700..700)
+      .step_by(3)
+      .flat_map(|x| (-700..700).step_by(3).map(move |z| (x, z)))
+      .filter_map(|(x, z)| {
+        let ground = column(1, surface(1, &islands, x, z), false, x, z);
+        reef(1, x, z, &ground).map(|(block, _)| (block, IVec2::new(x, z), ground.height))
+      })
+      .collect();
+    found.sort_by_key(|(_, at, _)| at.length_squared());
+    let quiet = |at: IVec2| {
+      found.iter().all(|(block, other, _)| {
+        *block != Block::Kelp || other.distance_squared(at) > 100
+      })
+    };
+    for (_, at, height) in found
+      .iter()
+      .filter(|(block, at, height)| {
+        *block == Block::BrainCoral && quiet(*at) && *height < SEA - 6
+      })
+      .take(3)
+    {
+      println!("open brain coral at {at} floor {height}")
+    }
+    for wanted in
+      [Block::BrainCoral, Block::Kelp, Block::GlowPolyp, Block::Clam, Block::Anemone]
+    {
+      if let Some((block, at, height)) = found.iter().find(|(block, ..)| *block == wanted)
+      {
+        println!("{block:?} at {at} floor {height}")
+      }
+    }
+    for (vent, tall) in
+      vents(1, IVec2::splat(-1500), IVec2::splat(1500)).into_iter().take(3)
+    {
+      println!("vent at {vent} tall {tall} floor {}", height(1, vent.x, vent.y))
+    }
+  }
+
+  #[test]
+  #[ignore]
   fn section() {
     let (span, tall, z) = (768, 160, 40);
     let chunks: Vec<(IVec3, Chunk)> = (-span / 2 / SIZE..span / 2 / SIZE)
@@ -1020,7 +1217,7 @@ mod tests {
           }
           _ if ground.height < SEA && ground.ice => [200, 225, 245],
           _ if ground.height < SEA => {
-            let depth = ((SEA - ground.height) as f32 / 28.0).clamp(0.0, 1.0);
+            let depth = ((SEA - ground.height) as f32 / 56.0).clamp(0.0, 1.0);
             [60.0 - depth * 40.0, 150.0 - depth * 100.0, 170.0 - depth * 40.0]
               .map(|channel| channel as u8)
           }
