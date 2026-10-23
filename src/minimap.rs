@@ -70,7 +70,7 @@ fn build(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     since: 0.0
   });
   commands
-    .spawn(Node {
+    .spawn((crate::hud::Tucked, Node {
       position_type: PositionType::Absolute,
       right: px(10),
       top: px(10),
@@ -78,7 +78,7 @@ fn build(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
       align_items: AlignItems::Center,
       row_gap: px(4),
       ..default()
-    })
+    }))
     .with_children(|corner| {
       corner.spawn((ImageNode::new(image), Node {
         width: px(SHOWN),

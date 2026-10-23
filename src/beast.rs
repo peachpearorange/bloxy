@@ -572,7 +572,9 @@ pub struct Shapes {
   meshes: HashMap<([u32; 5], [u32; 3]), Handle<Mesh>>,
   materials: HashMap<[u8; 3], Handle<StandardMaterial>>,
   hides: HashMap<Breed, Option<(Handle<Mesh>, Handle<SkinnedMeshInverseBindposes>)>>,
-  glassy: Option<Handle<StandardMaterial>>
+  glassy: Option<Handle<StandardMaterial>>,
+  glows: HashMap<Breed, Option<Handle<Mesh>>>,
+  luminous: Option<Handle<StandardMaterial>>
 }
 
 impl Shapes {
@@ -1164,6 +1166,27 @@ fn dress(
         }
         _ => shapes.paint(&mut materials, [1.0; 3])
       };
+      let glow = shapes
+        .glows
+        .entry(beast.breed)
+        .or_insert_with(|| crate::sea::glow(beast.breed).map(|mesh| meshes.add(mesh)))
+        .clone();
+      if let Some(glow) = glow {
+        let shine = shapes
+          .luminous
+          .get_or_insert_with(|| crate::sea::luminous(&mut materials))
+          .clone();
+        commands.spawn((
+          Mesh3d(glow),
+          MeshMaterial3d(shine),
+          SkinnedMesh {
+            inverse_bindposes: inverse_bindposes.clone(),
+            joints: joints.clone()
+          },
+          DynamicSkinnedMeshBounds,
+          ChildOf(entity)
+        ));
+      }
       commands.spawn((
         Mesh3d(mesh),
         MeshMaterial3d(material),

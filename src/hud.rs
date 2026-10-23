@@ -28,6 +28,9 @@ struct Status;
 struct Hotbar;
 
 #[derive(Component)]
+pub struct Tucked;
+
+#[derive(Component)]
 struct Outline;
 
 #[derive(Component)]
@@ -125,7 +128,7 @@ fn scale(
 
 fn tuck(
   menu: Res<Menu>,
-  mut bars: Query<&mut Visibility, Or<(With<Hotbar>, With<Status>)>>
+  mut bars: Query<&mut Visibility, Or<(With<Hotbar>, With<Status>, With<Tucked>)>>
 ) {
   for mut visibility in bars.iter_mut() {
     visibility.set_if_neq(if menu.open {

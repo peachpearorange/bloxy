@@ -507,7 +507,17 @@ fn piece(cage: Cage, color: [f32; 3], joint: u16) -> Mesh {
   sculpt(&cage, |_, _| color, &[], |_| joint)
 }
 
-fn ray() -> Mesh {
+fn ray_joint(at: Vec3) -> u16 {
+  match () {
+    _ if at.x > 0.33 => 3,
+    _ if at.x < -0.33 => 4,
+    _ if at.z > 0.9 => 6,
+    _ if at.z > 0.5 => 5,
+    _ => 2
+  }
+}
+
+fn ray_body() -> Cage {
   let body = Cage::rounded(
     Vec3::new(0.0, 0.2, 0.0),
     Vec3::new(0.6, 0.16, 0.8),
@@ -523,20 +533,34 @@ fn ray() -> Mesh {
     ])
   });
   let front = winged.faces_where(|_, normal| normal.z < -0.6);
-  let horned = winged.grown(&front, Vec3::new(0.0, 0.0, -0.12), Vec3::new(0.6, 0.6, 1.0));
-  let joint = |at: Vec3| match () {
-    _ if at.x > 0.33 => 3,
-    _ if at.x < -0.33 => 4,
-    _ if at.z > 0.9 => 6,
-    _ if at.z > 0.5 => 5,
-    _ => 2
-  };
+  winged.grown(&front, Vec3::new(0.0, 0.0, -0.12), Vec3::new(0.6, 0.6, 1.0)).subdivided(1)
+}
+
+fn glinting(centre: Vec3, normal: Vec3) -> bool {
+  normal.y > 0.5 && speckled(centre, 9.0, 0x6A7) < 0.2
+}
+
+fn ray_spots() -> Mesh {
+  let body = ray_body();
+  merged(body.faces_where(glinting).into_iter().map(|face| {
+    let at = body.centre(face) + body.normal(face) * 0.012;
+    piece(
+      Cage::rounded(at, Vec3::new(0.065, 0.024, 0.065), UVec3::ONE, 0.6),
+      [1.0; 3],
+      ray_joint(at)
+    )
+  }))
+}
+
+fn ray() -> Mesh {
+  let horned = ray_body();
+  let joint = ray_joint;
   let eye = |sign: f32| Daub { at: Vec3::new(sign * 0.2, 0.25, -0.45), color: [0.05; 3] };
   let hide = sculpt(
-    &horned.subdivided(1),
+    &horned,
     |centre, normal| match () {
       _ if normal.y < -0.2 => [0.82, 0.85, 0.88],
-      _ if speckled(centre, 9.0, 0x6A7) < 0.14 => [0.45, 0.92, 0.95],
+      _ if glinting(centre, normal) => [0.2, 0.45, 0.5],
       _ => [0.12, 0.2, 0.3]
     },
     &[eye(1.0), eye(-1.0)],
@@ -844,6 +868,17 @@ pub fn hide(breed: Breed) -> Mesh {
     Breed::Brinewyrm => wyrm(),
     _ => shellback()
   }
+}
+
+pub fn glow(breed: Breed) -> Option<Mesh> { (breed == Breed::Glowray).then(ray_spots) }
+
+pub fn luminous(materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
+  materials.add(StandardMaterial {
+    base_color: Color::srgb(0.5, 0.95, 1.0),
+    emissive: LinearRgba::rgb(1.2, 4.0, 4.6),
+    perceptual_roughness: 0.4,
+    ..default()
+  })
 }
 
 pub fn glassy(materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
