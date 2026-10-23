@@ -1,4 +1,4 @@
-use {crate::{island::Island, player::Pilot, voxels::Voxels},
+use {crate::{generate::Waystone, player::Pilot, voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
             platform::collections::HashMap,
             prelude::*,
@@ -437,25 +437,24 @@ fn enchant(
   if let Some(voxels) = voxels {
     let around = pilot.at.xz().floor().as_ivec2();
     let reach = IVec2::splat(ENCHANTED as i32);
-    let near: Vec<Island> = Island::within(voxels.seed, around - reach, around + reach)
-      .into_iter()
-      .filter(|island| island.stone.xz().as_vec2().distance(pilot.at.xz()) < ENCHANTED)
-      .collect();
+    let near: Vec<Waystone> =
+      Waystone::within(voxels.seed, around - reach, around + reach)
+        .into_iter()
+        .filter(|stone| stone.at.xz().as_vec2().distance(pilot.at.xz()) < ENCHANTED)
+        .collect();
     glimmers.0.retain(|cell, entity| {
-      let kept = near.iter().any(|island| island.cell == *cell);
+      let kept = near.iter().any(|stone| stone.cell == *cell);
       if !kept {
         commands.entity(*entity).despawn()
       }
       kept
     });
-    for island in near.iter() {
-      glimmers.0.entry(island.cell).or_insert_with(|| {
+    for stone in near.iter() {
+      glimmers.0.entry(stone.cell).or_insert_with(|| {
         commands
           .spawn((
             effects.emit(&effects.magic),
-            Transform::from_translation(
-              island.stone.as_vec3() + Vec3::new(0.5, 1.4, 0.5)
-            )
+            Transform::from_translation(stone.at.as_vec3() + Vec3::new(0.5, 1.4, 0.5))
           ))
           .id()
       });

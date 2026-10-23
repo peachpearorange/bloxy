@@ -1,5 +1,4 @@
 use {crate::{ground::Elements,
-             island::{Island, Kind},
              noise::{hash, unit},
              opts::opts,
              player::{Eye, Pilot},
@@ -361,10 +360,8 @@ fn fall(
   let now = time.elapsed_secs();
   let eye = pilot.eye();
   let snowing = voxels.as_deref().is_some_and(|voxels| {
-    Island::near(voxels.seed, pilot.at)
-      .first()
-      .is_some_and(|island| island.kind == Kind::Frost)
-      || pilot.at.y > 120.0
+    crate::climate::chilled(crate::climate::heat(voxels.seed, pilot.at.xz()), pilot.at.y)
+      < crate::climate::FROZEN + 0.08
   });
   let shown = (DROPS as f32 * climate.wet) as usize;
   for (index, (mut drop, mut transform, mut visibility, mut mesh, mut material)) in

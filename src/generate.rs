@@ -1,11 +1,14 @@
 use {crate::{block::Block,
+             climate::{self, ARID, FROZEN, chilled},
              dungeon::Dungeon,
-             island::{Island, Kind, Rise, SEA, Wood, landmass},
+             island::{CELL, Island, Kind, Rise, SEA, SEEP_CLEARANCE, Wood, coined,
+                      landmass},
              noise::{fbm2, hash, perlin2, perlin3, smoothstep, unit},
+             protocol::REACH,
              voxels::{Chunk, SIZE, VOLUME, origin_of}},
-     bevy::prelude::*};
+     bevy::{platform::collections::HashMap, prelude::*},
+     std::sync::{LazyLock, RwLock}};
 
-const SNOW_LINE: f32 = 128.0;
 const CAVE_GRID: i32 = 4;
 const TREE_REACH: i32 = 5;
 const SEEP_REACH: i32 = 3;
@@ -32,19 +35,23 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
   let deep = smoothstep(0.12, -0.16, landmass(seed, Vec2::new(x as f32, z as f32)));
   let floor = SEA as f32 - 9.0 - deep * 18.0
     + fbm2(seed.wrapping_add(32), x as f32 / 60.0, z as f32 / 60.0, 2) * 4.0;
+  let mainland = climate::mainland(seed, Vec2::new(x as f32, z as f32));
   islands
     .iter()
     .filter_map(|island| island.rise(seed, x, z).map(|rise| (*island, rise)))
-    .fold(Surface { height: floor, island: None, ice: false }, |below, (island, rise)| {
-      let ice = below.ice || rise.floe;
-      match rise.height > below.height {
-        true => Surface { height: rise.height, island: Some((island, rise)), ice },
-        false => Surface { ice, ..below }
+    .fold(
+      Surface { height: floor.max(mainland), island: None, ice: false },
+      |below, (island, rise)| {
+        let ice = below.ice || rise.floe;
+        match rise.height > below.height {
+          true => Surface { height: rise.height, island: Some((island, rise)), ice },
+          false => Surface { ice, ..below }
+        }
       }
-    })
+    )
 }
 
-pub const GENERATION: u32 = 8;
+pub const GENERATION: u32 = 9;
 
 fn seeping(seed: u32, seep: IVec2, column: IVec2) -> bool {
   let ragged = 1.4 + unit(seed ^ 0x0115, column.x, 0, column.y) * 1.6;
@@ -78,16 +85,25 @@ struct Column {
   under: Block,
   pool: (Block, i32),
   ice: bool,
-  island: Option<(Island, Rise)>
+  island: Option<(Island, Rise)>,
+  heat: f32,
+  wet: f32
 }
 
 fn column(seed: u32, surface: Surface, steep: bool, x: i32, z: i32) -> Column {
   let Surface { height, island, ice } = surface;
   let height = height.floor() as i32;
+  let point = Vec2::new(x as f32, z as f32);
   let kind = island.map(|(island, _)| island.kind);
-  let beach = island.is_some_and(|(island, _)| island.beach);
+  let beach = island.map_or_else(
+    || fbm2(seed.wrapping_add(71), point.x / 70.0, point.y / 70.0, 2) > -0.15,
+    |(island, _)| island.beach
+  );
   let inward = island.map_or(-1.0, |(_, rise)| rise.inward);
-  let snow_line = SNOW_LINE + unit(seed ^ 0x5A0, x, 0, z) * 6.0;
+  let warmth = climate::heat(seed, point);
+  let wet = climate::wet(seed, point);
+  let heat = chilled(warmth, height as f32) + (unit(seed ^ 0x5A0, x, 0, z) - 0.5) * 0.05;
+  let frozen = heat < FROZEN || kind == Some(Kind::Frost);
   let bed = {
     let (fx, fz) = (x as f32, z as f32);
     let warp = perlin2(seed ^ 0xBEE, fx * 0.043, fz * 0.043) * 7.0;
@@ -97,31 +113,39 @@ fn column(seed: u32, surface: Surface, steep: bool, x: i32, z: i32) -> Column {
   };
   let (top, under) = match kind {
     Some(Kind::Dunes) => (Block::Sand, Block::Sand),
-    _ if height < SEA && beach && height >= SEA - 4 => (Block::Sand, Block::Sand),
-    _ if height < SEA => match (bed, kind) {
-      (bed, Some(Kind::Frost)) if bed < 0.5 => (Block::Gravel, Block::Gravel),
-      (bed, _) if bed < 0.2 => (Block::Clay, Block::Clay),
-      (bed, _) if bed < 0.6 => (Block::Sand, Block::Sand),
+    _ if height < SEA && beach && height >= SEA - 4 && !frozen => {
+      (Block::Sand, Block::Sand)
+    }
+    _ if height < SEA => match bed {
+      bed if frozen && bed < 0.5 => (Block::Gravel, Block::Gravel),
+      bed if bed < 0.2 => (Block::Clay, Block::Clay),
+      bed if bed < 0.6 => (Block::Sand, Block::Sand),
       _ => (Block::Gravel, Block::Gravel)
     },
     Some(Kind::Volcano) if island.is_some_and(|(_, rise)| rise.streak) => {
       (Block::Lava, Block::Basalt)
     }
     Some(Kind::Volcano) if inward > 0.3 => (Block::Basalt, Block::Basalt),
-    Some(Kind::Frost) if height <= SEA + 1 => (Block::Gravel, Block::Gravel),
+    _ if frozen && height <= SEA => (Block::Gravel, Block::Gravel),
     _ if height <= SEA + 1 && beach => (Block::Sand, Block::Sand),
-    _ if height as f32 > snow_line || kind == Some(Kind::Frost) => match steep {
+    _ if frozen => match steep {
       true => (Block::Stone, Block::Stone),
       false => (Block::Snow, Block::Dirt)
     },
     _ if steep && height > SEA + 24 => (Block::Stone, Block::Stone),
     Some(Kind::Mushroom) => (Block::Mycelium, Block::Dirt),
+    _ if heat > ARID && wet < 0.0 => (Block::Sand, Block::Sand),
     _ => (Block::Grass, Block::Dirt)
   };
+  let pack = height < SEA
+    && warmth < FROZEN - 0.12
+    && perlin2(seed.wrapping_add(70), point.x / 11.0, point.y / 11.0)
+      + (FROZEN - 0.12 - warmth) * 2.5
+      > 0.3;
   let pool = island
     .filter(|(island, rise)| island.kind == Kind::Volcano && rise.inward > 0.7)
     .map_or((Block::Water, SEA), |(island, _)| (Block::Lava, island.crater()));
-  Column { height, top, under, pool, ice, island }
+  Column { height, top, under, pool, ice: ice || pack, island, heat, wet }
 }
 
 fn tunnels(seed: u32, at: IVec3) -> f32 {
@@ -201,11 +225,12 @@ const ORES: [Ore; 7] = [
   Ore { block: Block::PlatinumOre, per_chunk: 2.5, depth: (5, 32), radius: 1.1 }
 ];
 
-fn platinum_bearing(islands: &[Island], centre: Vec3) -> bool {
+fn platinum_bearing(seed: u32, islands: &[Island], centre: Vec3) -> bool {
   islands.iter().any(|island| {
     matches!(island.kind, Kind::Peak | Kind::Frost)
       && centre.xz().distance(island.centre) <= island.radius * 1.2
-  })
+  }) || climate::heat(seed, centre.xz()) < FROZEN
+    || climate::mainland(seed, centre.xz()) > SEA as f32 + 45.0
 }
 
 fn neighbours() -> impl Iterator<Item = IVec3> {
@@ -243,53 +268,48 @@ enum Growth {
   BrownShroom
 }
 
-fn growth(seed: u32, x: i32, z: i32, ground: &Column) -> Option<(Growth, i32)> {
-  ground.island.and_then(|(island, _)| {
-    let pick = unit(seed ^ 0x7EF, x, 1, z);
-    let either = |first: Wood, second: Wood| match pick < 0.6 {
-      true => Growth::Tree(first),
-      false => Growth::Tree(second)
-    };
-    let clearing = (island.stone.xz() - IVec2::new(x, z)).abs().max_element() <= 4;
-    let above_sea = ground.height > SEA;
-    let sown = match (island.kind, ground.top) {
-      _ if clearing => None,
-      (Kind::Mushroom, Block::Mycelium) => Some((
-        match pick < 0.55 {
-          true => Growth::RedShroom,
-          false => Growth::BrownShroom
-        },
-        0.007
-      )),
-      (Kind::Frost, Block::Snow) => Some((Growth::Tree(Wood::Spruce), 0.025)),
-      (_, Block::Grass | Block::Snow) if ground.height > SEA + 20 => {
-        Some((Growth::Tree(Wood::Spruce), 0.03))
-      }
-      (Kind::Woods, Block::Grass) => Some((
-        match pick < 0.75 {
-          true => Growth::Tree(island.wood),
-          false => either(Wood::Oak, Wood::Birch)
-        },
-        0.06
-      )),
-      (Kind::Volcano, Block::Grass | Block::Sand) => {
-        Some((either(Wood::Palm, Wood::Oak), 0.012))
-      }
-      (Kind::Meadow | Kind::Peak, Block::Grass) => {
-        Some((either(Wood::Oak, Wood::Birch), 0.012))
-      }
-      (Kind::Dunes, Block::Sand) if above_sea => Some((Growth::Tree(Wood::Palm), 0.01)),
-      (_, Block::Sand) if island.warm && above_sea => {
-        Some((Growth::Tree(Wood::Palm), 0.012))
-      }
-      _ => None
-    };
-    let grove =
-      fbm2(seed.wrapping_add(9), x as f32 / 40.0, z as f32 / 40.0, 2) * 0.5 + 0.5;
-    sown
-      .filter(|&(_, density)| unit(seed ^ 0x7EE, x, 0, z) < density * (0.4 + grove * 1.2))
-      .map(|(growth, _)| (growth, (hash(seed ^ 0x7A11, x, 0, z) % 3) as i32))
-  })
+fn growth(
+  seed: u32,
+  x: i32,
+  z: i32,
+  ground: &Column,
+  clearing: bool
+) -> Option<(Growth, i32)> {
+  let pick = unit(seed ^ 0x7EF, x, 1, z);
+  let &Column { heat, wet, top, height, island, .. } = ground;
+  let kind = island.map(|(island, _)| island.kind);
+  let native = Wood::native(heat, pick);
+  let forest = smoothstep(-0.25, 0.45, wet);
+  let sown = match (kind, top) {
+    _ if clearing || height <= SEA => None,
+    (Some(Kind::Mushroom), Block::Mycelium) => Some((
+      match pick < 0.55 {
+        true => Growth::RedShroom,
+        false => Growth::BrownShroom
+      },
+      0.007
+    )),
+    (_, Block::Snow) => Some((Growth::Tree(Wood::Spruce), 0.008 + 0.025 * forest)),
+    (Some(Kind::Woods), Block::Grass) => Some((
+      Growth::Tree(match pick < 0.6 {
+        true => island.map_or(native, |(island, _)| island.wood),
+        false => native
+      }),
+      0.06
+    )),
+    (Some(Kind::Meadow), Block::Grass) => {
+      Some((Growth::Tree(native), 0.004 + 0.012 * forest))
+    }
+    (_, Block::Grass) => Some((Growth::Tree(native), 0.004 + 0.05 * forest * forest)),
+    (_, Block::Sand) if heat > 0.2 => {
+      Some((Growth::Tree(Wood::Palm), 0.005 + 0.01 * forest))
+    }
+    _ => None
+  };
+  let grove = fbm2(seed.wrapping_add(9), x as f32 / 40.0, z as f32 / 40.0, 2) * 0.5 + 0.5;
+  sown
+    .filter(|&(_, density)| unit(seed ^ 0x7EE, x, 0, z) < density * (0.4 + grove * 1.2))
+    .map(|(growth, _)| (growth, (hash(seed ^ 0x7A11, x, 0, z) % 3) as i32))
 }
 
 fn grow(
@@ -436,71 +456,70 @@ fn grow(
 }
 
 fn bloom(seed: u32, x: i32, z: i32, ground: &Column) -> Option<Block> {
-  ground.island.and_then(|(island, _)| {
-    let pick = unit(seed ^ 0xF12, x, 3, z);
-    let field =
-      fbm2(seed.wrapping_add(41), x as f32 / 24.0, z as f32 / 24.0, 2) * 0.5 + 0.5;
-    let flower = [Block::Poppy, Block::Dandelion, Block::Cornflower, Block::Daisy]
-      [(hash(seed ^ 0xF11, x.div_euclid(7), 0, z.div_euclid(7)) % 4) as usize];
-    let mushroom = match pick < 0.5 {
-      true => Block::RedMushroom,
-      false => Block::BrownMushroom
-    };
-    let sapling = match island.wood {
-      Wood::Oak => Block::OakSapling,
-      Wood::Birch => Block::BirchSapling,
-      Wood::Spruce => Block::SpruceSapling,
-      Wood::Palm => Block::PalmSapling
-    };
-    let sown = match (island.kind, ground.top) {
-      (Kind::Meadow, Block::Grass) => Some((flower, 0.1)),
-      (Kind::Woods, Block::Grass) => Some(match pick {
-        pick if pick < 0.4 => (sapling, 0.03),
-        pick if pick < 0.7 => (mushroom, 0.03),
-        _ => (flower, 0.04)
-      }),
-      (Kind::Peak | Kind::Volcano, Block::Grass) => Some((flower, 0.04)),
-      (Kind::Mushroom, Block::Mycelium) => Some((mushroom, 0.06)),
-      (Kind::Frost, Block::Snow) => Some((Block::SpruceSapling, 0.005)),
-      (Kind::Dunes, Block::Sand) if ground.height > SEA => {
-        Some((Block::PalmSapling, 0.005))
-      }
-      _ => None
-    };
-    let glimmer =
-      [Block::GlimmerPink, Block::GlimmerCyan, Block::GlimmerViolet, Block::GlimmerGold]
-        [(hash(seed ^ 0xF15, x.div_euclid(9), 1, z.div_euclid(9)) % 4) as usize];
-    let enchanted = matches!(
-      (island.kind, ground.top),
-      (Kind::Meadow | Kind::Woods | Kind::Peak, Block::Grass)
-    ) && unit(seed ^ 0xF16, x, 6, z) < 0.01 * (0.2 + field * field * 2.0);
-    let moonlit = matches!(
-      (island.kind, ground.top),
-      (Kind::Frost, Block::Snow) | (Kind::Peak, Block::Snow | Block::Grass)
-    ) && unit(seed ^ 0xF17, x, 7, z) < 0.004;
-    moonlit
-      .then_some(Block::Moonlace)
-      .or(enchanted.then_some(glimmer))
-      .or(
-        sown
-          .filter(|&(_, density)| {
-            unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
-          })
-          .map(|(block, _)| block)
-      )
-      .or_else(|| {
-        let lush = match (island.kind, ground.top) {
-          (Kind::Meadow, Block::Grass) => 0.45,
-          (Kind::Woods, Block::Grass) => 0.3,
-          (_, Block::Grass) => 0.2,
-          _ => 0.0
-        };
-        let sward =
-          fbm2(seed.wrapping_add(43), x as f32 / 11.0, z as f32 / 11.0, 2) + 0.5;
-        (unit(seed ^ 0xF13, x, 4, z) < lush * sward.clamp(0.0, 1.0))
-          .then_some(Block::TallGrass)
-      })
-  })
+  let &Column { heat, wet, top, height, island, .. } = ground;
+  let kind = island.map(|(island, _)| island.kind);
+  let pick = unit(seed ^ 0xF12, x, 3, z);
+  let field =
+    fbm2(seed.wrapping_add(41), x as f32 / 24.0, z as f32 / 24.0, 2) * 0.5 + 0.5;
+  let forest = smoothstep(-0.25, 0.45, wet);
+  let parched = smoothstep(-0.6, -0.1, wet);
+  let flower = [Block::Poppy, Block::Dandelion, Block::Cornflower, Block::Daisy]
+    [(hash(seed ^ 0xF11, x.div_euclid(7), 0, z.div_euclid(7)) % 4) as usize];
+  let mushroom = match pick < 0.5 {
+    true => Block::RedMushroom,
+    false => Block::BrownMushroom
+  };
+  let sapling = match Wood::native(heat, unit(seed ^ 0xF14, x, 5, z)) {
+    Wood::Oak => Block::OakSapling,
+    Wood::Birch => Block::BirchSapling,
+    Wood::Spruce => Block::SpruceSapling,
+    Wood::Palm => Block::PalmSapling
+  };
+  let sown = match (kind, top) {
+    _ if height <= SEA => None,
+    (Some(Kind::Meadow), Block::Grass) => Some((flower, 0.1)),
+    (Some(Kind::Mushroom), Block::Mycelium) => Some((mushroom, 0.06)),
+    (_, Block::Grass) if forest > 0.6 => Some(match pick {
+      pick if pick < 0.4 => (sapling, 0.03),
+      pick if pick < 0.7 => (mushroom, 0.03),
+      _ => (flower, 0.04)
+    }),
+    (_, Block::Grass) => Some((flower, (0.03 + 0.05 * (1.0 - forest)) * parched)),
+    (_, Block::Snow) => Some((Block::SpruceSapling, 0.005)),
+    (_, Block::Sand) if heat > 0.3 => Some((Block::PalmSapling, 0.005)),
+    _ => None
+  };
+  let glimmer =
+    [Block::GlimmerPink, Block::GlimmerCyan, Block::GlimmerViolet, Block::GlimmerGold]
+      [(hash(seed ^ 0xF15, x.div_euclid(9), 1, z.div_euclid(9)) % 4) as usize];
+  let enchanted = top == Block::Grass
+    && heat > -0.3
+    && unit(seed ^ 0xF16, x, 6, z) < 0.01 * (0.2 + field * field * 2.0);
+  let moonlit = (top == Block::Snow || (top == Block::Grass && heat < -0.15))
+    && height > SEA + 6
+    && unit(seed ^ 0xF17, x, 7, z) < 0.004;
+  moonlit
+    .then_some(Block::Moonlace)
+    .or(enchanted.then_some(glimmer))
+    .or(
+      sown
+        .filter(|&(_, density)| {
+          unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
+        })
+        .map(|(block, _)| block)
+    )
+    .or_else(|| {
+      let lush = match (kind, top) {
+        (Some(Kind::Meadow), Block::Grass) => 0.45,
+        (_, Block::Grass) => {
+          (0.12 + 0.28 * smoothstep(-0.3, 0.4, wet)) * parched.max(0.3)
+        }
+        _ => 0.0
+      };
+      let sward = fbm2(seed.wrapping_add(43), x as f32 / 11.0, z as f32 / 11.0, 2) + 0.5;
+      (unit(seed ^ 0xF13, x, 4, z) < lush * sward.clamp(0.0, 1.0))
+        .then_some(Block::TallGrass)
+    })
 }
 
 fn trunk(block: Block) -> bool {
@@ -522,6 +541,11 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
     seed,
     origin.xz() - TREE_REACH - 1,
     origin.xz() + SIZE + TREE_REACH + 1
+  );
+  let stones = Waystone::within(
+    seed,
+    origin.xz() - TREE_REACH - 3,
+    origin.xz() + SIZE + TREE_REACH + 3
   );
   let surfaces: Vec<Surface> = (0..wide * wide)
     .map(|index| {
@@ -623,7 +647,7 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
         };
       }
       for (ore, centre, radius) in veins(seed, key).filter(|&(ore, centre, _)| {
-        ore != Block::PlatinumOre || platinum_bearing(&islands, centre)
+        ore != Block::PlatinumOre || platinum_bearing(seed, &islands, centre)
       }) {
         let low = (centre - radius).floor().as_ivec3() - origin;
         let high = (centre + radius).ceil().as_ivec3() - origin;
@@ -647,7 +671,10 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
       for x in -TREE_REACH..SIZE + TREE_REACH {
         for z in -TREE_REACH..SIZE + TREE_REACH {
           let ground = column_at(x, z);
-          if let Some(sprout) = growth(seed, origin.x + x, origin.z + z, &ground)
+          let column = IVec2::new(origin.x + x, origin.z + z);
+          let clearing =
+            stones.iter().any(|stone| (stone.at.xz() - column).abs().max_element() <= 4);
+          if let Some(sprout) = growth(seed, column.x, column.y, &ground, clearing)
             && ground.height + TALLEST_GROWTH >= origin.y
             && ground.height < origin.y + SIZE
           {
@@ -681,8 +708,7 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
           }
         }
       }
-      for island in islands.iter() {
-        let stone = island.stone;
+      for stone in stones.iter().map(|stone| stone.at) {
         for dx in -2..=2 {
           for dz in -2..=2 {
             let local = stone - origin + IVec3::new(dx, 0, dz);
@@ -759,8 +785,136 @@ pub fn chunk(seed: u32, key: IVec3) -> Chunk {
   }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct Waystone {
+  pub cell: IVec2,
+  pub at: IVec3,
+  pub land: &'static str,
+  pub isle: bool
+}
+
+const WAYSTONE_CHANCE: f32 = 0.4;
+
+impl Waystone {
+  fn found(seed: u32, cell: IVec2) -> Option<Waystone> {
+    let home = cell == IVec2::ZERO;
+    let wanted = home || unit(seed ^ 0x3A7, cell.x, 0x51, cell.y) < WAYSTONE_CHANCE;
+    let (low, high) = (cell * CELL, cell * CELL + CELL - 1);
+    let islands = Island::within(seed, low, high);
+    let ground = |at: IVec2| {
+      let here = surface(seed, &islands, at.x, at.y);
+      match here.island {
+        Some((island, rise))
+          if rise.streak || (island.kind == Kind::Volcano && rise.inward > 0.6) =>
+        {
+          f32::MIN
+        }
+        _ => here.height
+      }
+    };
+    let seeps: Vec<IVec2> = islands.iter().filter_map(|island| island.seep).collect();
+    let grid = (0..4).flat_map(move |i| {
+      (0..4).map(move |j| (low + IVec2::new(16 + i * 32, 16 + j * 32)).as_vec2())
+    });
+    let spot = wanted.then(|| {
+      Island::at(seed, cell)
+        .map(|island| island.spots())
+        .unwrap_or_default()
+        .into_iter()
+        .chain(grid)
+        .map(|spot| spot.floor().as_ivec2())
+        .filter(|&spot| spot.cmpge(low + 3).all() && spot.cmple(high - 3).all())
+        .filter(|&spot| {
+          seeps
+            .iter()
+            .all(|&seep| seep.distance_squared(spot) > SEEP_CLEARANCE * SEEP_CLEARANCE)
+        })
+        .filter_map(|spot| {
+          let (lowest, highest) = (-1..=1)
+            .flat_map(|dx| (-1..=1).map(move |dz| spot + IVec2::new(dx, dz) * 2))
+            .map(ground)
+            .fold((f32::MAX, f32::MIN), |(low, high), h| (low.min(h), high.max(h)));
+          (lowest >= SEA as f32 + 1.0).then_some((spot, highest - lowest))
+        })
+        .fold((None, f32::MAX), |(best, cost), (spot, spread)| match spread < cost {
+          true => (Some(spot), spread),
+          false => (best, cost)
+        })
+        .0
+    });
+    spot.flatten().map(|spot| {
+      let height = ground(spot).max(SEA as f32 + 1.0).floor() as i32;
+      let here = surface(seed, &islands, spot.x, spot.y);
+      let isle = here
+        .island
+        .is_some_and(|(island, rise)| island.cell == cell && rise.inward > 0.0);
+      let ground = column(seed, here, false, spot.x, spot.y);
+      let land = match here.island {
+        Some((island, _)) if isle => island.kind.describe(),
+        _ => match ground.top {
+          Block::Snow => "snowfields",
+          Block::Sand => "desert",
+          Block::Mycelium => "mushrooms",
+          _ if ground.wet > 0.3 => "forest",
+          _ => "hills"
+        }
+      };
+      Waystone { cell, at: IVec3::new(spot.x, height + 1, spot.y), land, isle }
+    })
+  }
+
+  pub fn at(seed: u32, cell: IVec2) -> Option<Waystone> {
+    static KNOWN: LazyLock<RwLock<HashMap<(u32, IVec2), Option<Waystone>>>> =
+      LazyLock::new(default);
+    let known = KNOWN.read().ok().and_then(|known| known.get(&(seed, cell)).copied());
+    known.unwrap_or_else(|| {
+      let stone = Waystone::found(seed, cell);
+      if let Ok(mut known) = KNOWN.write() {
+        known.insert((seed, cell), stone);
+      }
+      stone
+    })
+  }
+
+  pub fn within(seed: u32, low: IVec2, high: IVec2) -> Vec<Waystone> {
+    let cell_of = |at: IVec2| at.div_euclid(IVec2::splat(CELL));
+    let (from, to) = (cell_of(low), cell_of(high));
+    (from.x..=to.x)
+      .flat_map(|x| (from.y..=to.y).map(move |y| IVec2::new(x, y)))
+      .filter_map(|cell| Waystone::at(seed, cell))
+      .collect()
+  }
+
+  pub fn beside(seed: u32, at: Vec3) -> Option<Waystone> {
+    let spot = at.xz().floor().as_ivec2();
+    let reach = REACH.ceil() as i32 + 3;
+    Waystone::within(seed, spot - reach, spot + reach).into_iter().find(|stone| {
+      (stone.at.as_vec3() + Vec3::new(0.5, 1.0, 0.5)).distance(at) <= REACH + 2.0
+    })
+  }
+
+  pub fn arrival(&self) -> Vec3 { self.at.as_vec3() + Vec3::new(2.5, 0.05, 0.5) }
+
+  pub fn name(&self, seed: u32) -> String {
+    let titles = match self.land {
+      "snowfields" => ["Drift", "Rime", "Cairn", "Watch"],
+      "desert" => ["Sands", "Mesa", "Waste", "Reach"],
+      "forest" => ["Glade", "Hollow", "Wood", "Grove"],
+      _ => ["Cairn", "Rise", "Watch", "Reach"]
+    };
+    Island::at(seed, self.cell).filter(|_| self.isle).map_or_else(
+      || {
+        let pick = hash(seed ^ 0x3A8, self.cell.x, 0x52, self.cell.y) as usize % 4;
+        coined(seed, self.cell, "Stone", titles[pick])
+      },
+      |island| island.name(seed)
+    )
+  }
+}
+
 pub fn spawn_point(seed: u32) -> Vec3 {
-  Island::at(seed, IVec2::ZERO).map_or(Vec3::new(0.5, 200.0, 0.5), |home| home.arrival())
+  Waystone::at(seed, IVec2::ZERO)
+    .map_or(Vec3::new(0.5, 200.0, 0.5), |home| home.arrival())
 }
 
 #[cfg(test)]
@@ -845,19 +999,22 @@ mod tests {
   #[test]
   #[ignore]
   fn map() {
-    let (span, step) = (2560, 2);
+    let (span, step) = (5120, 4);
     let pixels = span / step;
     let islands = Island::within(1, IVec2::splat(-span / 2), IVec2::splat(span / 2));
+    let stones = Waystone::within(1, IVec2::splat(-span / 2), IVec2::splat(span / 2));
     let image: Vec<u8> = (0..pixels * pixels)
       .flat_map(|index| {
         let (x, z) = (index % pixels * step - span / 2, index / pixels * step - span / 2);
         let here = surface(1, &islands, x, z);
         let ground = column(1, here, false, x, z);
-        let stone = islands
+        let stone = stones
           .iter()
-          .any(|island| (island.stone.xz() - IVec2::new(x, z)).abs().max_element() <= 3);
+          .any(|stone| (stone.at.xz() - IVec2::new(x, z)).abs().max_element() <= 3);
+        let wooded = growth(1, x, z, &ground, false).is_some();
         let colour: [u8; 3] = match ground.top {
           _ if stone => [255, 0, 255],
+          _ if wooded && ground.height >= SEA => [25, 70, 30],
           _ if ground.height < ground.pool.1 && ground.pool.0 == Block::Lava => {
             [255, 120, 0]
           }

@@ -1,7 +1,6 @@
 use {crate::{block::{Block, Fluid},
              claim::{Claim, MOST, Stake},
              generate,
-             island::Island,
              menu::{INK, Menu, Tab, words},
              minimap::hue,
              player::{Me, Pilot},
@@ -356,8 +355,8 @@ fn draw(
       }
     };
     for &cell in visits.get(pilot.me).into_iter().flat_map(|visited| visited.0.iter()) {
-      if let Some(island) = Island::at(voxels.seed, cell) {
-        dot(&mut paint, island.stone.xz().as_vec2(), 2, [0.9, 0.25, 0.9])
+      if let Some(stone) = crate::generate::Waystone::at(voxels.seed, cell) {
+        dot(&mut paint, stone.at.xz().as_vec2(), 2, [0.9, 0.25, 0.9])
       }
     }
     if chart.scale() <= 2.0 {

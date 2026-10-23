@@ -18,6 +18,7 @@ mod chart;
 mod chat;
 mod chest;
 mod claim;
+mod climate;
 mod condition;
 mod console;
 mod conveyor;

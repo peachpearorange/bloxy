@@ -2,7 +2,7 @@ use {crate::{authority::{Controller, player_of},
              block::{Block, Fluid},
              hand::RodTip,
              hud::icon_rect,
-             island::{Island, Kind},
+             island::Island,
              menu::Menu,
              noise::{hash, unit},
              player::{Pilot, Selected, captured},
@@ -55,12 +55,12 @@ impl Temper {
 }
 
 fn catch(seed: u32, at: IVec3, roll: f32, pick: f32) -> Block {
-  let climate = Island::near(seed, at.as_vec3()).first().map(|island| island.kind);
-  let open_sea = climate.is_none();
-  let (cold, warm) = match climate {
-    Some(Kind::Frost) => (0.35, 0.0),
-    Some(Kind::Dunes | Kind::Volcano) => (0.0, 0.3),
-    _ => (0.12, 0.08)
+  let open_sea = Island::near(seed, at.as_vec3()).is_empty();
+  let heat = crate::climate::heat(seed, at.xz().as_vec2());
+  let (cold, warm) = match () {
+    () if heat < -0.25 => (0.35, 0.0),
+    () if heat > 0.3 => (0.0, 0.3),
+    () => (0.12, 0.08)
   };
   let treasure = if open_sea { 0.1 } else { 0.05 };
   let table = [

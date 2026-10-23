@@ -880,7 +880,9 @@ fn found(seed: u32, cell: IVec2) -> Option<Dungeon> {
               .abs()
               <= 3
           });
-      let clear = point.as_vec2().distance(island.stone.xz().as_vec2()) > KEEP_CLEAR;
+      let clear = generate::Waystone::at(seed, cell).is_none_or(|stone| {
+        point.as_vec2().distance(stone.at.xz().as_vec2()) > KEEP_CLEAR
+      });
       (ground > SEA + 2 && flat && clear)
         .then(|| IVec3::new(point.x, ground + 1, point.y))
     });

@@ -3,7 +3,8 @@ use {crate::{account::{Account, Accounts, Kept, LONGEST_NAME, tidy},
              claim::{self, Claims, barred},
              flow::Flows,
              folk, generate,
-             island::{FACING_STONE, Island},
+             generate::Waystone,
+             island::FACING_STONE,
              opts::opts,
              protocol::*,
              recipe::RECIPES,
@@ -135,7 +136,7 @@ fn stock(voxels: &mut Voxels) -> Stock {
     })
     .collect();
   let stone =
-    Island::at(voxels.seed, IVec2::ZERO).map_or(IVec3::new(0, 100, 0), |home| home.stone);
+    Waystone::at(voxels.seed, IVec2::ZERO).map_or(IVec3::new(0, 100, 0), |home| home.at);
   Stock(
     items
       .chunks(STOCKED_PER_CHEST)
@@ -659,12 +660,11 @@ fn attune(
   for &FromClient { client_id, message: Attune(at) } in touches.read() {
     if let Some((player, avatar, mut visited)) = player_of(players.iter_mut(), client_id)
       && within_reach(avatar, at)
-      && let Some(island) = Island::near(voxels.seed, at.as_vec3())
-        .into_iter()
-        .find(|island| at == island.stone || at == island.stone + IVec3::Y)
-      && !visited.0.contains(&island.cell)
+      && let Some(stone) = Waystone::beside(voxels.seed, at.as_vec3())
+        .filter(|stone| at == stone.at || at == stone.at + IVec3::Y)
+      && !visited.0.contains(&stone.cell)
     {
-      visited.0.push(island.cell);
+      visited.0.push(stone.cell);
       earned.write(Earned { player, xp: 30 });
     }
   }
@@ -680,10 +680,10 @@ fn travel(
     let seed = voxels.seed;
     if let Some((mut avatar, visited)) = player_of(players.iter_mut(), client_id)
       && visited.0.contains(&cell)
-      && Island::beside(seed, avatar.at).is_some()
-      && let Some(island) = Island::at(seed, cell)
+      && Waystone::beside(seed, avatar.at).is_some()
+      && let Some(stone) = Waystone::at(seed, cell)
     {
-      let arrival = island.arrival();
+      let arrival = stone.arrival();
       let feet = (0..32)
         .map(|lift| arrival.floor().as_ivec3() + IVec3::Y * lift)
         .find(|&at| !voxels.ensure(at).solid() && !voxels.ensure(at + IVec3::Y).solid())

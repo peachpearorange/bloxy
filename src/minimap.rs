@@ -226,8 +226,8 @@ fn draw(
     let on_map = |at: Vec3| at.xz().floor().as_ivec2() - corner;
     let mut pixels = map.colours.clone();
     for &cell in visits.get(pilot.me).into_iter().flat_map(|visited| visited.0.iter()) {
-      if let Some(island) = Island::at(voxels.seed, cell) {
-        dot(&mut pixels, island.stone.xz() - corner, 1, [230, 60, 230, 255])
+      if let Some(stone) = crate::generate::Waystone::at(voxels.seed, cell) {
+        dot(&mut pixels, stone.at.xz() - corner, 1, [230, 60, 230, 255])
       }
     }
     for (avatar, player) in others.iter() {
@@ -276,7 +276,13 @@ fn draw(
       .find(|island| {
         island.rise(voxels.seed, at.x, at.z).is_some_and(|rise| rise.inward > 0.0)
       })
-      .map_or("Open sea".to_string(), |island| island.name(voxels.seed));
+      .map_or_else(
+        || match crate::generate::height(voxels.seed, at.x, at.z) > crate::island::SEA {
+          true => "Wildlands".to_string(),
+          false => "Open sea".to_string()
+        },
+        |island| island.name(voxels.seed)
+      );
     let line = format!("{} {} {}\n{place}", at.x, at.y, at.z);
     for mut text in texts.iter_mut() {
       if text.0 != line {

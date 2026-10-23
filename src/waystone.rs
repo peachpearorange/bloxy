@@ -1,4 +1,4 @@
-use {crate::{island::Island,
+use {crate::{generate::Waystone,
              menu::{Act, BUTTON, EDGE, FAINT, INK, Menu, Pressed, Shaded, Tab, words},
              player::Pilot,
              protocol::{Teleport, Travel, Visited, plays},
@@ -58,13 +58,13 @@ fn list(
     && let Some(voxels) = voxels
   {
     let seed = voxels.seed;
-    let here = Island::beside(seed, pilot.at);
+    let here = Waystone::beside(seed, pilot.at);
     let visited =
       visits.get(pilot.me).map(|visited| visited.0.clone()).unwrap_or_default();
     let line = match here {
-      Some(island) => format!("Waystone of {}. Where to?", island.name(seed)),
+      Some(stone) => format!("Waystone of {}. Where to?", stone.name(seed)),
       None => match visited.is_empty() {
-        true => "Right-click a waystone to remember its island.".into(),
+        true => "Right-click a waystone to remember it.".into(),
         false => "Stand by a waystone to travel.".into()
       }
     };
@@ -76,16 +76,16 @@ fn list(
     let labels: Vec<(IVec2, String)> = visited
       .iter()
       .filter(|&&cell| here.is_none_or(|here| here.cell != cell))
-      .filter_map(|&cell| Island::at(seed, cell))
-      .map(|island| {
-        let offset = island.stone.xz().as_vec2() - pilot.at.xz();
+      .filter_map(|&cell| Waystone::at(seed, cell))
+      .map(|stone| {
+        let offset = stone.at.xz().as_vec2() - pilot.at.xz();
         let distance = (offset.length() / 10.0).round() as i32 * 10;
         (
-          island.cell,
+          stone.cell,
           format!(
             "{}\n{}, {distance} m {}",
-            island.name(seed),
-            island.kind.describe(),
+            stone.name(seed),
+            stone.land,
             heading(offset)
           )
         )
@@ -128,7 +128,7 @@ fn obey(
     if let Act::Travel(cell) = act
       && let Some(pilot) = &pilot
       && let Some(voxels) = &voxels
-      && Island::beside(voxels.seed, pilot.at).is_some()
+      && Waystone::beside(voxels.seed, pilot.at).is_some()
     {
       travels.write(Travel(cell));
     }

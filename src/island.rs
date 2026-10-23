@@ -1,5 +1,4 @@
-use {crate::{noise::{fbm2, hash, perlin2, smoothstep, unit},
-             protocol::REACH},
+use {crate::noise::{fbm2, hash, perlin2, smoothstep, unit},
      bevy::{platform::collections::HashMap, prelude::*},
      std::sync::{LazyLock, RwLock}};
 
@@ -56,9 +55,7 @@ pub struct Island {
   pub kind: Kind,
   pub wood: Wood,
   pub beach: bool,
-  pub warm: bool,
   pub summit: f32,
-  pub stone: IVec3,
   pub seep: Option<IVec2>
 }
 
@@ -114,7 +111,7 @@ const RING: f32 = 0.8;
 const SHORE_BEACH: f32 = 1.5;
 const SHORE_BANK: f32 = 3.5;
 
-const SEEP_CLEARANCE: i32 = 8;
+pub const SEEP_CLEARANCE: i32 = 8;
 
 const COMPASS: [Vec2; 8] = [
   Vec2::new(1.0, 0.0),
@@ -282,51 +279,24 @@ impl Island {
     })
   }
 
-  fn place_stone(&self, seed: u32) -> IVec3 {
-    let ground = |at: IVec2| {
-      self.rise(seed, at.x, at.y).map_or(f32::MIN, |rise| match rise.streak {
-        true => f32::MIN,
-        false => rise.height
-      })
-    };
+  pub fn spots(&self) -> Vec<Vec2> {
     let fractions = match self.form {
       Form::Atoll => [RING; 3],
       _ => [0.2, 0.35, 0.5]
     };
-    let candidates = fractions
-      .into_iter()
-      .flat_map(|fraction| {
+    std::iter::once(Vec2::ZERO)
+      .filter(|_| self.kind != Kind::Volcano && self.form != Form::Atoll)
+      .chain(fractions.into_iter().flat_map(|fraction| {
         COMPASS.into_iter().map(move |direction| direction * fraction * self.radius)
-      })
+      }))
       .chain(
         self.lobes.into_iter().filter(|lobe| lobe.radius > 0.0).map(|lobe| lobe.offset)
-      );
-    let (spot, _) = std::iter::once(Vec2::ZERO)
-      .filter(|_| self.kind != Kind::Volcano)
-      .chain(candidates)
-      .map(|offset| (self.centre + offset).floor().as_ivec2())
-      .filter_map(|spot| {
-        let heights: Vec<f32> = (-1..=1)
-          .flat_map(|dx| (-1..=1).map(move |dz| spot + IVec2::new(dx, dz) * 2))
-          .map(ground)
-          .collect();
-        let (low, high) = heights
-          .iter()
-          .fold((f32::MAX, f32::MIN), |(low, high), &h| (low.min(h), high.max(h)));
-        let crater = self.kind == Kind::Volcano
-          && self.rise(seed, spot.x, spot.y).is_some_and(|rise| rise.inward > 0.6);
-        (low >= SEA as f32 + 1.0 && !crater).then_some((spot, high - low))
-      })
-      .fold((None, f32::MAX), |(best, cost), (spot, spread)| match spread < cost {
-        true => (Some(spot), spread),
-        false => (best, cost)
-      });
-    let spot = spot.unwrap_or(self.centre.floor().as_ivec2());
-    let height = ground(spot).max(SEA as f32 + 1.0).floor() as i32;
-    IVec3::new(spot.x, height + 1, spot.y)
+      )
+      .map(|offset| self.centre + offset)
+      .collect()
   }
 
-  fn place_seep(&self, seed: u32, stone: IVec3, turn: f32) -> Option<IVec2> {
+  fn place_seep(&self, seed: u32, turn: f32) -> Option<IVec2> {
     let start = (turn * COMPASS.len() as f32) as usize;
     [0.55, 0.4, 0.7, 0.3]
       .into_iter()
@@ -336,14 +306,13 @@ impl Island {
       })
       .map(|offset| (self.centre + offset * self.radius).floor().as_ivec2())
       .find(|&spot| {
-        spot.distance_squared(stone.xz()) > SEEP_CLEARANCE * SEEP_CLEARANCE
-          && (-2..=2).all(|dx| {
-            (-2..=2).all(|dz| {
-              self.rise(seed, spot.x + dx, spot.y + dz).is_some_and(|rise| {
-                !rise.streak && rise.height >= SEA as f32 + 1.5 && rise.inward < 0.95
-              })
+        (-2..=2).all(|dx| {
+          (-2..=2).all(|dz| {
+            self.rise(seed, spot.x + dx, spot.y + dz).is_some_and(|rise| {
+              !rise.streak && rise.height >= SEA as f32 + 1.5 && rise.inward < 0.95
             })
           })
+        })
       })
   }
 
@@ -366,12 +335,7 @@ impl Island {
     let land = landmass(seed, centre);
     let present = home || roll(1) < 0.04 + smoothstep(-0.14, 0.08, land) * 0.92;
     present.then(|| {
-      let climate = fbm2(
-        seed.wrapping_add(35),
-        cell.x as f32 / 5.0 + 0.37,
-        cell.y as f32 / 5.0 + 0.61,
-        2
-      );
+      let climate = crate::climate::heat(seed, centre);
       let near_home = cell.abs().max_element() <= 2;
       let big = if near_home { 0.0 } else { smoothstep(0.05, 0.35, land) * 0.55 };
       let tiny = 0.1 + smoothstep(0.0, -0.3, land) * 0.7;
@@ -390,7 +354,7 @@ impl Island {
         _ if home => Form::Blob,
         pick if radius >= 12.0 && pick < 0.08 + strewn * 0.5 => Form::Chain,
         pick
-          if climate > 0.0
+          if climate > 0.15
             && (8.0..55.0).contains(&radius)
             && pick > 0.72 - open * 0.3 =>
         {
@@ -429,24 +393,24 @@ impl Island {
     Island::sketch(seed, cell).filter(|sketch| !Island::crowded(seed, sketch)).map(
       |Sketch { centre, radius, stretch, form, climate, .. }| {
         let pick = roll(2);
+        let wet = crate::climate::wet(seed, centre);
         let kind = match roll(4) {
           _ if home => Kind::Meadow,
-          _ if form == Form::Atoll => match roll(3) < 0.6 {
+          _ if form == Form::Atoll => match roll(3) < 0.6 && wet < 0.2 {
             true => Kind::Dunes,
             false => Kind::Meadow
           },
-          _ if climate < -0.18 && pick < 0.65 => Kind::Frost,
-          _ if climate > 0.18 && pick < 0.5 => match roll(3) < 0.55 {
+          _ if climate < -0.3 && pick < 0.7 => Kind::Frost,
+          _ if climate > 0.32 && pick < 0.55 => match roll(3) < 0.6 && wet < 0.15 {
             true => Kind::Dunes,
             false => Kind::Volcano
           },
-          weight if weight < 0.22 => Kind::Meadow,
-          weight if weight < 0.44 => Kind::Woods,
-          weight if weight < 0.62 => Kind::Peak,
-          weight if weight < 0.75 => Kind::Mushroom,
-          weight if weight < 0.85 => Kind::Volcano,
-          weight if weight < 0.92 => Kind::Frost,
-          _ => Kind::Dunes
+          weight if weight < 0.24 => Kind::Meadow,
+          weight if weight < 0.24 + 0.2 + wet.clamp(-0.5, 0.5) * 0.2 => Kind::Woods,
+          weight if weight < 0.66 => Kind::Peak,
+          weight if weight < 0.8 => Kind::Mushroom,
+          weight if weight < 0.9 && climate > -0.1 => Kind::Volcano,
+          _ => Kind::Meadow
         };
         let form = match kind {
           Kind::Peak | Kind::Volcano => Form::Blob,
@@ -496,12 +460,11 @@ impl Island {
             }
           })
         };
-        let warm = climate > 0.05;
         let wood = match kind {
           _ if form == Form::Atoll => Wood::Palm,
-          Kind::Frost | Kind::Peak => Wood::Spruce,
-          Kind::Dunes | Kind::Volcano => Wood::Palm,
-          _ => [Wood::Oak, Wood::Birch, Wood::Spruce, Wood::Oak][(roll(9) * 4.0) as usize]
+          Kind::Frost => Wood::Spruce,
+          Kind::Dunes => Wood::Palm,
+          _ => Wood::native(climate, roll(9))
         };
         let summit = match kind {
           _ if form == Form::Atoll => 2.0 + size * 2.0,
@@ -530,12 +493,9 @@ impl Island {
           kind,
           wood,
           beach,
-          warm,
           summit,
-          stone: IVec3::ZERO,
           seep: None
         };
-        let stone = island.place_stone(seed);
         let seeping = match kind {
           _ if home => 0.0,
           Kind::Dunes => 0.5,
@@ -544,10 +504,9 @@ impl Island {
           Kind::Mushroom => 0.05,
           _ => 0.1
         };
-        let seep = (roll(11) < seeping)
-          .then(|| island.place_seep(seed, stone, roll(12)))
-          .flatten();
-        Island { stone, seep, ..island }
+        let seep =
+          (roll(11) < seeping).then(|| island.place_seep(seed, roll(12))).flatten();
+        Island { seep, ..island }
       }
     )
   }
@@ -580,35 +539,47 @@ impl Island {
     Island::within(seed, spot, spot)
   }
 
-  pub fn beside(seed: u32, at: Vec3) -> Option<Island> {
-    Island::near(seed, at).into_iter().find(|island| {
-      (island.stone.as_vec3() + Vec3::new(0.5, 1.0, 0.5)).distance(at) <= REACH + 2.0
-    })
-  }
-
-  pub fn arrival(&self) -> Vec3 { self.stone.as_vec3() + Vec3::new(2.5, 0.05, 0.5) }
-
   pub fn name(&self, seed: u32) -> String {
-    let key = Island::key(seed, self.cell);
-    let pick = |salt: u32, count: usize| {
-      hash(key ^ 0x4A3E ^ salt.wrapping_mul(0x01F3), salt as i32, 0, 0) as usize % count
-    };
-    let core = format!(
-      "{}{}{}",
-      SYLLABLES[pick(1, SYLLABLES.len())],
-      LINKS[pick(2, LINKS.len())],
-      ENDINGS[pick(3, ENDINGS.len())]
-    );
+    let pick = coinage(seed, self.cell);
     let title = match self.form {
       Form::Chain => ["Isles", "Skerries", "Chain", "Islets"][pick(4, 4)],
       Form::Atoll => ["Atoll", "Lagoon", "Reef", "Ring"][pick(4, 4)],
       _ if self.radius < 18.0 => ["Rock", "Islet", "Skerry", "Key"][pick(4, 4)],
       _ => self.kind.titles()[pick(4, 4)]
     };
-    match pick(5, 5) {
-      0 => format!("Isle of {core}"),
-      1 => core,
-      _ => format!("{core} {title}")
+    coined(seed, self.cell, "Isle", title)
+  }
+}
+
+fn coinage(seed: u32, cell: IVec2) -> impl Fn(u32, usize) -> usize {
+  let key = Island::key(seed, cell);
+  move |salt: u32, count: usize| {
+    hash(key ^ 0x4A3E ^ salt.wrapping_mul(0x01F3), salt as i32, 0, 0) as usize % count
+  }
+}
+
+pub fn coined(seed: u32, cell: IVec2, of: &str, title: &str) -> String {
+  let pick = coinage(seed, cell);
+  let core = format!(
+    "{}{}{}",
+    SYLLABLES[pick(1, SYLLABLES.len())],
+    LINKS[pick(2, LINKS.len())],
+    ENDINGS[pick(3, ENDINGS.len())]
+  );
+  match pick(5, 5) {
+    0 => format!("{of} of {core}"),
+    1 => core,
+    _ => format!("{core} {title}")
+  }
+}
+
+impl Wood {
+  pub fn native(heat: f32, roll: f32) -> Wood {
+    match () {
+      () if heat < -0.2 => Wood::Spruce,
+      () if heat < 0.05 => [Wood::Birch, Wood::Spruce][usize::from(roll > 0.5)],
+      () if heat < 0.35 => [Wood::Oak, Wood::Birch][usize::from(roll > 0.65)],
+      () => [Wood::Palm, Wood::Oak][usize::from(roll > 0.6)]
     }
   }
 }
@@ -637,12 +608,11 @@ mod tests {
     nearest.sort_by_key(|island| island.cell.length_squared());
     for island in nearest.iter().take(25) {
       println!(
-        "{:?} {:?} r{:.0} centre {} stone {} summit {:.0} {}",
+        "{:?} {:?} r{:.0} centre {} summit {:.0} {}",
         island.cell,
         island.kind,
         island.radius,
         island.centre.floor(),
-        island.stone,
         island.summit,
         island.name(1)
       )
