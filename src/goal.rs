@@ -45,7 +45,7 @@ impl Prey {
       Prey::Folk(Band::Shade) => "shades",
       Prey::Folk(Band::Imp) => "imps",
       Prey::Folk(Band::Warden) => "Bone Wardens",
-      Prey::Folk(Band::Sentinel) => "precursor sentinels",
+      Prey::Folk(Band::Sentinel) => "sentinels",
       Prey::Folk(Band::Custodian) => "custodians",
       Prey::Folk(_) => "folk",
       Prey::Bird => "birds"
@@ -759,7 +759,7 @@ pub const GOALS: [Goal; 77] = [
   ),
   goal(
     "Sunken Ruins",
-    "Salvage precursor alloy from a ruin on the sea floor.",
+    "Salvage alloy from a ruin on the sea floor.",
     Task::Have(Block::AlloyScrap, 1),
     &[67],
     (9.0, -7.0),
@@ -768,7 +768,7 @@ pub const GOALS: [Goal; 77] = [
   ),
   goal(
     "Silence the Watch",
-    "Destroy precursor sentinels.",
+    "Destroy the sentinels that keep the sunken ruins.",
     Task::Slay(SENTINELS, 3),
     &[70],
     (10.0, -7.0),
@@ -804,7 +804,7 @@ pub const GOALS: [Goal; 77] = [
   ),
   goal(
     "Aether Lance",
-    "Build the precursor drill.",
+    "Rebuild the drill the sunken ruins were cut with.",
     Task::Have(Block::PlasmaDrill, 1),
     &[73],
     (11.0, -8.0),

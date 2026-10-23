@@ -1422,7 +1422,7 @@ fn ping(
       })
       .collect();
     let mut signals: Vec<(Vec3, &'static str)> =
-      ruins.iter().map(|&at| (at, "Precursor signal")).collect();
+      ruins.iter().map(|&at| (at, "Unknown signal")).collect();
     if let Some(&(at, _)) = found
       .iter()
       .filter(|(_, contact)| *contact == Contact::Ore)
