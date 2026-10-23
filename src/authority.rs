@@ -39,6 +39,7 @@ fn starter(creative: bool) -> Inventory {
     Block::Stone,
     Block::Lamp,
     Block::Bricks,
+    Block::StoneBricks,
     Block::Dirt,
     Block::Sand,
     Block::Granite,

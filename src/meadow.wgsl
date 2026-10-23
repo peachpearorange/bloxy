@@ -119,7 +119,7 @@ fn blade(cell: vec2<i32>, slot: u32, ground: f32, tall: f32, around: Field) -> B
         vec3<f32>(spot.x, ground - 0.03, spot.y),
         axis,
         across,
-        mix(0.009, 0.018, unit(seed + 7u)),
+        mix(0.022, 0.038, unit(seed + 7u)),
         unit(seed + 8u),
         unit(seed + 9u)
     );

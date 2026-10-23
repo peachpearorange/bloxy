@@ -235,7 +235,8 @@ pub enum Block {
   Rucksack,
   ExpeditionPack,
   LesserRift,
-  GreaterRift
+  GreaterRift,
+  StoneBricks
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
@@ -411,7 +412,8 @@ pub enum Tile {
   Rucksack,
   ExpeditionPack,
   LesserRift,
-  GreaterRift
+  GreaterRift,
+  StoneBricks
 }
 
 impl Tile {
@@ -953,6 +955,7 @@ impl Block {
       Block::DiamondOre => "Diamond Ore",
       Block::Lamp => "Lamp",
       Block::Bricks => "Bricks",
+      Block::StoneBricks => "Stone Bricks",
       Block::BirchLog => "Birch Log",
       Block::BirchLeaves => "Birch Leaves",
       Block::SpruceLog => "Spruce Log",
@@ -1356,6 +1359,7 @@ impl Block {
       Block::ExpeditionPack => all(Tile::ExpeditionPack),
       Block::LesserRift => all(Tile::LesserRift),
       Block::GreaterRift => all(Tile::GreaterRift),
+      Block::StoneBricks => all(Tile::StoneBricks),
       Block::ElectricPump
       | Block::Refinery
       | Block::BiofuelGenerator

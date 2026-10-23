@@ -402,6 +402,7 @@ const BASICS: &[Recipe] = &[
   hand(&[(Block::Planks, 1), (Block::Charcoal, 1)], (Block::Torch, 4)),
   table(&[(Block::Cobblestone, 8)], (Block::Furnace, 1)),
   table(&[(Block::Planks, 5)], (Block::Boat, 1)),
+  table(&[(Block::Stone, 4)], (Block::StoneBricks, 4)),
   table(
     &[(Block::Wool, 12), (Block::Planks, 6), (Block::Bucket, 1)],
     (Block::Balloon, 1)

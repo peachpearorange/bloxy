@@ -493,173 +493,230 @@ fn flecked(art: &Art, palette: &Palette, x: u32, y: u32) -> Texel {
   ramp(palette, 0.15 + cloud * 0.75 + fleck)
 }
 
-fn mortar(x: u32, y: u32) -> bool { shade_of(&COBBLE, x, y) == Some(0) }
-
-fn wrapped(x: i32, y: i32) -> (u32, u32) {
-  (x.rem_euclid(PIXELS as i32) as u32, y.rem_euclid(PIXELS as i32) as u32)
+fn speck(salt: u32, x: u32, y: u32) -> f32 {
+  crate::noise::unit(salt, x as i32, y as i32, 0)
 }
 
-static PEBBLES_OF_COBBLE: std::sync::LazyLock<Vec<u32>> =
-  std::sync::LazyLock::new(|| {
-    let size = PIXELS * PIXELS;
-    let mut labels = vec![0u32; size as usize];
-    for start in 0..size {
-      if !mortar(start % PIXELS, start / PIXELS) && labels[start as usize] == 0 {
-        labels[start as usize] = start + 1;
-        let neighbours = |at: u32| {
-          let (x, y) = ((at % PIXELS) as i32, (at / PIXELS) as i32);
-          [(1, 0), (-1, 0), (0, 1), (0, -1)].map(|(dx, dy)| {
-            let (nx, ny) = wrapped(x + dx, y + dy);
-            ny * PIXELS + nx
-          })
-        };
-        std::iter::successors(Some(vec![start]), |frontier: &Vec<u32>| {
-          let next: Vec<u32> = frontier
-            .iter()
-            .flat_map(|&at| neighbours(at))
-            .filter(|&next| {
-              let fresh =
-                !mortar(next % PIXELS, next / PIXELS) && labels[next as usize] == 0;
-              if fresh {
-                labels[next as usize] = start + 1
-              }
-              fresh
-            })
-            .collect();
-          (!next.is_empty()).then_some(next)
-        })
-        .count();
-      }
-    }
-    labels
-  });
-
-static CRACKS_OF_COBBLE: std::sync::LazyLock<Vec<bool>> =
-  std::sync::LazyLock::new(|| {
-    let pebble = |x: i32, y: i32| {
-      let (x, y) = wrapped(x, y);
-      PEBBLES_OF_COBBLE[(y * PIXELS + x) as usize]
-    };
-    let sizes = (0..PIXELS * PIXELS).fold(
-      std::collections::BTreeMap::<u32, Vec<(i32, i32)>>::new(),
-      |mut sizes, at| {
-        let (x, y) = ((at % PIXELS) as i32, (at / PIXELS) as i32);
-        if pebble(x, y) != 0 {
-          sizes.entry(pebble(x, y)).or_default().push((x, y))
-        }
-        sizes
-      }
-    );
-    const TURNS: [(i32, i32); 8] =
-      [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-    sizes
-      .iter()
-      .filter(|(label, cells)| {
-        cells.len() >= 14 && crate::noise::unit(0xC4A, **label as i32, 0, 0) < 0.6
-      })
-      .map(|(&label, cells)| {
-        let edge: Vec<(i32, i32, usize)> = cells
-          .iter()
-          .filter_map(|&(x, y)| {
-            [4, 6, 0, 2]
-              .into_iter()
-              .find(|&turn| {
-                let (dx, dy) = TURNS[turn];
-                pebble(x + dx, y + dy) == 0
-              })
-              .map(|outward| (x, y, (outward + 4) % 8))
-          })
-          .collect();
-        let roll = |salt: i32| crate::noise::hash(0xC4B, label as i32, salt, 0);
-        let (x, y, inward) = edge[roll(0) as usize % edge.len().max(1)];
-        let length = 3 + roll(1) % 4;
-        (0..length)
-          .scan((x, y, inward), move |(x, y, heading), step| {
-            let here = (*x, *y);
-            let veer = [0, 1, 7, 0][(roll(step as i32 + 2) % 4) as usize];
-            *heading = (*heading + veer) % 8;
-            let (dx, dy) = TURNS[*heading];
-            *x += dx;
-            *y += dy;
-            Some(here)
-          })
-          .take_while(move |&(x, y)| pebble(x, y) == label)
-          .collect::<Vec<_>>()
-      })
-      .filter(|crack| crack.len() >= 3)
-      .flatten()
-      .fold(vec![false; (PIXELS * PIXELS) as usize], |mut cracks, (x, y)| {
-        let (x, y) = wrapped(x, y);
-        cracks[(y * PIXELS + x) as usize] = true;
-        cracks
-      })
-  });
-
-fn cracked(x: i32, y: i32) -> bool {
-  let (x, y) = wrapped(x, y);
-  CRACKS_OF_COBBLE[(y * PIXELS + x) as usize]
+fn wave(salt: u32, cells: u32, x: f32, row: u32) -> f32 {
+  let at = x.rem_euclid(PIXELS as f32) * cells as f32 / PIXELS as f32;
+  let (cell, blend) = (at.floor() as u32, at.fract());
+  let knot = |cell: u32| crate::noise::unit(salt, (cell % cells) as i32, row as i32, 1);
+  let eased = blend * blend * (3.0 - 2.0 * blend);
+  knot(cell) + (knot(cell + 1) - knot(cell)) * eased
 }
 
-const PEBBLE_TINTS: [[f32; 3]; 4] =
-  [[1.0, 1.0, 1.0], [1.02, 1.0, 0.98], [0.98, 0.99, 1.01], [0.95, 0.95, 0.95]];
+fn toroidal(from: Vec2, to: Vec2) -> Vec2 {
+  let size = PIXELS as f32;
+  let offset = to - from;
+  offset - (offset / size).round() * size
+}
 
-static DOMES_OF_COBBLE: std::sync::LazyLock<Vec<Vec2>> = std::sync::LazyLock::new(|| {
-  let pebble = |at: u32| PEBBLES_OF_COBBLE[at as usize];
-  let unwrapped = |from: u32, at: u32| {
-    let step = |a: u32, b: u32| (b as i32 - a as i32 + 8).rem_euclid(16) - 8;
-    Vec2::new(
-      (from % PIXELS) as f32 + step(from % PIXELS, at % PIXELS) as f32,
-      (from / PIXELS) as f32 + step(from / PIXELS, at / PIXELS) as f32
-    )
-  };
-  (0..PIXELS * PIXELS)
-    .map(|at| {
-      let label = pebble(at);
-      let members: Vec<u32> = (0..PIXELS * PIXELS)
-        .filter(|&other| label != 0 && pebble(other) == label)
-        .collect();
-      let centre = members.iter().map(|&other| unwrapped(at, other)).sum::<Vec2>()
-        / members.len().max(1) as f32;
-      let radius = (members.len() as f32 / std::f32::consts::PI).sqrt().max(1.0) + 0.5;
-      (unwrapped(at, at) - centre) / radius
+const STONES_OF_COBBLE: [(f32, f32, f32); 7] = [
+  (3.0, 3.0, 1.1),
+  (10.5, 2.0, 1.0),
+  (14.5, 8.5, 0.9),
+  (7.5, 9.0, 1.15),
+  (1.5, 11.5, 0.95),
+  (11.0, 14.5, 1.05),
+  (5.0, 15.0, 0.8)
+];
+
+struct Nearest {
+  stone: usize,
+  offset: Vec2,
+  gap: f32,
+  fill: f32
+}
+
+fn nearest_stone(x: u32, y: u32) -> Nearest {
+  let at = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+  let [(stone, offset, near), (_, _, next)] = STONES_OF_COBBLE
+    .iter()
+    .enumerate()
+    .map(|(index, &(sx, sy, weight))| {
+      let offset = toroidal(Vec2::new(sx, sy), at);
+      (index, offset, offset.length() / weight)
     })
-    .collect()
-});
+    .fold([(0, Vec2::ZERO, f32::MAX); 2], |[first, second], candidate| match () {
+      () if candidate.2 < first.2 => [candidate, first],
+      () if candidate.2 < second.2 => [first, candidate],
+      () => [first, second]
+    });
+  Nearest { stone, offset, gap: next - near, fill: 2.0 * near / (near + next) }
+}
+
+const STONE_TINTS: [[f32; 3]; 6] = [
+  [1.0, 1.0, 1.0],
+  [1.07, 1.0, 0.9],
+  [0.93, 0.97, 1.06],
+  [0.8, 0.8, 0.82],
+  [1.12, 1.1, 1.06],
+  [1.0, 0.96, 0.92]
+];
+
+const LICHEN: [f32; 3] = [0.5, 0.54, 0.3];
 
 fn cobble(base: [f32; 3], x: u32, y: u32) -> Texel {
-  let pebble = PEBBLES_OF_COBBLE[(y * PIXELS + x) as usize];
-  let near = |dx: i32, dy: i32| {
-    let (nx, ny) = wrapped(x as i32 + dx, y as i32 + dy);
-    mortar(nx, ny)
-  };
-  let tint = PEBBLE_TINTS[(crate::noise::hash(0xC0B, pebble as i32, 0, 0) % 4) as usize];
-  let bright = 0.92 + crate::noise::unit(0xC0C, pebble as i32, 0, 0) * 0.16;
-  let dome = DOMES_OF_COBBLE[(y * PIXELS + x) as usize];
-  let normal =
-    dome.extend((1.0 - dome.length_squared()).max(0.0).sqrt()).normalize_or_zero();
-  let sunward = Vec3::new(-0.5, -0.6, 0.62).normalize();
-  let edged = [(1, 0), (0, 1)].into_iter().any(|(dx, dy)| near(dx, dy));
-  let light = match pebble {
-    0 => 0.5 + lattice(0xC0D, 8, x, y) * 0.1,
-    _ => {
-      0.66 + normal.dot(sunward).max(0.0) * 0.45 + (lattice(0xC0E, 8, x, y) - 0.5) * 0.1
-        - if edged { 0.08 } else { 0.0 }
+  let Nearest { stone, offset, gap, fill } = nearest_stone(x, y);
+  let (_, _, weight) = STONES_OF_COBBLE[stone];
+  let roll = |salt: u32| crate::noise::unit(0xC0B ^ salt, stone as i32, 0, 0);
+  let edge = gap * weight;
+  let grit = speck(0xC0F, x, y);
+  let colour = match edge < 1.1 {
+    true => {
+      let under = offset.normalize_or_zero().dot(Vec2::new(0.6, 0.8)).max(0.0);
+      base.map(|channel| channel * (0.34 + grit * 0.12 - under * 0.12))
+    }
+    false => {
+      let flat = 0.55 + roll(1) * 0.4;
+      let dome = offset.normalize_or_zero() * (fill * flat).min(0.97);
+      let normal = dome.extend((1.0 - dome.length_squared()).sqrt());
+      let lit = 0.6 + normal.dot(Vec3::new(-0.5, -0.6, 0.62).normalize()).max(0.0) * 0.5;
+      let grain =
+        (lattice(0xC0E + stone as u32, 8, x, y) - 0.5) * 0.14 + (grit - 0.5) * 0.1;
+      let rim = if edge < 2.0 { 0.07 } else { 0.0 };
+      let along = Vec2::from_angle(roll(6) * std::f32::consts::PI);
+      let crack = roll(5) < 0.4
+        && weight > 0.95
+        && offset.perp_dot(along).abs() < 0.55
+        && (-1.5..2.5).contains(&offset.dot(along))
+        && edge > 1.6;
+      let tint = STONE_TINTS[(roll(2) * STONE_TINTS.len() as f32) as usize];
+      let shade =
+        (0.88 + roll(3) * 0.2) * (lit + grain - rim - if crack { 0.35 } else { 0.0 });
+      let mossy = roll(4) < 0.18
+        && offset.y < 0.8
+        && lattice(0xC10 + stone as u32, 8, x, y) > 0.68
+        && grit > 0.25;
+      let [r, g, b] =
+        std::array::from_fn(|channel| base[channel] * tint[channel] * shade);
+      match mossy {
+        true => std::array::from_fn(|channel| {
+          [r, g, b][channel] * 0.35 + LICHEN[channel] * shade * 0.65
+        }),
+        false => [r, g, b]
+      }
     }
   };
-  let shade = shade_of(&COBBLE, x, y).map_or(0.0, |shade| (shade as f32 - 2.0) * 0.03);
-  let crack = match (cracked(x as i32, y as i32), cracked(x as i32, y as i32 - 1)) {
-    (true, _) => -0.42,
-    (false, true) => 0.1,
-    _ => 0.0
+  Texel::rgb(colour[0], colour[1], colour[2])
+}
+
+fn planks(base: [f32; 3], x: u32, y: u32) -> Texel {
+  let (board, row) = (y / 4, y % 4);
+  let roll = |salt: u32| crate::noise::unit(0x9A1 ^ salt, board as i32, 0, 0);
+  let joint = (board * 7 + 3 + (roll(1) * 4.0) as u32) % PIXELS;
+  let piece = u32::from(x >= joint);
+  let pick = |salt: u32| crate::noise::unit(0x9A2 ^ salt, board as i32, piece as i32, 0);
+  let tone = 0.88 + pick(1) * 0.2;
+  let hue = pick(2) - 0.5;
+  let shift = pick(3) * 16.0;
+  let grain =
+    wave(0x9A5, 4, x as f32 + shift, y) * 0.6 + wave(0x9A6, 8, x as f32, y) * 0.4;
+  let streak = wave(0x9A7, 3, x as f32 + shift, y) > 0.74;
+  let knotty = roll(2) < 0.3;
+  let knot_at = (roll(3) * PIXELS as f32).floor();
+  let reach = toroidal(Vec2::new(knot_at, 1.5), Vec2::new(x as f32, row as f32 + 0.5));
+  let knot = (reach.x / 1.7).powi(2) + (reach.y / 1.0).powi(2);
+  let weather = (lattice(0x9A8, 2, x, y) - 0.5) * 0.08;
+  let nail = row == 1 && x == (joint + 1) % PIXELS && roll(4) < 0.6;
+  let shade = match () {
+    () if row == 3 => 0.5 + speck(0x9A9, x, y) * 0.08,
+    () if x == joint => 0.6,
+    () if knotty && knot < 0.45 => 0.62,
+    () if knotty && knot < 1.5 => 0.86,
+    () => {
+      (0.86 + grain * 0.24) * if streak { 0.84 } else { 1.0 }
+        + if row == 0 { 0.07 } else { 0.0 }
+        + if x == (joint + 1) % PIXELS { 0.05 } else { 0.0 }
+        + weather
+    }
   };
-  let [r, g, b] = std::array::from_fn(|channel| {
-    base[channel]
-      * match pebble {
-        0 => light,
-        _ => tint[channel] * bright * (light + shade + crack)
-      }
-  });
-  Texel::rgb(r, g, b)
+  match nail {
+    true => Texel::rgb(0.24, 0.23, 0.22),
+    false => {
+      let warm = [1.0 + hue * 0.08, 1.0, 1.0 - hue * 0.1];
+      let [r, g, b] =
+        std::array::from_fn(|channel| base[channel] * warm[channel] * tone * shade);
+      Texel::rgb(r, g, b)
+    }
+  }
+}
+
+struct Course {
+  height: u32,
+  joints: &'static [u32]
+}
+
+struct Masonry {
+  courses: &'static [Course],
+  stone: [f32; 3],
+  mortar: [f32; 3],
+  wear: f32,
+  salt: u32
+}
+
+const STONE_BRICKS: Masonry = Masonry {
+  courses: &[Course { height: 8, joints: &[6, 15] }, Course {
+    height: 8,
+    joints: &[2, 10]
+  }],
+  stone: [0.5, 0.5, 0.52],
+  mortar: [0.27, 0.27, 0.27],
+  wear: 0.3,
+  salt: 0x5B1
+};
+
+fn masonry(
+  &Masonry { courses, stone, mortar, wear, salt }: &Masonry,
+  x: u32,
+  y: u32
+) -> Texel {
+  let (index, top) = courses
+    .iter()
+    .enumerate()
+    .scan(0, |top, (index, course)| {
+      let start = *top;
+      *top += course.height;
+      Some((index, start))
+    })
+    .find(|&(index, top)| y < top + courses[index].height)
+    .unwrap_or((0, 0));
+  let Course { height, joints } = &courses[index];
+  let row = y - top;
+  let brick = joints.iter().filter(|&&joint| joint < x).count() % joints.len();
+  let id = (index * 8 + brick) as i32;
+  let jointed = |at: u32| joints.contains(&(at % PIXELS));
+  let gapped = row == height - 1 || jointed(x);
+  let grit = speck(salt ^ 0x11, x, y);
+  let (left, right) = (jointed(x + PIXELS - 1), jointed(x + 1));
+  let (high, low) = (row == 0, row == height - 2);
+  let roll = |salt_of: u32| crate::noise::unit(salt ^ salt_of, id, 0, 0);
+  let chipped = (high || low) && (left || right) && grit < wear * 1.2;
+  let worn = (high || low || left || right) && grit < wear * 0.6;
+  let colour = match gapped || chipped {
+    true => {
+      let shadow =
+        if row == height - 1 { 0.82 } else { 1.0 } * if chipped { 0.9 } else { 1.0 };
+      mortar.map(|channel| channel * shadow * (0.85 + grit * 0.3))
+    }
+    false => {
+      let tone = 0.86 + roll(1) * 0.24;
+      let mottle =
+        0.8 + lattice(salt + id as u32 * 7, 4, x, y) * 0.24 + (grit - 0.5) * 0.1;
+      let bevel = match () {
+        () if high || left => 1.07,
+        () if low || right => 0.86,
+        () => 1.0
+      };
+      let pitted = if speck(salt ^ 0x12, x, y) < 0.06 || worn { 0.8 } else { 1.0 };
+      let tint = STONE_TINTS[(roll(2) * STONE_TINTS.len() as f32) as usize]
+        .map(|channel| 1.0 + (channel - 1.0) * 0.5);
+      std::array::from_fn(|channel| {
+        stone[channel] * tint[channel] * tone * mottle * bevel * pitted
+      })
+    }
+  };
+  Texel::rgb(colour[0], colour[1], colour[2])
 }
 
 fn soil(x: u32, y: u32) -> Texel { flecked(&DIRT, &EARTH, x, y) }
@@ -1216,20 +1273,15 @@ fn rune() -> Texel { Texel::rgb(0.85, 0.97, 1.0).glowing(0.9) }
 
 const ANCIENT: [f32; 3] = [0.37, 0.4, 0.41];
 
-fn ancient(x: u32, y: u32) -> Texel {
-  let course = y / 8;
-  let shift = (course % 2) * 8;
-  let column = (x + shift) % 16;
-  let block = (x + shift) / 16 + course * 5;
-  let mortar = y % 8 == 7 || column == 15;
-  let bevel = y % 8 == 0 || column == 0;
-  let tone = 0.9 + (crate::noise::hash(0xA4C, block as i32, 0, 0) % 5) as f32 * 0.05;
-  match (mortar, bevel) {
-    (true, _) => Texel::rgb(0.13, 0.14, 0.15),
-    (false, true) => smooth(&shades(ANCIENT, STONE_SPREAD), x, y).scaled(tone * 1.18),
-    _ => smooth(&shades(ANCIENT, STONE_SPREAD), x, y).scaled(tone)
-  }
-}
+const ANCIENT_BRICKS: Masonry = Masonry {
+  courses: &[Course { height: 8, joints: &[15] }, Course { height: 8, joints: &[7] }],
+  stone: ANCIENT,
+  mortar: [0.12, 0.13, 0.14],
+  wear: 0.45,
+  salt: 0xA4C
+};
+
+fn ancient(x: u32, y: u32) -> Texel { masonry(&ANCIENT_BRICKS, x, y) }
 
 const MOSS: Palette =
   [[0.1, 0.2, 0.08], [0.17, 0.3, 0.11], [0.24, 0.4, 0.14], [0.33, 0.5, 0.2]];
@@ -1822,16 +1874,8 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
       }
     }
     Tile::Leaves => cutout(&FOLIAGE, &OAK_LEAVES, x, y),
-    Tile::Planks => {
-      let board = y / 4;
-      let seam = y % 4 == 3 || (x + board * 5) % 16 == 0;
-      let grain = y % 4 == 1 && (x + board * 7) % 6 < 2;
-      Texel::rgb(0.66, 0.5, 0.3).scaled(match (seam, grain) {
-        (true, _) => 0.62,
-        (_, true) => 0.88,
-        _ => 1.0 - (board % 2) as f32 * 0.05
-      })
-    }
+    Tile::Planks => planks([0.64, 0.48, 0.28], x, y),
+    Tile::StoneBricks => masonry(&STONE_BRICKS, x, y),
     Tile::Glass => {
       let frame = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
       let streak = (x + y == 5 || x + y == 7 || x + y == 20) && x > 1 && y > 1;
@@ -2502,6 +2546,35 @@ mod tests {
     let mut file = format!("P6 {} {} 255\n", width * zoom, height * zoom).into_bytes();
     file.extend(pixels);
     std::fs::write("screenshots/atlas.ppm", file).unwrap()
+  }
+
+  #[test]
+  #[ignore]
+  fn swatches() {
+    let tiles = [
+      Tile::Planks,
+      Tile::Cobblestone,
+      Tile::GraniteCobble,
+      Tile::StoneBricks,
+      Tile::AncientBrick,
+      Tile::MossyBrick,
+      Tile::Stone
+    ];
+    let (zoom, repeat) = (6, 3);
+    let side = PIXELS * repeat * zoom;
+    let width = side * tiles.len() as u32;
+    let pixels: Vec<u8> = (0..width * side)
+      .flat_map(|index| {
+        let (x, y) = (index % width, index / width);
+        let tile = tiles[(x / side) as usize];
+        let (u, v) = ((x % side) / zoom % PIXELS, y / zoom % PIXELS);
+        let [r, g, b, _] = paint(tile, u, v).color;
+        [r, g, b].map(to_srgb)
+      })
+      .collect();
+    let mut file = format!("P6 {width} {side} 255\n").into_bytes();
+    file.extend(pixels);
+    std::fs::write("screenshots/swatches.ppm", file).unwrap()
   }
 
   #[test]
