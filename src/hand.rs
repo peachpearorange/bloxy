@@ -254,7 +254,9 @@ fn swing(
       || (buttons.just_pressed(MouseButton::Right)
         && !pilot.held.is_some_and(Block::spell)
         && !pilot.held.is_some_and(Block::placeable)));
-  let first = *view == View::First;
+  let aboard =
+    pilot.riding.is_some_and(|riding| riding.kind == crate::player::Craft::Submarine);
+  let first = *view == View::First && !aboard;
   for (mut hand, mut transform, mut visibility) in hands.iter_mut() {
     visibility.set_if_neq(match first {
       true => Visibility::Inherited,

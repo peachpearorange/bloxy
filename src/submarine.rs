@@ -23,8 +23,12 @@ use {crate::{audio::{Cue, Sound},
 
 pub const BAYS: usize = 5;
 const HULL: f32 = 100.0;
-const BULK: Bulk = Bulk { half: 0.85, tall: 1.9 };
-const MIDDLE: f32 = 0.95;
+const BULK: Bulk = Bulk { half: 0.9, tall: 1.8 };
+const KEEL: f32 = 0.75;
+const MIDDLE: f32 = 1.65;
+const RADIUS: f32 = 0.9;
+const BUBBLE: f32 = 0.25;
+const STERN: f32 = 2.85;
 const SPEED: f32 = 5.0;
 const CHARGE: f32 = 900.0;
 const RATED: f32 = 26.0;
@@ -140,8 +144,8 @@ fn wet(voxels: &Voxels, at: Vec3) -> bool {
 pub fn struck(sub: &Sub, from: Vec3, toward: Vec3) -> Option<f32> {
   let turn = Quat::from_rotation_y(-sub.yaw);
   crate::boat::pierce(
-    Vec3::new(-1.0, 0.1, -2.1),
-    Vec3::new(1.0, 2.4, 2.5),
+    Vec3::new(-1.0, KEEL - 0.1, BUBBLE - RADIUS - 0.1),
+    Vec3::new(1.0, MIDDLE + RADIUS + 0.7, STERN + RADIUS + 0.4),
     turn * (from - sub.at),
     turn * toward
   )
@@ -232,7 +236,7 @@ fn serve(
     {
       spawn(
         &mut commands,
-        Sub::launched(cell.as_vec3() + Vec3::new(0.5, -0.4, 0.5), avatar.yaw)
+        Sub::launched(cell.as_vec3() + Vec3::new(0.5, 0.5 - MIDDLE, 0.5), avatar.yaw)
       );
     }
   }
@@ -361,7 +365,7 @@ fn serve(
     {
       reload.0 = RELOAD;
       let toward = toward.normalize_or(Vec3::NEG_Z);
-      let at = sub.at + Vec3::Y * (MIDDLE - 0.4) + toward * 2.6;
+      let at = sub.at + Vec3::Y * (MIDDLE - 0.3) + toward * 1.8;
       commands.spawn((Replicated, Bolt { spell: Block::SpellFireball, at }, Torpedo {
         velocity: toward * TORPEDO_SPEED,
         life: TORPEDO_LIFE,
@@ -561,9 +565,16 @@ fn breathe(
 #[derive(Resource)]
 struct Kit {
   hull: Handle<Mesh>,
-  tower: Handle<Mesh>,
-  fin: Handle<Mesh>,
-  dome: Handle<Mesh>,
+  liner: Handle<Mesh>,
+  stern: Handle<Mesh>,
+  bubble: Handle<Mesh>,
+  slab: Handle<Mesh>,
+  rib: Handle<Mesh>,
+  frame: Handle<Mesh>,
+  wheel: Handle<Mesh>,
+  pipe: Handle<Mesh>,
+  dial: Handle<Mesh>,
+  grip: Handle<Mesh>,
   blade: Handle<Mesh>,
   lamp: Handle<Mesh>,
   cone: Handle<Mesh>,
@@ -573,8 +584,13 @@ struct Kit {
   paint: Handle<StandardMaterial>,
   plated: Handle<StandardMaterial>,
   steel: Handle<StandardMaterial>,
+  cabin: Handle<StandardMaterial>,
+  deck: Handle<StandardMaterial>,
+  cushion: Handle<StandardMaterial>,
   glass: Handle<StandardMaterial>,
   glow: Handle<StandardMaterial>,
+  amber: Handle<StandardMaterial>,
+  screen: Handle<StandardMaterial>,
   beam: Handle<StandardMaterial>
 }
 
@@ -589,39 +605,55 @@ fn build(
     metallic: metal,
     ..default()
   };
+  let inside = |r: f32, g: f32, b: f32| StandardMaterial {
+    double_sided: true,
+    cull_mode: None,
+    ..colour(r, g, b, 0.7, 0.2)
+  };
+  let shining = |[r, g, b]: [f32; 3], strength: f32| StandardMaterial {
+    base_color: Color::srgb(r, g, b),
+    emissive: LinearRgba::rgb(r, g, b) * strength,
+    unlit: true,
+    ..default()
+  };
+  let length = STERN - BUBBLE;
   commands.insert_resource(Kit {
-    hull: meshes.add(Capsule3d::new(0.9, 2.5).mesh().longitudes(18).latitudes(10)),
-    tower: meshes.add(Cuboid::new(0.6, 0.6, 1.0)),
-    fin: meshes.add(Cuboid::new(0.08, 0.9, 0.6)),
-    dome: meshes.add(Sphere::new(0.62).mesh().uv(18, 10)),
+    hull: meshes.add(Cylinder::new(RADIUS, length).mesh().resolution(20)),
+    liner: meshes.add(Cylinder::new(RADIUS - 0.06, length).mesh().resolution(20)),
+    stern: meshes.add(Sphere::new(RADIUS).mesh().uv(20, 12)),
+    bubble: meshes.add(Sphere::new(RADIUS + 0.02).mesh().uv(24, 14)),
+    slab: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+    rib: meshes.add(Torus::new(RADIUS - 0.1, RADIUS - 0.04)),
+    frame: meshes.add(Torus::new(RADIUS - 0.005, RADIUS + 0.025)),
+    wheel: meshes.add(Torus::new(0.13, 0.17)),
+    pipe: meshes.add(Cylinder::new(0.035, length - 0.2)),
+    dial: meshes.add(Cylinder::new(0.028, 0.012)),
+    grip: meshes.add(Cylinder::new(0.018, 0.18)),
     blade: meshes.add(Cuboid::new(0.12, 0.55, 0.04)),
     lamp: meshes.add(Cylinder::new(0.14, 0.25)),
-    cone: meshes.add(Cone { radius: 0.32, height: 0.8 }),
+    cone: meshes.add(Cone { radius: 0.3, height: 0.8 }),
     tube: meshes.add(Cylinder::new(0.13, 1.6)),
     ring: meshes.add(Torus::new(0.22, 0.3)),
     pod: meshes.add(Capsule3d::new(0.2, 0.9)),
     paint: materials.add(colour(0.95, 0.72, 0.12, 0.45, 0.2)),
     plated: materials.add(colour(0.42, 0.46, 0.5, 0.35, 0.8)),
     steel: materials.add(colour(0.3, 0.32, 0.35, 0.4, 0.85)),
+    cabin: materials.add(inside(0.55, 0.58, 0.55)),
+    deck: materials.add(colour(0.22, 0.2, 0.18, 0.8, 0.4)),
+    cushion: materials.add(colour(0.45, 0.12, 0.1, 0.9, 0.0)),
     glass: materials.add(StandardMaterial {
-      base_color: Color::srgba(0.6, 0.9, 1.0, 0.28),
+      base_color: Color::srgba(0.6, 0.9, 1.0, 0.12),
       alpha_mode: AlphaMode::Blend,
-      perceptual_roughness: 0.05,
-      reflectance: 0.8,
+      perceptual_roughness: 0.03,
+      reflectance: 0.9,
+      double_sided: true,
+      cull_mode: None,
       ..default()
     }),
-    glow: materials.add(StandardMaterial {
-      base_color: Color::srgb(0.3, 0.95, 1.0),
-      emissive: LinearRgba::rgb(2.0, 8.0, 9.0),
-      unlit: true,
-      ..default()
-    }),
-    beam: materials.add(StandardMaterial {
-      base_color: Color::srgb(1.0, 0.95, 0.8),
-      emissive: LinearRgba::rgb(12.0, 11.0, 8.0),
-      unlit: true,
-      ..default()
-    })
+    glow: materials.add(shining([0.3, 0.95, 1.0], 6.0)),
+    amber: materials.add(shining([1.0, 0.7, 0.2], 3.0)),
+    screen: materials.add(shining([0.2, 0.9, 0.5], 2.0)),
+    beam: materials.add(shining([1.0, 0.95, 0.8], 12.0))
   })
 }
 
@@ -635,47 +667,212 @@ struct Screw;
 struct Beam;
 
 #[derive(Component)]
-struct Bit;
+struct Fittings;
 
 fn spin(toward: Vec3) -> Quat { Quat::from_rotation_arc(Vec3::Y, toward) }
 
+fn part(
+  mesh: &Handle<Mesh>,
+  material: &Handle<StandardMaterial>,
+  transform: Transform
+) -> impl Bundle {
+  (Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), transform)
+}
+
+fn slab(
+  kit: &Kit,
+  material: &Handle<StandardMaterial>,
+  middle: Vec3,
+  size: Vec3
+) -> impl Bundle {
+  part(&kit.slab, material, Transform::from_translation(middle).with_scale(size))
+}
+
+fn hollow(kit: &Kit, ship: &mut ChildSpawnerCommands) {
+  let along = (BUBBLE + STERN) / 2.0;
+  let eye = Vec3::Y * EYE;
+  ship.spawn(part(
+    &kit.liner,
+    &kit.cabin,
+    Transform::from_xyz(0.0, MIDDLE, along).with_rotation(spin(Vec3::Z))
+  ));
+  ship.spawn(part(&kit.bubble, &kit.glass, Transform::from_xyz(0.0, MIDDLE, BUBBLE)));
+  ship.spawn(part(
+    &kit.frame,
+    &kit.steel,
+    Transform::from_xyz(0.0, MIDDLE, BUBBLE).with_rotation(spin(Vec3::Z))
+  ));
+  for turn in [-0.75f32, 0.75] {
+    ship.spawn(part(
+      &kit.frame,
+      &kit.steel,
+      Transform::from_xyz(0.0, MIDDLE, BUBBLE)
+        .with_rotation(Quat::from_rotation_y(turn) * spin(Vec3::X))
+    ));
+  }
+  for z in [0.9, 1.6, 2.3] {
+    ship.spawn(part(
+      &kit.rib,
+      &kit.steel,
+      Transform::from_xyz(0.0, MIDDLE, z).with_rotation(spin(Vec3::Z))
+    ));
+  }
+  ship.spawn(slab(
+    kit,
+    &kit.deck,
+    Vec3::new(0.0, KEEL + 0.22, 1.2),
+    Vec3::new(1.2, 0.06, 3.0)
+  ));
+  ship.spawn(slab(
+    kit,
+    &kit.cabin,
+    Vec3::new(0.0, MIDDLE, STERN - 0.2),
+    Vec3::new(1.6, 1.6, 0.06)
+  ));
+  ship.spawn(part(
+    &kit.wheel,
+    &kit.steel,
+    Transform::from_xyz(0.0, MIDDLE, STERN - 0.25).with_rotation(spin(Vec3::Z))
+  ));
+  ship.spawn(slab(
+    kit,
+    &kit.steel,
+    Vec3::new(0.0, MIDDLE, STERN - 0.24),
+    Vec3::new(0.3, 0.03, 0.02)
+  ));
+  for side in [-1.0f32, 1.0] {
+    ship.spawn(part(
+      &kit.pipe,
+      &kit.steel,
+      Transform::from_xyz(side * 0.4, MIDDLE + 0.68, along + 0.1)
+        .with_rotation(spin(Vec3::Z))
+    ));
+    ship.spawn(slab(
+      kit,
+      &kit.steel,
+      Vec3::new(side * 0.68, MIDDLE - 0.15, 1.7),
+      Vec3::new(0.12, 0.7, 1.1)
+    ));
+    for (index, light) in [&kit.amber, &kit.glow, &kit.screen].into_iter().enumerate() {
+      ship.spawn(slab(
+        kit,
+        light,
+        Vec3::new(
+          side * 0.61,
+          MIDDLE + 0.05 - index as f32 * 0.12,
+          1.4 + index as f32 * 0.15
+        ),
+        Vec3::new(0.02, 0.05, 0.08)
+      ));
+    }
+    ship.spawn(part(
+      &kit.grip,
+      &kit.steel,
+      Transform::from_translation(eye + Vec3::new(side * 0.22, -0.5, -0.42))
+        .with_rotation(Quat::from_rotation_x(-0.4))
+    ));
+  }
+  let console = Quat::from_rotation_x(0.5);
+  ship.spawn((
+    Mesh3d(kit.slab.clone()),
+    MeshMaterial3d(kit.steel.clone()),
+    Transform::from_translation(eye + Vec3::new(0.0, -0.62, -0.6))
+      .with_rotation(console)
+      .with_scale(Vec3::new(0.95, 0.05, 0.36))
+  ));
+  ship.spawn(slab(
+    kit,
+    &kit.deck,
+    eye + Vec3::new(0.0, -0.88, -0.5),
+    Vec3::new(1.0, 0.5, 0.3)
+  ));
+  ship.spawn((
+    Mesh3d(kit.slab.clone()),
+    MeshMaterial3d(kit.screen.clone()),
+    Transform::from_translation(eye + Vec3::new(0.0, -0.585, -0.62))
+      .with_rotation(console)
+      .with_scale(Vec3::new(0.24, 0.01, 0.15))
+  ));
+  for (x, light) in
+    [(-0.34, &kit.amber), (-0.24, &kit.glow), (0.24, &kit.amber), (0.34, &kit.glow)]
+  {
+    ship.spawn(part(
+      &kit.dial,
+      light,
+      Transform::from_translation(eye + Vec3::new(x, -0.59, -0.58))
+        .with_rotation(console)
+    ));
+  }
+  ship.spawn(slab(
+    kit,
+    &kit.cushion,
+    Vec3::new(0.0, KEEL + 0.5, 0.35),
+    Vec3::new(0.55, 0.1, 0.5)
+  ));
+  ship.spawn(slab(
+    kit,
+    &kit.cushion,
+    Vec3::new(0.0, KEEL + 0.95, 0.62),
+    Vec3::new(0.55, 0.8, 0.1)
+  ));
+  ship.spawn(slab(
+    kit,
+    &kit.steel,
+    Vec3::new(0.0, KEEL + 0.36, 0.35),
+    Vec3::new(0.12, 0.3, 0.12)
+  ));
+  ship.spawn((
+    PointLight {
+      range: 4.0,
+      intensity: crate::sky::torchlight().intensity,
+      ..crate::sky::torchlight()
+    },
+    Transform::from_xyz(0.0, MIDDLE + 0.6, 1.3)
+  ));
+}
+
 fn outfit(kit: &Kit, sub: &Sub, ship: &mut ChildSpawnerCommands) {
-  let piece =
-    |mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, transform: Transform| {
-      (Bit, Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), transform)
-    };
   let body = match sub.has(Block::HullPlating) || sub.has(Block::ResonantPlating) {
     true => &kit.plated,
     false => &kit.paint
   };
-  ship.spawn(piece(
+  let along = (BUBBLE + STERN) / 2.0;
+  ship.spawn(part(
     &kit.hull,
     body,
-    Transform::from_xyz(0.0, MIDDLE, 0.25).with_rotation(spin(Vec3::Z))
+    Transform::from_xyz(0.0, MIDDLE, along).with_rotation(spin(Vec3::Z))
   ));
-  ship.spawn(piece(&kit.tower, body, Transform::from_xyz(0.0, MIDDLE + 0.95, 0.5)));
-  ship.spawn(piece(&kit.dome, &kit.glass, Transform::from_xyz(0.0, MIDDLE + 0.3, -1.5)));
+  ship.spawn(part(&kit.stern, body, Transform::from_xyz(0.0, MIDDLE, STERN)));
+  ship.spawn(slab(
+    kit,
+    body,
+    Vec3::new(0.0, MIDDLE + RADIUS + 0.25, 1.4),
+    Vec3::new(0.55, 0.6, 1.0)
+  ));
   for (offset, turn) in
     [(Vec3::X, 0.0), (Vec3::NEG_X, 0.0), (Vec3::Y, PI / 2.0), (Vec3::NEG_Y, PI / 2.0)]
   {
-    ship.spawn(piece(
-      &kit.fin,
+    ship.spawn(part(
+      &kit.slab,
       &kit.steel,
-      Transform::from_translation(Vec3::new(0.0, MIDDLE, 2.2) + offset * 0.55)
+      Transform::from_translation(Vec3::new(0.0, MIDDLE, STERN + 0.4) + offset * 0.75)
         .with_rotation(Quat::from_rotation_z(turn))
+        .with_scale(Vec3::new(0.08, 0.9, 0.6))
     ));
   }
   ship
-    .spawn((Screw, Transform::from_xyz(0.0, MIDDLE, 2.65), Visibility::default()))
+    .spawn((
+      Screw,
+      Transform::from_xyz(0.0, MIDDLE, STERN + RADIUS + 0.1),
+      Visibility::default()
+    ))
     .with_children(|screw| {
       for blade in 0..4 {
-        screw.spawn(piece(
+        let turn = Quat::from_rotation_z(blade as f32 * TAU / 4.0);
+        screw.spawn(part(
           &kit.blade,
           &kit.steel,
-          Transform::from_rotation(Quat::from_rotation_z(blade as f32 * TAU / 4.0))
-            .with_translation(
-              Quat::from_rotation_z(blade as f32 * TAU / 4.0) * Vec3::Y * 0.25
-            )
+          Transform::from_rotation(turn).with_translation(turn * Vec3::Y * 0.25)
         ));
       }
     });
@@ -683,32 +880,37 @@ fn outfit(kit: &Kit, sub: &Sub, ship: &mut ChildSpawnerCommands) {
     match module {
       Block::Floodlight => {
         for side in [-1.0, 1.0] {
-          ship.spawn(piece(
+          ship.spawn(part(
             &kit.lamp,
             &kit.beam,
-            Transform::from_xyz(side * 0.62, MIDDLE - 0.35, -1.35)
+            Transform::from_xyz(side * 0.72, MIDDLE - 0.55, BUBBLE - 0.3)
               .with_rotation(spin(Vec3::NEG_Z))
           ));
         }
       }
       Block::DrillModule | Block::PlasmaDrill => {
         let tip = if module == Block::PlasmaDrill { &kit.glow } else { &kit.steel };
-        ship.spawn(piece(
+        ship.spawn(part(
           &kit.cone,
           tip,
-          Transform::from_xyz(0.0, MIDDLE - 0.55, -2.0).with_rotation(spin(Vec3::NEG_Z))
+          Transform::from_xyz(0.0, KEEL + 0.15, BUBBLE - 0.75)
+            .with_rotation(spin(Vec3::NEG_Z))
         ));
       }
       Block::SonarModule | Block::DeepSonar => {
         let dish = if module == Block::DeepSonar { &kit.glow } else { &kit.steel };
-        ship.spawn(piece(&kit.ring, dish, Transform::from_xyz(0.0, MIDDLE + 1.3, 0.3)));
+        ship.spawn(part(
+          &kit.ring,
+          dish,
+          Transform::from_xyz(0.0, MIDDLE + RADIUS + 0.65, 1.4)
+        ));
       }
       Block::TorpedoBay => {
         for side in [-1.0, 1.0] {
-          ship.spawn(piece(
+          ship.spawn(part(
             &kit.tube,
             &kit.steel,
-            Transform::from_xyz(side * 0.85, MIDDLE - 0.3, -0.4)
+            Transform::from_xyz(side * 0.98, MIDDLE - 0.3, 1.4)
               .with_rotation(spin(Vec3::Z))
           ));
         }
@@ -716,19 +918,19 @@ fn outfit(kit: &Kit, sub: &Sub, ship: &mut ChildSpawnerCommands) {
       Block::Thruster | Block::Hydrojet => {
         let jet = if module == Block::Hydrojet { &kit.glow } else { &kit.steel };
         for side in [-1.0, 1.0] {
-          ship.spawn(piece(
+          ship.spawn(part(
             &kit.pod,
             jet,
-            Transform::from_xyz(side * 1.05, MIDDLE + 0.1, 1.5)
+            Transform::from_xyz(side * 1.1, MIDDLE + 0.15, 2.4)
               .with_rotation(spin(Vec3::Z))
           ));
         }
       }
       Block::SampleClaw => {
-        ship.spawn(piece(
+        ship.spawn(part(
           &kit.tube,
           &kit.steel,
-          Transform::from_xyz(0.45, MIDDLE - 0.85, -1.2)
+          Transform::from_xyz(0.45, KEEL, BUBBLE - 0.2)
             .with_rotation(Quat::from_rotation_x(1.1))
             .with_scale(Vec3::new(0.6, 0.7, 0.6))
         ));
@@ -742,20 +944,12 @@ fn moor(
   time: Res<Time>,
   kit: Res<Kit>,
   pilot: Option<Res<Pilot>>,
-  view: Res<crate::player::View>,
   mut commands: Commands,
   mut subs: Query<
-    (
-      Entity,
-      &Sub,
-      Option<&mut Transform>,
-      Option<&mut Visibility>,
-      Option<&Shown>,
-      Option<&Children>
-    ),
+    (Entity, &Sub, Option<&mut Transform>, Option<&Shown>, Option<&Children>),
     Without<Screw>
   >,
-  bits: Query<(), With<Bit>>,
+  fittings: Query<(), With<Fittings>>,
   mut screws: Query<&mut Transform, With<Screw>>,
   mut beams: Query<(&ChildOf, &mut SpotLight), With<Beam>>
 ) {
@@ -768,13 +962,13 @@ fn moor(
         .map(|_| (pilot.at, pilot.yaw, pilot.pitch))
     })
   };
-  for (entity, sub, transform, visibility, shown, children) in subs.iter_mut() {
+  for (entity, sub, transform, shown, children) in subs.iter_mut() {
     let ridden = mine(entity);
     let (at, yaw, pitch) = ridden.unwrap_or((sub.at, sub.yaw, sub.pitch));
     let wanted = Transform::from_translation(at).with_rotation(Quat::from_euler(
       EulerRot::YXZ,
       yaw,
-      pitch * 0.35,
+      pitch * 0.2,
       0.0
     ));
     match transform {
@@ -797,26 +991,23 @@ fn moor(
                 shadow_maps_enabled: false,
                 ..default()
               },
-              Transform::from_xyz(0.0, MIDDLE, -1.8)
+              Transform::from_xyz(0.0, MIDDLE - 0.55, BUBBLE - 0.5)
             ));
+            hollow(&kit, ship)
           }
         );
       }
     }
     if shown.is_none_or(|shown| shown.0 != sub.modules) {
-      for child in children.into_iter().flatten().filter(|child| bits.contains(**child)) {
+      for child in
+        children.into_iter().flatten().filter(|child| fittings.contains(**child))
+      {
         commands.entity(*child).despawn()
       }
-      commands
-        .entity(entity)
-        .insert(Shown(sub.modules.clone()))
-        .with_children(|ship| outfit(&kit, sub, ship));
-    }
-    let hidden = ridden.is_some() && *view == crate::player::View::First;
-    if let Some(mut visibility) = visibility {
-      visibility.set_if_neq(match hidden {
-        true => Visibility::Hidden,
-        false => Visibility::Inherited
+      commands.entity(entity).insert(Shown(sub.modules.clone())).with_children(|ship| {
+        ship
+          .spawn((Fittings, Transform::default(), Visibility::default()))
+          .with_children(|fitted| outfit(&kit, sub, fitted));
       });
     }
   }
@@ -930,11 +1121,13 @@ fn cruise(
             velocity.y = 0.0
           }
           let at = [1, 0, 2].into_iter().fold(pilot.at, |at, axis| {
-            let (moved, hit) = slide(&voxels, BULK, at, axis, velocity[axis] * STEP);
+            let keel = Vec3::Y * KEEL;
+            let (moved, hit) =
+              slide(&voxels, BULK, at + keel, axis, velocity[axis] * STEP);
             if hit {
               velocity[axis] = 0.0
             }
-            moved
+            moved - keel
           });
           pilot.at = at;
           pilot.velocity = velocity
