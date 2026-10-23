@@ -49,11 +49,16 @@ fn sighted(
     name: match beast.breed {
       Breed::Sheep(_) => "Sheep",
       Breed::Lizard => "Water Lizard",
-      Breed::Spider => "Cave Spider"
+      Breed::Spider => "Cave Spider",
+      Breed::Glowray => "Glowray",
+      Breed::Lanternjelly => "Lanternjelly",
+      Breed::Snapjaw => "Snapjaw",
+      Breed::Brinewyrm => "Brinewyrm",
+      Breed::Shellback => "Shellback"
     },
-    top: beast.at + Vec3::Y * 1.4,
+    top: beast.at + Vec3::Y * (1.4 * beast.breed.size().max(1.0)),
     full: beast.breed.health(),
-    hostile: beast.breed == Breed::Spider
+    hostile: beast.breed == Breed::Spider || beast.breed.dangerous()
   });
   let fowl = bird.map(|bird| Sighted {
     name: match bird.breed {

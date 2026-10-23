@@ -198,6 +198,11 @@ fn kind_named(name: &str) -> Option<Kind> {
   match name.to_ascii_lowercase().as_str() {
     "sheep" => Some(Kind::Beast(Breed::Sheep(Fleece::White))),
     "lizard" => Some(Kind::Beast(Breed::Lizard)),
+    "glowray" => Some(Kind::Beast(Breed::Glowray)),
+    "lanternjelly" => Some(Kind::Beast(Breed::Lanternjelly)),
+    "snapjaw" => Some(Kind::Beast(Breed::Snapjaw)),
+    "brinewyrm" => Some(Kind::Beast(Breed::Brinewyrm)),
+    "shellback" => Some(Kind::Beast(Breed::Shellback)),
     "swan" => Some(Kind::Bird(bird::Breed::Swan)),
     "raven" => Some(Kind::Bird(bird::Breed::Raven)),
     "gull" => Some(Kind::Bird(bird::Breed::Gull)),
@@ -220,7 +225,12 @@ fn mobs(world: &mut World) -> Vec<(Entity, String, Vec3)> {
       let kind = match beast.breed {
         Breed::Sheep(_) => "sheep",
         Breed::Lizard => "lizard",
-        Breed::Spider => "spider"
+        Breed::Spider => "spider",
+        Breed::Glowray => "glowray",
+        Breed::Lanternjelly => "lanternjelly",
+        Breed::Snapjaw => "snapjaw",
+        Breed::Brinewyrm => "brinewyrm",
+        Breed::Shellback => "shellback"
       };
       (entity, kind.to_string(), beast.at)
     })

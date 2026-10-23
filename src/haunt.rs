@@ -619,6 +619,13 @@ fn spoils(
       6
     ),
     (_, Some(Breed::Sheep(_)), _) => (vec![], 3),
+    (_, Some(Breed::Glowray), _) => (vec![(Block::ArcaneDust, 1)], 6),
+    (_, Some(Breed::Lanternjelly), _) => (vec![(Block::ArcaneDust, 1)], 5),
+    (_, Some(Breed::Snapjaw), _) => (vec![(Block::Cod, 2), (Block::BoneDust, 1)], 16),
+    (_, Some(Breed::Brinewyrm), _) => {
+      (vec![(Block::Tidepearl, 1), (Block::BoneDust, 3), (Block::DiamondOre, 1)], 80)
+    }
+    (_, Some(Breed::Shellback), _) => (vec![], 4),
     (_, _, true) => (vec![], 3),
     _ => (vec![], 0)
   }

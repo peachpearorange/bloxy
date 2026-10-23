@@ -45,7 +45,12 @@ impl Breed {
     match self {
       Breed::Sheep(_) => Bulk { half: 0.35, tall: 1.0 },
       Breed::Lizard => Bulk { half: 0.3, tall: 0.95 },
-      Breed::Spider => Bulk { half: 0.42, tall: 0.6 }
+      Breed::Spider => Bulk { half: 0.42, tall: 0.6 },
+      Breed::Glowray => Bulk { half: 0.7, tall: 0.4 },
+      Breed::Lanternjelly => Bulk { half: 0.4, tall: 1.0 },
+      Breed::Snapjaw => Bulk { half: 0.5, tall: 0.6 },
+      Breed::Brinewyrm => Bulk { half: 0.7, tall: 0.7 },
+      Breed::Shellback => Bulk { half: 0.6, tall: 0.5 }
     }
   }
 
@@ -53,15 +58,25 @@ impl Breed {
     match self {
       Breed::Sheep(_) => 8,
       Breed::Lizard => 6,
-      Breed::Spider => 8
+      Breed::Spider => 8,
+      Breed::Glowray => 10,
+      Breed::Lanternjelly => 4,
+      Breed::Snapjaw => 14,
+      Breed::Brinewyrm => 45,
+      Breed::Shellback => 20
     }
   }
 
-  fn size(self) -> f32 {
+  pub fn size(self) -> f32 {
     match self {
       Breed::Sheep(_) => 1.0,
       Breed::Lizard => 1.35,
-      Breed::Spider => 1.0
+      Breed::Spider => 1.0,
+      Breed::Glowray => 1.5,
+      Breed::Lanternjelly => 1.0,
+      Breed::Snapjaw => 1.15,
+      Breed::Brinewyrm => 2.2,
+      Breed::Shellback => 1.6
     }
   }
 }
@@ -311,7 +326,8 @@ fn mood(
       roll if roll < 0.45 => Mood::Idle,
       _ => Mood::Stroll
     },
-    (Breed::Spider, _, true) => Mood::Swim
+    (Breed::Spider, _, true) => Mood::Swim,
+    _ => Mood::Swim
   };
   if next != roam.mood || expired {
     roam.timer = match next {
@@ -419,7 +435,8 @@ fn roam(
     let flooded = [probe, probe - IVec3::Y].into_iter().any(|cell| wet(&voxels, cell));
     let shy = match breed {
       Breed::Sheep(_) => drop || flooded,
-      Breed::Lizard | Breed::Spider => drop && !flooded && !swimming
+      Breed::Lizard | Breed::Spider => drop && !flooded && !swimming,
+      _ => !flooded
     };
     if shy && roam.grounded && roam.mood != Mood::Seaward {
       yaw += PI;
@@ -554,7 +571,8 @@ fn prod(
 pub struct Shapes {
   meshes: HashMap<([u32; 5], [u32; 3]), Handle<Mesh>>,
   materials: HashMap<[u8; 3], Handle<StandardMaterial>>,
-  hides: HashMap<Breed, Option<(Handle<Mesh>, Handle<SkinnedMeshInverseBindposes>)>>
+  hides: HashMap<Breed, Option<(Handle<Mesh>, Handle<SkinnedMeshInverseBindposes>)>>,
+  glassy: Option<Handle<StandardMaterial>>
 }
 
 impl Shapes {
@@ -1121,7 +1139,8 @@ fn dress(
     let bones = match beast.breed {
       Breed::Sheep(_) => sheep(),
       Breed::Lizard => lizard(),
-      Breed::Spider => spider()
+      Breed::Spider => spider(),
+      marine => crate::sea::rig(marine)
     };
     let joints =
       rig(entity, &bones, &mut shapes, &mut meshes, &mut materials, &mut commands);
@@ -1132,15 +1151,22 @@ fn dress(
         let mesh = match beast.breed {
           Breed::Sheep(fleece) => fleeced(fleece),
           Breed::Lizard => scaly(),
-          Breed::Spider => spidery()
+          Breed::Spider => spidery(),
+          marine => crate::sea::hide(marine)
         };
         Some((meshes.add(mesh), poses.add(bound(&bones))))
       })
       .clone();
     if let Some((mesh, inverse_bindposes)) = hide {
+      let material = match beast.breed {
+        Breed::Lanternjelly => {
+          shapes.glassy.get_or_insert_with(|| crate::sea::glassy(&mut materials)).clone()
+        }
+        _ => shapes.paint(&mut materials, [1.0; 3])
+      };
       commands.spawn((
         Mesh3d(mesh),
-        MeshMaterial3d(shapes.paint(&mut materials, [1.0; 3])),
+        MeshMaterial3d(material),
         SkinnedMesh { inverse_bindposes, joints },
         DynamicSkinnedMeshBounds,
         ChildOf(entity)
@@ -1149,19 +1175,28 @@ fn dress(
   }
 }
 
-struct Stance {
-  hips: f32,
-  trunk: Quat,
-  neck: Quat,
-  tail: Quat,
-  tip: Quat,
-  leg: f32,
-  arm: (f32, f32, f32)
+pub struct Stance {
+  pub hips: f32,
+  pub trunk: Quat,
+  pub neck: Quat,
+  pub tail: Quat,
+  pub tip: Quat,
+  pub leg: f32,
+  pub arm: (f32, f32, f32),
+  pub fin: f32
 }
 
 fn stance(breed: Breed, pose: Pose, stride: f32, beat: f32, now: f32) -> Stance {
   let (swing, twice) = (stride.sin(), (stride * 2.0).sin());
   match (breed, pose) {
+    (
+      marine @ (Breed::Glowray
+      | Breed::Lanternjelly
+      | Breed::Snapjaw
+      | Breed::Brinewyrm
+      | Breed::Shellback),
+      pose
+    ) => crate::sea::stance(marine, pose, now),
     (Breed::Sheep(_), pose) => Stance {
       hips: 0.0,
       trunk: Quat::IDENTITY,
@@ -1172,7 +1207,8 @@ fn stance(breed: Breed, pose: Pose, stride: f32, beat: f32, now: f32) -> Stance 
       tail: Quat::IDENTITY,
       tip: Quat::IDENTITY,
       leg: swing * 0.6 * beat,
-      arm: (0.0, 0.0, 0.0)
+      arm: (0.0, 0.0, 0.0),
+      fin: 0.0
     },
     (Breed::Spider, pose) => Stance {
       hips: 0.32 + twice.abs() * 0.03 * beat,
@@ -1181,7 +1217,8 @@ fn stance(breed: Breed, pose: Pose, stride: f32, beat: f32, now: f32) -> Stance 
       tail: Quat::IDENTITY,
       tip: Quat::IDENTITY,
       leg: (stride * 1.6).sin() * 0.55 * beat,
-      arm: (0.0, 0.0, 0.0)
+      arm: (0.0, 0.0, 0.0),
+      fin: 0.0
     },
     (Breed::Lizard, Pose::Swim) => {
       let wiggle = (now * 7.0).sin();
@@ -1192,7 +1229,8 @@ fn stance(breed: Breed, pose: Pose, stride: f32, beat: f32, now: f32) -> Stance 
         tail: Quat::from_rotation_y(-wiggle * 0.5),
         tip: Quat::from_rotation_y(-(now * 7.0 - 1.2).sin() * 0.6),
         leg: -1.3,
-        arm: (1.2, 0.0, 0.2)
+        arm: (1.2, 0.0, 0.2),
+        fin: 0.0
       }
     }
     (Breed::Lizard, Pose::Run) => {
@@ -1205,7 +1243,8 @@ fn stance(breed: Breed, pose: Pose, stride: f32, beat: f32, now: f32) -> Stance 
         tip: Quat::from_rotation_x(0.2)
           * Quat::from_rotation_y((stride - 1.0).sin() * 0.5),
         leg: swing * 1.35,
-        arm: (0.2, twice * 1.3, 0.7 + twice * 0.5)
+        arm: (0.2, twice * 1.3, 0.7 + twice * 0.5),
+        fin: 0.0
       }
     }
     (Breed::Lizard, _) => {
@@ -1218,7 +1257,8 @@ fn stance(breed: Breed, pose: Pose, stride: f32, beat: f32, now: f32) -> Stance 
           * Quat::from_rotation_y(swing * 0.25 * beat),
         tip: Quat::from_rotation_y((stride - 1.0).sin() * 0.2 * beat),
         leg: swing * 0.6 * beat,
-        arm: (0.3, swing * 0.3 * beat, 0.1)
+        arm: (0.3, swing * 0.3 * beat, 0.1),
+        fin: 0.0
       }
     }
   }
@@ -1244,7 +1284,7 @@ fn animate(
     *transform = Transform::from_translation(shown.at)
       .with_rotation(Quat::from_rotation_y(shown.yaw))
       .with_scale(Vec3::splat(beast.breed.size()));
-    let Stance { hips, trunk, neck, tail, tip, leg, arm } =
+    let Stance { hips, trunk, neck, tail, tip, leg, arm, fin } =
       stance(beast.breed, beast.pose, shown.stride, shown.stance, now);
     for child in family.iter_descendants(entity) {
       if let Ok((joint, rest, mut transform)) = joints.get_mut(child) {
@@ -1256,7 +1296,7 @@ fn animate(
           Joint::Tail => (rest.0, tail),
           Joint::TailTip => (rest.0, tip),
           Joint::Leg(phase) => (rest.0, Quat::from_rotation_x(leg * phase.cos())),
-          Joint::Wing(_) => (rest.0, Quat::IDENTITY),
+          Joint::Wing(_) => (rest.0, Quat::from_rotation_z(rest.0.x.signum() * fin)),
           Joint::Arm(phase) => {
             let (base, swing, spread) = arm;
             (
@@ -1276,13 +1316,16 @@ fn animate(
 fn parade(pilot: Res<Pilot>, mut done: Local<bool>, mut commands: Commands) {
   if !*done && pilot.grounded {
     *done = true;
-    let beasts = [
+    let beasts: Vec<Breed> = [
       Breed::Sheep(Fleece::White),
       Breed::Sheep(Fleece::Black),
       Breed::Sheep(Fleece::Brown),
       Breed::Lizard,
       Breed::Spider
-    ];
+    ]
+    .into_iter()
+    .chain(crate::sea::SEA_LIFE)
+    .collect();
     let birds =
       [bird::Breed::Swan, bird::Breed::Raven, bird::Breed::Gull, bird::Breed::Parrot];
     let folk = [

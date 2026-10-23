@@ -387,7 +387,12 @@ pub enum Fleece {
 pub enum Breed {
   Sheep(Fleece),
   Lizard,
-  Spider
+  Spider,
+  Glowray,
+  Lanternjelly,
+  Snapjaw,
+  Brinewyrm,
+  Shellback
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]

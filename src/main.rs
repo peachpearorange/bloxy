@@ -65,6 +65,7 @@ mod protocol;
 mod recipe;
 mod save;
 mod sculpt;
+mod sea;
 mod settings;
 mod ship;
 mod shroomling;
@@ -320,7 +321,7 @@ fn main() {
       audio::Sounds,
       machine::Machines
     ))
-    .add_plugins((conveyor::Conveying, arcana::Arcana))
+    .add_plugins((conveyor::Conveying, arcana::Arcana, sea::SeaLife))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
   app.add_plugins((net::server::ServerNet, admin::Admin));
