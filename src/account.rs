@@ -1,4 +1,5 @@
-use {crate::{protocol::{Avatar, Bedside, Bookmarks, HUES, Inventory, Visited},
+use {crate::{goal::Deeds,
+             protocol::{Avatar, Bedside, Bookmarks, HUES, Inventory, Visited},
              skill::Skills,
              skin::Skin},
      bevy::prelude::*,
@@ -25,7 +26,9 @@ pub struct Account {
   #[serde(default)]
   pub hue: Option<u8>,
   #[serde(default)]
-  pub skills: Skills
+  pub skills: Skills,
+  #[serde(default)]
+  pub deeds: Deeds
 }
 
 pub fn random() -> u64 {
@@ -47,7 +50,8 @@ pub type Kept<'a> = (
   &'a Visited,
   &'a Bookmarks,
   &'a Bedside,
-  &'a Skills
+  &'a Skills,
+  &'a Deeds
 );
 
 impl Account {
@@ -64,15 +68,17 @@ impl Account {
       bookmarks: default(),
       bedside: default(),
       hue: None,
-      skills: default()
+      skills: default(),
+      deeds: default()
     }
   }
 
   pub fn keep(
     &mut self,
-    (&avatar, inventory, skin, visited, bookmarks, &bedside, skills): Kept
+    (&avatar, inventory, skin, visited, bookmarks, &bedside, skills, deeds): Kept
   ) {
     self.skills = skills.clone();
+    self.deeds = deeds.clone();
     self.avatar = Some(avatar);
     self.inventory = inventory.clone();
     self.skin = skin.clone();

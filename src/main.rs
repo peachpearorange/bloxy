@@ -40,6 +40,7 @@ mod generate;
 mod ghost;
 mod glance;
 mod glyph;
+mod goal;
 mod ground;
 mod hand;
 mod haunt;
@@ -321,7 +322,7 @@ fn main() {
       audio::Sounds,
       machine::Machines
     ))
-    .add_plugins((conveyor::Conveying, arcana::Arcana, sea::SeaLife))
+    .add_plugins((conveyor::Conveying, arcana::Arcana, sea::SeaLife, goal::Goals))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
   app.add_plugins((net::server::ServerNet, admin::Admin));

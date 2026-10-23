@@ -592,7 +592,8 @@ impl Plugin for Protocol {
       .add_mapped_client_message::<crate::balloon::Ascend>(Channel::Ordered)
       .add_mapped_client_message::<crate::balloon::Deflate>(Channel::Ordered)
       .add_mapped_client_message::<crate::balloon::Stoke>(Channel::Ordered)
-      .add_client_message::<crate::balloon::Drift>(Channel::Unreliable);
+      .add_client_message::<crate::balloon::Drift>(Channel::Unreliable)
+      .replicate::<crate::goal::Deeds>();
   }
 }
 

@@ -29,6 +29,7 @@ const ESCAPE_GRACE: f32 = 0.3;
 pub enum Tab {
   Inventory,
   Skills,
+  Goals,
   Map,
   Settings,
   Profile,
@@ -58,6 +59,7 @@ impl Tab {
       Tab::Trade => "Trade",
       Tab::Map => "Map",
       Tab::Skills => "Skills",
+      Tab::Goals => "Goals",
       Tab::Chest => "Chest",
       Tab::Machine => "Machine"
     }
@@ -374,6 +376,7 @@ fn build(
                 Tab::Trade => trade::page(page),
                 Tab::Map => chart::page(page, &chart),
                 Tab::Skills => crate::skill::page(page),
+                Tab::Goals => crate::goal::page(page),
                 Tab::Chest => crafting::chest_page(page, &palette),
                 Tab::Machine => crate::apparatus::page(page)
               });
@@ -402,7 +405,8 @@ pub fn toggle(
   let shortcut = [
     (KeyCode::KeyE, Tab::Inventory),
     (KeyCode::KeyM, Tab::Map),
-    (KeyCode::KeyK, Tab::Skills)
+    (KeyCode::KeyK, Tab::Skills),
+    (KeyCode::KeyJ, Tab::Goals)
   ]
   .into_iter()
   .find(|&(key, _)| keys.just_pressed(key) && focus.0.is_none())
@@ -673,6 +677,7 @@ impl Plugin for Menus {
       Some("sign") => Tab::Sign,
       Some("map") => Tab::Map,
       Some("skills") => Tab::Skills,
+      Some("goals") => Tab::Goals,
       _ => Tab::Settings
     };
     app

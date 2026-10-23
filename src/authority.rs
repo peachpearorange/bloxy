@@ -88,7 +88,16 @@ fn embody(
 ) -> Entity {
   let hue = accounts.0[account].hue();
   let Account {
-    name, avatar, inventory, skin, visited, bookmarks, bedside, skills, ..
+    name,
+    avatar,
+    inventory,
+    skin,
+    visited,
+    bookmarks,
+    bedside,
+    skills,
+    deeds,
+    ..
   } = accounts.0[account].clone();
   let most = skills.most();
   let at = generate::spawn_point(seed);
@@ -105,6 +114,7 @@ fn embody(
       bedside,
       (
         skills,
+        deeds,
         crate::condition::Conditions::default(),
         crate::spell::Spellbook::default(),
         Health(most),
