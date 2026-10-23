@@ -310,10 +310,10 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>
         out.rough = 0.18;
         out.metal = 0.25;
     } else if kind < 6.5 {
-        let warped = at * 1.6 + vec3<f32>(layered(at * 0.5), layered(at * 0.5 + 11.0), layered(at * 0.5 + 23.0)) * 1.4;
-        let ridge = abs(lumpy(warped) - 0.5) + abs(lumpy(warped * 2.1 + 5.0) - 0.5) * 0.4;
-        let groove = 1.0 - smoothstep(0.03, 0.09, ridge);
-        var color = mix(vec3<f32>(0.78, 0.6, 0.44), vec3<f32>(0.9, 0.76, 0.58), layered(at * 1.3));
+        let warped = at * 3.4 + vec3<f32>(layered(at * 0.8), layered(at * 0.8 + 11.0), layered(at * 0.8 + 23.0)) * 2.2;
+        let ridge = abs(lumpy(warped) - 0.5) + abs(lumpy(warped * 2.1 + 5.0) - 0.5) * 0.3;
+        let groove = 1.0 - smoothstep(0.04, 0.1, ridge);
+        var color = mix(vec3<f32>(0.86, 0.52, 0.34), vec3<f32>(0.96, 0.74, 0.5), layered(at * 1.3));
         color = mix(color, vec3<f32>(0.62, 0.72, 0.42), smoothstep(0.6, 0.8, layered(at * 0.4 + 3.0)) * 0.5);
         out.color = color * (1.0 - groove * 0.6);
         out.height = -groove + ridge;
