@@ -96,7 +96,6 @@ pub fn aspects(block: Block) -> &'static [(Aspect, u16)] {
     Block::Log | Block::BirchLog | Block::SpruceLog | Block::PalmLog => &[(Growth, 3)],
     Block::Planks => &[(Growth, 1)],
     leaves if leaves.leafy() => &[(Growth, 1), (Air, 1)],
-    Block::TallGrass => &[(Growth, 1)],
     Block::Poppy | Block::Dandelion | Block::Cornflower | Block::Daisy => {
       &[(Growth, 1), (Air, 1)]
     }

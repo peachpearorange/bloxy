@@ -226,7 +226,6 @@ pub fn attached(drain: Block, near: impl Fn(IVec3) -> Block) -> Option<usize> {
 pub fn biomass(block: Block) -> Option<f32> {
   match block {
     leaves if leaves.leafy() => Some(25.0),
-    Block::TallGrass => Some(20.0),
     Block::Poppy | Block::Dandelion | Block::Cornflower | Block::Daisy => Some(30.0),
     Block::OakSapling
     | Block::BirchSapling

@@ -18,6 +18,8 @@ use {crate::{block::Block,
 
 const CELL: f32 = 46.0;
 const GAP: f32 = 0.0;
+const BELT_ROOM: f32 = crate::hud::BELT_BOTTOM + crate::hud::SLOT - PAGE_MARGIN;
+const PAGE_MARGIN: f32 = 10.0;
 const CAN: Color = Color::srgb(0.45, 0.85, 0.4);
 const SHORT: Color = Color::srgb(0.95, 0.42, 0.36);
 const SHADOW: TextShadow = crate::hud::SHADE;
@@ -191,6 +193,13 @@ fn row(
     });
 }
 
+fn backpack(parent: &mut ChildSpawnerCommands, palette: &Palette) {
+  parent
+    .spawn(Node { align_self: AlignSelf::Center, flex_shrink: 0.0, ..default() })
+    .with_children(|centred| row(centred, (HOTBAR..SLOTS).map(Place::Own), palette));
+  parent.spawn(Node { height: px(BELT_ROOM), flex_shrink: 0.0, ..default() });
+}
+
 fn column(width: Option<f32>, grow: f32) -> Node {
   Node {
     flex_direction: FlexDirection::Column,
@@ -240,12 +249,14 @@ pub fn page(page: &mut ChildSpawnerCommands, palette: &Palette) {
               ..default()
             })
           );
-          middle.spawn(words("Backpack", 15.0, FAINT));
-          row(middle, (HOTBAR..SLOTS).map(Place::Own), palette);
-          middle.spawn(words("Hotbar", 15.0, FAINT));
-          row(middle, (0..HOTBAR).map(Place::Own), palette);
+          middle.spawn((words("Backpack", 15.0, FAINT), Node {
+            align_self: AlignSelf::Center,
+            width: px(HOTBAR as f32 * (CELL + GAP)),
+            ..default()
+          }));
+          backpack(middle, palette);
         });
-      columns.spawn(column(None, 1.6)).with_children(|right| {
+      columns.spawn(column(None, 1.0)).with_children(|right| {
         right
           .spawn(Node {
             column_gap: px(10),
@@ -304,29 +315,30 @@ pub fn chest_page(page: &mut ChildSpawnerCommands, palette: &Palette) {
     .spawn(Node {
       flex_direction: FlexDirection::Column,
       align_items: AlignItems::Center,
+      justify_content: JustifyContent::FlexEnd,
       row_gap: px(4),
       width: percent(100),
+      flex_grow: 1.0,
       ..default()
     })
     .with_children(|middle| {
       middle.spawn((HoardTitle, words("Chest", 20.0, INK)));
       row(middle, (0..ROOM).map(Place::Chest), palette);
-      middle.spawn((words("Backpack", 15.0, FAINT), Node {
-        margin: UiRect::top(px(12)),
-        ..default()
-      }));
-      row(middle, (HOTBAR..SLOTS).map(Place::Own), palette);
-      middle.spawn(words("Hotbar", 15.0, FAINT));
-      row(middle, (0..HOTBAR).map(Place::Own), palette);
       middle.spawn((
         words(
-          "Click to pick up and put down stacks. Shift-click moves a stack between the \
-           chest and your inventory.",
+          "Click to pick up and put down stacks. Right-click takes half a stack, or puts \
+           down one while carrying. Shift-click moves a stack between the chest and your \
+           inventory.",
           13.0,
           FAINT
         ),
-        Node { margin: UiRect::top(px(8)), ..default() }
+        Node { margin: UiRect::vertical(px(8)), ..default() }
       ));
+      middle.spawn((words("Backpack", 15.0, FAINT), Node {
+        width: px(HOTBAR as f32 * (CELL + GAP)),
+        ..default()
+      }));
+      backpack(middle, palette);
     });
 }
 
@@ -1006,20 +1018,30 @@ fn obey(
 ) {
   let inventory = carried(&pilot, &inventories);
   let holding = inventory.slots[CURSOR].is_some();
+  let chest = coffer.0.at;
+  let handled = handling(&menu);
   if buttons.just_pressed(MouseButton::Right)
-    && let Some(index) = hovered
+    && handled
+    && let Some(&act) = hovered
       .iter()
-      .filter(|(interaction, _)| **interaction != Interaction::None)
-      .find_map(|(_, act)| match *act {
-        Act::Slot(index) => Some(index),
-        _ => None
-      })
+      .find(|(interaction, _)| **interaction != Interaction::None)
+      .map(|(_, act)| act)
   {
-    picks.write(Picked(if holding { Pick::One(index) } else { Pick::Half(index) }));
+    match act {
+      Act::Slot(index) => {
+        picks.write(Picked(if holding { Pick::One(index) } else { Pick::Half(index) }));
+      }
+      Act::Stash(index) => {
+        rummages.write(Rummage {
+          at: chest,
+          handling: if holding { Handling::One(index) } else { Handling::Half(index) }
+        });
+      }
+      _ => ()
+    }
   }
   let shifted = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) && !holding;
-  let chest = coffer.0.at;
-  for &Pressed(act) in pressed.read() {
+  for &Pressed(act) in pressed.read().filter(|_| handled) {
     match act {
       Act::Slot(index) if shifted && menu.showing(Tab::Chest) => {
         rummages.write(Rummage { at: chest, handling: Handling::Deposit(index) });

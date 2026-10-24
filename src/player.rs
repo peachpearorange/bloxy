@@ -186,10 +186,10 @@ fn grab(
     && buttons.just_pressed(MouseButton::Left)
   {
     if playing {
-      cursor.grab_mode = CursorGrabMode::Locked;
+      cursor.grab_mode = local::GRAB;
       cursor.visible = false
     }
-    if !matches!(window.mode, WindowMode::BorderlessFullscreen(_)) {
+    if !local::WEB && !matches!(window.mode, WindowMode::BorderlessFullscreen(_)) {
       window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Current)
     }
   }
@@ -200,8 +200,9 @@ pub fn captured(
   menu: &Menu
 ) -> bool {
   !menu.open
-    && (cursor.single().is_ok_and(|cursor| cursor.grab_mode != CursorGrabMode::None)
-      || opts().shot.is_some())
+    && (local::pointer_locked().unwrap_or_else(|| {
+      cursor.single().is_ok_and(|cursor| cursor.grab_mode != CursorGrabMode::None)
+    }) || opts().shot.is_some())
 }
 
 fn look(
@@ -309,6 +310,7 @@ pub fn slide(
 }
 
 const STEP_UP: f32 = 1.05;
+const STEP_DOWN: f32 = 0.3;
 const LIFT_EASE: f32 = 10.0;
 const NOTICED_LIFT: f32 = 0.2;
 const STRIDE: f32 = 0.12;
@@ -364,7 +366,7 @@ fn stride(
       let velocity = velocity - away * velocity.dot(away).min(0.0);
       let walled = walled || push.xz().length() > 1e-4;
       let reach = match (grounded || landed) && footed {
-        true => STEP_UP,
+        true => STEP_DOWN,
         false => 0.0
       };
       match (velocity.y <= 0.0).then(|| foothold(hulls, at, reach)).flatten() {

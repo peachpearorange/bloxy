@@ -112,7 +112,13 @@ pub fn unpack(packed: &[u8]) -> Option<Vec<Block>> {
           Some(decoded)
         })
         .flatten()
-        .map(|index| Block::ALL.get(index).copied().unwrap_or_default())
+        .map(|index| {
+          Block::ALL
+            .get(index)
+            .copied()
+            .filter(|&block| block != Block::TallGrass)
+            .unwrap_or_default()
+        })
         .collect::<Vec<Block>>()
     })
     .filter(|blocks| blocks.len() == COLUMN)

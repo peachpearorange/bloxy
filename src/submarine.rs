@@ -965,12 +965,9 @@ fn moor(
   for (entity, sub, transform, shown, children) in subs.iter_mut() {
     let ridden = mine(entity);
     let (at, yaw, pitch) = ridden.unwrap_or((sub.at, sub.yaw, sub.pitch));
-    let wanted = Transform::from_translation(at).with_rotation(Quat::from_euler(
-      EulerRot::YXZ,
-      yaw,
-      pitch * 0.2,
-      0.0
-    ));
+    let tilt = Quat::from_euler(EulerRot::YXZ, yaw, pitch * 0.2, 0.0);
+    let eye = Vec3::Y * EYE;
+    let wanted = Transform::from_translation(at + eye - tilt * eye).with_rotation(tilt);
     match transform {
       Some(mut transform) if ridden.is_some() => *transform = wanted,
       Some(mut transform) => {

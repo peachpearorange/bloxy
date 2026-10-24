@@ -71,7 +71,7 @@ fn surface(seed: u32, islands: &[Island], x: i32, z: i32) -> Surface {
     )
 }
 
-pub const GENERATION: u32 = 10;
+pub const GENERATION: u32 = 11;
 
 fn seeping(seed: u32, seep: IVec2, column: IVec2) -> bool {
   let ragged = 1.4 + unit(seed ^ 0x0115, column.x, 0, column.y) * 1.6;
@@ -531,28 +531,13 @@ fn bloom(seed: u32, x: i32, z: i32, ground: &Column) -> Option<Block> {
   let moonlit = (top == Block::Snow || (top == Block::Grass && heat < -0.15))
     && height > SEA + 6
     && unit(seed ^ 0xF17, x, 7, z) < 0.004;
-  moonlit
-    .then_some(Block::Moonlace)
-    .or(enchanted.then_some(glimmer))
-    .or(
-      sown
-        .filter(|&(_, density)| {
-          unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
-        })
-        .map(|(block, _)| block)
-    )
-    .or_else(|| {
-      let lush = match (kind, top) {
-        (Some(Kind::Meadow), Block::Grass) => 0.45,
-        (_, Block::Grass) => {
-          (0.12 + 0.28 * smoothstep(-0.3, 0.4, wet)) * parched.max(0.3)
-        }
-        _ => 0.0
-      };
-      let sward = fbm2(seed.wrapping_add(43), x as f32 / 11.0, z as f32 / 11.0, 2) + 0.5;
-      (unit(seed ^ 0xF13, x, 4, z) < lush * sward.clamp(0.0, 1.0))
-        .then_some(Block::TallGrass)
-    })
+  moonlit.then_some(Block::Moonlace).or(enchanted.then_some(glimmer)).or(
+    sown
+      .filter(|&(_, density)| {
+        unit(seed ^ 0xF10, x, 2, z) < density * (0.2 + field * field * 2.0)
+      })
+      .map(|(block, _)| block)
+  )
 }
 
 fn reef(seed: u32, x: i32, z: i32, ground: &Column) -> Option<(Block, i32)> {

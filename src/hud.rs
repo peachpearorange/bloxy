@@ -1,5 +1,5 @@
 use {crate::{block::Block,
-             menu::Menu,
+             menu::{Act, Menu, Tab},
              model,
              opts::opts,
              player::{Aim, Pilot, Selected},
@@ -29,6 +29,9 @@ struct Hotbar;
 
 #[derive(Component)]
 pub struct Tucked;
+
+#[derive(Component)]
+struct Belt;
 
 #[derive(Component)]
 struct Outline;
@@ -107,7 +110,8 @@ fn hearts() -> Image {
 
 const EDGE: f32 = 0.012;
 
-const SLOT: f32 = 46.0;
+pub const SLOT: f32 = 46.0;
+pub const BELT_BOTTOM: f32 = 8.0;
 const ICON_SHOWN: f32 = 40.0;
 const STRIP: Color = Color::srgba(0.42, 0.42, 0.44, 0.7);
 const PICKED: Color = Color::srgb(0.95, 0.95, 0.95);
@@ -128,14 +132,35 @@ fn scale(
 
 fn tuck(
   menu: Res<Menu>,
-  mut bars: Query<&mut Visibility, Or<(With<Hotbar>, With<Status>, With<Tucked>)>>
+  mut bars: Query<
+    &mut Visibility,
+    (Or<(With<Hotbar>, With<Status>, With<Tucked>)>, Without<Belt>)
+  >,
+  mut belts: Query<&mut Visibility, With<Belt>>
 ) {
+  let shown = |open: bool| match open {
+    true => Visibility::Hidden,
+    false => Visibility::Inherited
+  };
   for mut visibility in bars.iter_mut() {
-    visibility.set_if_neq(if menu.open {
-      Visibility::Hidden
-    } else {
-      Visibility::Inherited
-    });
+    visibility.set_if_neq(shown(menu.open));
+  }
+  let handled = menu.showing(Tab::Inventory) || menu.showing(Tab::Chest);
+  for mut visibility in belts.iter_mut() {
+    visibility.set_if_neq(shown(menu.open && !handled));
+  }
+}
+
+fn shine(
+  menu: Res<Menu>,
+  mut slots: Query<(&Interaction, &mut BackgroundColor), With<Slot>>
+) {
+  for (interaction, mut background) in slots.iter_mut() {
+    let lit = menu.open && *interaction != Interaction::None;
+    background.set_if_neq(BackgroundColor(match lit {
+      true => Color::srgba(1.0, 1.0, 1.0, 0.18),
+      false => Color::NONE
+    }));
   }
 }
 
@@ -217,19 +242,26 @@ fn build(
       ));
     });
   commands
-    .spawn((Hotbar, Node {
-      width: percent(100),
-      position_type: PositionType::Absolute,
-      bottom: px(8),
-      justify_content: JustifyContent::Center,
-      ..default()
-    }))
+    .spawn((
+      Belt,
+      Node {
+        width: percent(100),
+        position_type: PositionType::Absolute,
+        bottom: px(BELT_BOTTOM),
+        justify_content: JustifyContent::Center,
+        ..default()
+      },
+      GlobalZIndex(15)
+    ))
     .with_children(|row| {
       row.spawn((Node::default(), BackgroundColor(STRIP))).with_children(|bar| {
         for index in 0..HOTBAR {
           bar
             .spawn((
               Slot(index),
+              Button,
+              Act::Slot(index as u8),
+              BackgroundColor(Color::NONE),
               Node {
                 width: px(SLOT),
                 height: px(SLOT),
@@ -637,7 +669,7 @@ impl Plugin for Hud {
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
       .add_systems(
         Update,
-        (refresh, aim, status, vitals, announce, learning).run_if(plays)
+        (refresh, aim, status, vitals, announce, learning, shine).run_if(plays)
       )
       .add_systems(PostUpdate, tuck.run_if(plays))
       .add_systems(PreUpdate, scale.run_if(plays));

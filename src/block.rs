@@ -608,6 +608,7 @@ impl Block {
     self != Block::Air
       && !self.fluid()
       && self != Block::WaystoneTop
+      && self != Block::TallGrass
       && self.held() == self
   }
 
@@ -953,7 +954,6 @@ impl Block {
 
   pub fn plant(self) -> bool {
     (Block::Poppy..=Block::BrownMushroom).contains(&self)
-      || self == Block::TallGrass
       || self == Block::Moonlace
       || matches!(self, Block::Kelp | Block::Seagrass | Block::Glowkelp)
       || self.glimmer()

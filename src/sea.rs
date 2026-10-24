@@ -67,8 +67,8 @@ impl Breed {
         jaws: 0.0,
         bite: 0,
         bite_every: 0.0,
-        depth: 0.3,
-        deep: 3
+        depth: 6.0,
+        deep: 9
       },
       Breed::Shellback => Temper {
         cruise: 0.9,
@@ -126,6 +126,11 @@ fn cell_of(at: Vec2) -> IVec2 { (at / CELL as f32).floor().as_ivec2() }
 
 fn centre_of(cell: IVec2) -> Vec2 { (cell * CELL).as_vec2() + CELL as f32 / 2.0 }
 
+fn cruising(breed: Breed, floor: i32, whim: f32) -> f32 {
+  let depth = breed.temper().depth * (0.75 + whim * 0.5);
+  (SURFACE - depth).max(floor as f32 + 2.0).min(SURFACE - 0.2)
+}
+
 fn stock(seed: u32, cell: IVec2) -> Vec<(Breed, Vec3, u32)> {
   let key = hash(seed ^ 0x5EA, cell.x, 0x41, cell.y);
   let roll = |salt: u32, n: u32| unit(key ^ salt.wrapping_mul(0x9E37), n as i32, 0, 0);
@@ -172,7 +177,7 @@ fn stock(seed: u32, cell: IVec2) -> Vec<(Breed, Vec3, u32)> {
         })
         .filter(|&(at, _)| depth_at(at) >= 2)
         .map(move |(at, n)| {
-          let y = SURFACE - breed.temper().depth;
+          let y = cruising(breed, generate::height(seed, at.x as i32, at.y as i32), 0.5);
           (breed, at.extend(y).xzy(), key ^ (salt * 31 + n).wrapping_mul(0x85EB))
         })
         .collect::<Vec<_>>()
@@ -346,7 +351,8 @@ fn swim(
       (_, true) => temper.cruise * 2.5 + 1.0,
       _ => temper.cruise
     };
-    let cruise = SURFACE - temper.depth;
+    let floor = generate::height(seed, at.x.floor() as i32, at.z.floor() as i32);
+    let cruise = cruising(breed, floor, (swimmer.luck % 101) as f32 / 100.0);
     let bob = (time.elapsed_secs() * 0.9 + (swimmer.luck % 97) as f32).sin() * 0.12;
     let wanted_y = match prey {
       Some((_, spot, _)) => (spot.y + 0.3).clamp(SEA as f32 - 6.0, cruise),

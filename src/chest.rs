@@ -16,7 +16,9 @@ pub const ROOM: usize = 30;
 pub enum Handling {
   Swap(u8),
   Deposit(u8),
-  Withdraw(u8)
+  Withdraw(u8),
+  Half(u8),
+  One(u8)
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -123,9 +125,9 @@ pub fn stash(slots: &mut [Option<Stack>], stack: Stack) -> Option<Stack> {
 
 fn moved(inventory: &Inventory, handling: Handling) -> Option<Stack> {
   match handling {
-    Handling::Swap(_) => inventory.slots[CURSOR],
+    Handling::Swap(_) | Handling::One(_) => inventory.slots[CURSOR],
     Handling::Deposit(slot) => inventory.slots.get(usize::from(slot)).copied().flatten(),
-    Handling::Withdraw(_) => None
+    Handling::Withdraw(_) | Handling::Half(_) => None
   }
 }
 
@@ -167,6 +169,31 @@ fn handle(chest: &mut [Option<Stack>], inventory: &mut Inventory, handling: Hand
       {
         let left = inventory.gain(stack);
         *slot = (left > 0).then_some(Stack { count: left, ..stack })
+      }
+    }
+    Handling::Half(index) => {
+      if let Some(slot) = chest.get_mut(usize::from(index))
+        && inventory.slots[CURSOR].is_none()
+        && let Some(stack) = *slot
+      {
+        let taken = stack.count.div_ceil(2);
+        inventory.slots[CURSOR] = Some(Stack { count: taken, ..stack });
+        *slot =
+          (stack.count > taken).then_some(Stack { count: stack.count - taken, ..stack })
+      }
+    }
+    Handling::One(index) => {
+      if let Some(slot) = chest.get_mut(usize::from(index))
+        && let Some(held) = inventory.slots[CURSOR]
+        && slot.is_none_or(|stack| {
+          stack.block == held.block
+            && stack.gear == held.gear
+            && stack.count < held.block.stack()
+        })
+      {
+        *slot = Some(Stack { count: slot.map_or(0, |stack| stack.count) + 1, ..held });
+        inventory.slots[CURSOR] =
+          (held.count > 1).then_some(Stack { count: held.count - 1, ..held })
       }
     }
   }

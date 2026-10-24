@@ -1,7 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 mod web {
   use {std::cell::{Cell, RefCell},
-       wasm_bindgen::{JsCast, closure::Closure}};
+       wasm_bindgen::{JsCast, JsValue, closure::Closure}};
 
   thread_local! {
     static PASTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -54,26 +54,70 @@ mod web {
     CAPTURING.with(|capturing| capturing.set(wanted))
   }
 
+  fn settled(promise: JsValue) {
+    if let Ok(promise) = promise.dyn_into::<js_sys::Promise>() {
+      let ignored = Closure::<dyn FnMut(JsValue)>::new(|_: JsValue| ());
+      let _ = promise.catch(&ignored);
+      ignored.forget()
+    }
+  }
+
+  fn call(target: &web_sys::Element, method: &str) -> JsValue {
+    js_sys::Reflect::get(target, &JsValue::from_str(method))
+      .ok()
+      .and_then(|function| function.dyn_into::<js_sys::Function>().ok())
+      .and_then(|function| function.call0(target).ok())
+      .unwrap_or(JsValue::UNDEFINED)
+  }
+
+  fn lock(document: &web_sys::Document, canvas: &web_sys::Element) {
+    if CAPTURING.with(Cell::get) && document.pointer_lock_element().is_none() {
+      settled(call(canvas, "requestPointerLock"))
+    }
+  }
+
   pub fn listen_for_clicks() {
-    let heard =
+    let pressed =
       Closure::<dyn FnMut(web_sys::MouseEvent)>::new(|event: web_sys::MouseEvent| {
         if event.button() == 0
           && let Some(document) = web_sys::window().and_then(|window| window.document())
           && let Some(canvas) = document.query_selector("canvas").ok().flatten()
         {
-          if CAPTURING.with(Cell::get) && document.pointer_lock_element().is_none() {
-            canvas.request_pointer_lock()
-          }
           if document.fullscreen_element().is_none() {
-            canvas.request_fullscreen().ok();
+            settled(call(&canvas, "requestFullscreen"))
           }
+          lock(&document, &canvas)
+        }
+      });
+    let released =
+      Closure::<dyn FnMut(web_sys::MouseEvent)>::new(|event: web_sys::MouseEvent| {
+        if event.button() == 0
+          && let Some(document) = web_sys::window().and_then(|window| window.document())
+          && let Some(canvas) = document.query_selector("canvas").ok().flatten()
+        {
+          lock(&document, &canvas)
         }
       });
     web_sys::window().and_then(|window| window.document()).map(|document| {
       document
-        .add_event_listener_with_callback("mousedown", heard.as_ref().unchecked_ref())
+        .add_event_listener_with_callback("mousedown", pressed.as_ref().unchecked_ref())
+        .and_then(|_| {
+          document.add_event_listener_with_callback(
+            "mouseup",
+            released.as_ref().unchecked_ref()
+          )
+        })
     });
-    heard.forget()
+    pressed.forget();
+    released.forget()
+  }
+
+  pub fn release() {
+    if let Some(document) = web_sys::window().and_then(|window| window.document())
+      && document.pointer_lock_element().is_some()
+    {
+      document.exit_pointer_lock()
+    }
   }
 
   pub fn pointer_locked() -> Option<bool> {
@@ -109,9 +153,18 @@ mod web {
 
   pub fn listen_for_clicks() {}
 
+  pub fn release() {}
+
   pub fn pointer_locked() -> Option<bool> { None }
 }
 
 pub use web::*;
 
 pub const CAN_COPY: bool = cfg!(target_arch = "wasm32");
+
+pub const WEB: bool = cfg!(target_arch = "wasm32");
+
+pub const GRAB: bevy::window::CursorGrabMode = match WEB {
+  true => bevy::window::CursorGrabMode::None,
+  false => bevy::window::CursorGrabMode::Locked
+};

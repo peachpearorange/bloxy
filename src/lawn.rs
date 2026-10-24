@@ -1,5 +1,7 @@
 use {crate::{block::{Block, Look},
+             climate,
              ground::{Concealed, Elements},
+             noise::{fbm2, smoothstep, unit},
              player::Pilot,
              protocol::Role,
              stream::Progress,
@@ -180,7 +182,19 @@ fn ground(block: Block) -> bool {
     && (block.solid() || block.liquid().is_some())
 }
 
-fn survey(layers: [Arc<Chunk>; LAYERS as usize]) -> Vec<[f32; 2]> {
+fn swarded(seed: u32, x: i32, z: i32) -> f32 {
+  let wet = climate::wet(seed, Vec2::new(x as f32, z as f32));
+  let lush =
+    (0.12 + 0.28 * smoothstep(-0.3, 0.4, wet)) * smoothstep(-0.6, -0.1, wet).max(0.3);
+  let sward = fbm2(seed.wrapping_add(43), x as f32 / 11.0, z as f32 / 11.0, 2) + 0.5;
+  f32::from(u8::from(unit(seed ^ 0xF13, x, 4, z) < lush * sward.clamp(0.0, 1.0)))
+}
+
+fn survey(
+  seed: u32,
+  column: IVec2,
+  layers: [Arc<Chunk>; LAYERS as usize]
+) -> Vec<[f32; 2]> {
   let at = |x: i32, y: i32, z: i32| {
     (y < LAYERS * SIZE)
       .then(|| layers[(y / SIZE) as usize].get(IVec3::new(x, y % SIZE, z)))
@@ -194,7 +208,8 @@ fn survey(layers: [Arc<Chunk>; LAYERS as usize]) -> Vec<[f32; 2]> {
         .find(|&y| ground(at(x, y, z)))
         .filter(|&y| at(x, y, z) == Block::Grass && !at(x, y + 1, z).solid())
         .map_or([-1.0, 0.0], |y| {
-          [(y + 1) as f32, f32::from(u8::from(at(x, y + 1, z) == Block::TallGrass))]
+          let at = column * SIZE + IVec2::new(x, z);
+          [(y + 1) as f32, swarded(seed, at.x, at.y)]
         })
     })
     .collect()
@@ -331,6 +346,7 @@ fn grow(
     wanted.sort_by_key(|column| (*column - centre).length_squared());
     let pool = AsyncComputeTaskPool::get();
     let room = SURVEYING.saturating_sub(lawns.surveying.len());
+    let seed = voxels.seed;
     let ready: Vec<(IVec2, [Arc<Chunk>; LAYERS as usize])> = wanted
       .iter()
       .filter_map(|&column| {
@@ -342,7 +358,9 @@ fn grow(
       .collect();
     let waiting = ready.len();
     for (column, layers) in ready.into_iter().take(room) {
-      lawns.surveying.insert(column, pool.spawn(async move { survey(layers) }));
+      lawns
+        .surveying
+        .insert(column, pool.spawn(async move { survey(seed, column, layers) }));
     }
     let surveyed: Vec<(IVec2, Vec<[f32; 2]>)> = lawns
       .surveying
