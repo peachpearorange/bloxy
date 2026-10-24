@@ -52,6 +52,7 @@ mod identity;
 mod imp;
 mod island;
 mod lawn;
+mod legend;
 mod local;
 mod loose;
 mod machine;

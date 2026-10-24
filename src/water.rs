@@ -98,12 +98,28 @@ fn submerge(
   >,
   mut abysses: Query<(&Abyss, &mut Visibility)>,
   mut suns: Query<&mut DirectionalLight>,
+  mut elements: ResMut<crate::ground::Elements>,
+  settings: Res<crate::settings::Settings>,
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut commands: Commands
 ) {
   for (entity, place, mut fog, submerged) in eyes.iter_mut() {
     let eye = place.translation();
     let under = voxels.as_deref().is_some_and(|voxels| underwater(voxels, eye));
+    let deep = match under {
+      true => voxels.as_deref().map_or(0.0, |voxels| below_surface(voxels, eye)),
+      false => -1.0
+    };
+    elements.set_if_neq(crate::ground::Elements {
+      deep: (deep * 4.0).round() / 4.0,
+      ..*elements
+    });
+    for mut sun in suns.iter_mut() {
+      let shaded = settings.shadows && !under;
+      if sun.shadow_maps_enabled != shaded {
+        sun.shadow_maps_enabled = shaded
+      }
+    }
     for (_, mut visibility) in abysses.iter_mut() {
       visibility.set_if_neq(if under {
         Visibility::Inherited

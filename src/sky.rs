@@ -144,9 +144,9 @@ fn light(
     },
     disk,
     CascadeShadowConfigBuilder {
-      num_cascades: 3,
-      first_cascade_far_bound: 16.0,
-      maximum_distance: 140.0,
+      num_cascades: 2,
+      first_cascade_far_bound: 20.0,
+      maximum_distance: 90.0,
       ..default()
     }
     .build(),

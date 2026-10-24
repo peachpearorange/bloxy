@@ -210,16 +210,16 @@ fn settings_page(page: &mut ChildSpawnerCommands) {
       .spawn(Node { align_items: AlignItems::Center, column_gap: px(6), ..default() })
       .with_children(|row| {
         row.spawn((words(knob.label(), 17.0, INK), Node { width: px(220), ..default() }));
-        match knob {
-          Knob::Invert => button(row, "Toggle", Act::Turn(knob, 1)),
-          _ => button(row, "-", Act::Turn(knob, -1))
+        match knob.toggled() {
+          true => button(row, "Toggle", Act::Turn(knob, 1)),
+          false => button(row, "-", Act::Turn(knob, -1))
         }
         row.spawn((Reading(knob), words("", 17.0, LIT), Node {
           width: px(110),
           justify_content: JustifyContent::Center,
           ..default()
         }));
-        if knob != Knob::Invert {
+        if !knob.toggled() {
           button(row, "+", Act::Turn(knob, 1))
         }
       });

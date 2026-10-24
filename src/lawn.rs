@@ -4,6 +4,7 @@ use {crate::{block::{Block, Look},
              noise::{fbm2, smoothstep, unit},
              player::Pilot,
              protocol::Role,
+             settings::Settings,
              stream::Progress,
              voxels::{Chunk, LAYERS, SIZE, Voxels, chunk_of}},
      bevy::{asset::{RenderAssetUsages, embedded_asset},
@@ -394,6 +395,30 @@ fn grow(
   }
 }
 
+fn bladed(settings: Res<Settings>) -> bool { settings.blades }
+
+fn mow(
+  settings: Res<Settings>,
+  mut swaths: Query<&mut Visibility, With<Swath>>,
+  mut grounds: ResMut<Assets<crate::ground::Ground>>,
+  mut progress: ResMut<Progress>
+) {
+  if settings.is_changed() {
+    for mut visibility in swaths.iter_mut() {
+      visibility.set_if_neq(match settings.blades {
+        true => Visibility::Inherited,
+        false => Visibility::Hidden
+      });
+    }
+    for (_, ground) in grounds.iter_mut() {
+      ground.extension.turf.z = f32::from(u8::from(!settings.blades))
+    }
+    if !settings.blades {
+      progress.lawns = 0
+    }
+  }
+}
+
 pub struct Sowing;
 
 impl Plugin for Sowing {
@@ -408,7 +433,7 @@ impl Plugin for Sowing {
           MaterialPlugin::<Thick>::default()
         ))
         .add_systems(Startup, sow)
-        .add_systems(Update, grow)
+        .add_systems(Update, (mow, grow.run_if(bladed)))
         .add_systems(PostUpdate, (follow, sway));
     }
   }

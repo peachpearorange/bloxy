@@ -46,14 +46,19 @@ pub struct Concealed(pub Option<IVec3>);
 #[derive(Resource, Default, PartialEq)]
 pub struct Aimed(pub Option<IVec3>);
 
-#[derive(Resource, Default, PartialEq, Clone, Copy)]
+#[derive(Resource, PartialEq, Clone, Copy)]
 pub struct Elements {
   pub wind: f32,
-  pub wet: f32
+  pub wet: f32,
+  pub deep: f32
+}
+
+impl Default for Elements {
+  fn default() -> Self { Elements { wind: 0.0, wet: 0.0, deep: -1.0 } }
 }
 
 impl Elements {
-  pub fn weather(self) -> Vec4 { Vec4::new(self.wind, self.wet, 0.0, 0.0) }
+  pub fn weather(self) -> Vec4 { Vec4::new(self.wind, self.wet, self.deep, 0.0) }
 }
 
 fn conceal(

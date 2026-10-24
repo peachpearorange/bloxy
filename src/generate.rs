@@ -1063,6 +1063,36 @@ mod tests {
        crate::voxels::{Voxels, chunk_of}};
 
   #[test]
+  #[ignore]
+  fn exposed_rock_near_home() {
+    let home = spawn_point(1).floor().as_ivec3();
+    let mut voxels = Voxels::new(1);
+    for wanted in [Block::Stone, Block::Gravel, Block::Granite, Block::Slate] {
+      let found = (1..60).find_map(|ring| {
+        (-ring..=ring)
+          .flat_map(|step| {
+            [
+              IVec2::new(step, -ring),
+              IVec2::new(step, ring),
+              IVec2::new(-ring, step),
+              IVec2::new(ring, step)
+            ]
+          })
+          .map(|offset| home.xz() + offset * 5)
+          .find_map(|at| {
+            (20..140)
+              .rev()
+              .map(|y| (y, voxels.ensure(IVec3::new(at.x, y, at.y))))
+              .find(|(_, block)| block.solid())
+              .filter(|&(_, block)| block == wanted)
+              .map(|(y, _)| IVec3::new(at.x, y, at.y))
+          })
+      });
+      println!("{wanted:?}: {found:?} from home {home}");
+    }
+  }
+
+  #[test]
   fn spawn_stands_on_ground_in_open_air() {
     let at = spawn_point(1).floor().as_ivec3();
     let mut voxels = Voxels::new(1);

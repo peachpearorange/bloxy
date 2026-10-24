@@ -11,12 +11,21 @@ pub struct Settings {
   pub reach: i32,
   pub sensitivity: f32,
   pub fov: f32,
-  pub invert: bool
+  pub invert: bool,
+  pub blades: bool,
+  pub shadows: bool
 }
 
 impl Default for Settings {
   fn default() -> Self {
-    Self { reach: opts().reach, sensitivity: 1.0, fov: 75.0, invert: false }
+    Self {
+      reach: opts().reach,
+      sensitivity: 1.0,
+      fov: 75.0,
+      invert: false,
+      blades: false,
+      shadows: true
+    }
   }
 }
 
@@ -25,7 +34,9 @@ pub enum Knob {
   Reach,
   Sensitivity,
   Fov,
-  Invert
+  Invert,
+  Grass,
+  Shadows
 }
 
 impl Knob {
@@ -36,8 +47,14 @@ impl Knob {
       Knob::Reach => "View distance",
       Knob::Sensitivity => "Mouse sensitivity",
       Knob::Fov => "Field of view",
-      Knob::Invert => "Invert mouse"
+      Knob::Invert => "Invert mouse",
+      Knob::Grass => "Grass",
+      Knob::Shadows => "Sun shadows"
     }
+  }
+
+  pub fn toggled(self) -> bool {
+    matches!(self, Knob::Invert | Knob::Grass | Knob::Shadows)
   }
 }
 
@@ -59,7 +76,9 @@ impl Settings {
         self.sensitivity = (self.sensitivity + by as f32 * 0.25).clamp(0.25, 3.0)
       }
       Knob::Fov => self.fov = (self.fov + by as f32 * 5.0).clamp(50.0, 110.0),
-      Knob::Invert => self.invert = !self.invert
+      Knob::Invert => self.invert = !self.invert,
+      Knob::Grass => self.blades = !self.blades,
+      Knob::Shadows => self.shadows = !self.shadows
     }
   }
 
@@ -68,7 +87,9 @@ impl Settings {
       Knob::Reach => format!("{} chunks", self.reach),
       Knob::Sensitivity => format!("{:.2}x", self.sensitivity),
       Knob::Fov => format!("{:.0} degrees", self.fov),
-      Knob::Invert => if self.invert { "On" } else { "Off" }.into()
+      Knob::Invert => if self.invert { "On" } else { "Off" }.into(),
+      Knob::Grass => if self.blades { "Blades" } else { "Fuzz" }.into(),
+      Knob::Shadows => if self.shadows { "On" } else { "Off" }.into()
     }
   }
 }

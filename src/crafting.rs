@@ -1,14 +1,17 @@
 use {crate::{block::Block,
              chest::{Coffer, Handling, ROOM, Rummage},
              gear::{self, Material, Virtue, Wear},
+             glyph::Glyph,
              hud::{forged_rect, icon_rect, stack_rect},
+             legend,
+             machine::Liquid,
              menu::{Act, BUTTON, EDGE, Entry, FAINT, Focus, INK, LIT, Menu, Pressed,
                     Search, Shaded, Tab, button, field, words},
              player::Pilot,
              protocol::{Bookmarks, CURSOR, Craft, HOTBAR, Inventory, Mark, Pick,
                         Picked, REACH, SLOTS, Shuffle, Stack, WEARING, plays},
              recipe::{self, Recipe},
-             skill::Skills,
+             skill::{Glyphs, Skills, glyph_image},
              stream::Palette,
              voxels::Voxels},
      bevy::{input::mouse::{AccumulatedMouseScroll, MouseScrollUnit},
@@ -363,21 +366,22 @@ fn tooltip(mut commands: Commands, palette: Res<Palette>) {
         ..default()
       }));
     });
-  commands
-    .spawn((
-      Tooltip,
-      Node {
-        position_type: PositionType::Absolute,
-        padding: UiRect::axes(px(5), px(2)),
-        border: UiRect::all(px(2)),
-        ..default()
-      },
-      BorderColor::all(Color::srgb(0.25, 0.15, 0.45)),
-      BackgroundColor(Color::srgba(0.06, 0.03, 0.1, 0.95)),
-      GlobalZIndex(30),
-      Visibility::Hidden
-    ))
-    .with_child(words("", 15.0, INK));
+  commands.spawn((
+    Tooltip,
+    Node {
+      position_type: PositionType::Absolute,
+      flex_direction: FlexDirection::Column,
+      row_gap: px(3),
+      max_width: px(380),
+      padding: UiRect::axes(px(6), px(4)),
+      border: UiRect::all(px(2)),
+      ..default()
+    },
+    BorderColor::all(Color::srgb(0.25, 0.15, 0.45)),
+    BackgroundColor(Color::srgba(0.06, 0.03, 0.1, 0.95)),
+    GlobalZIndex(30),
+    Visibility::Hidden
+  ));
 }
 
 fn carried(pilot: &Option<Res<Pilot>>, inventories: &Query<&Inventory>) -> Inventory {
@@ -826,19 +830,232 @@ fn scroll(
   }
 }
 
+fn note(stack: Stack) -> String {
+  let block = stack.block;
+  block
+    .spell()
+    .then(|| {
+      format!(
+        "{} - {}. Hold right click to charge, release to cast; each cast uses one",
+        block.name(),
+        crate::skill::spell_text(block)
+      )
+    })
+    .or_else(|| {
+      block.portable().then(|| {
+        let room = crate::chest::room(block);
+        match block.pack() {
+          true => format!(
+            "{} - right-click to open: {room} slots that travel with the bag",
+            block.name()
+          ),
+          false => format!(
+            "{} - right-click to open your pocket of folded space: {room} slots, the \
+             same from every rift you carry",
+            block.name()
+          )
+        }
+      })
+    })
+    .or_else(|| {
+      stack.gear.map(|_| {
+        [gear::title(&stack)]
+          .into_iter()
+          .chain(gear::lines(&stack))
+          .collect::<Vec<_>>()
+          .join("\n")
+      })
+    })
+    .or_else(|| {
+      block.forged().then(|| {
+        let (hardness, toughness) = gear::needs(block);
+        format!(
+          "{} - made from any material with hardness {hardness} and toughness \
+           {toughness} or more",
+          block.name()
+        )
+      })
+    })
+    .or_else(|| {
+      Material::of(block).map(|material| {
+        let gear::Grit { hardness, toughness } = material.grit();
+        let tools: Vec<&str> = Block::TOOLS
+          .into_iter()
+          .filter(|&tool| material.suits(tool))
+          .map(Block::name)
+          .collect();
+        format!(
+          "{} - hardness {hardness}, toughness {toughness}: {}",
+          block.name(),
+          match tools.is_empty() {
+            true => "too weak for tools".to_string(),
+            false => format!("strong enough for: {}", tools.join(", "))
+          }
+        )
+      })
+    })
+    .unwrap_or_else(|| match stack.count {
+      count if count > 1 => format!("{} x{count}", block.name()),
+      _ => block.name().to_string()
+    })
+}
+
+const TAGLINE: Color = Color::srgb(0.95, 0.82, 0.5);
+const MADE: Color = Color::srgb(1.0, 0.86, 0.25);
+const DRAWN: Color = Color::srgb(1.0, 0.45, 0.3);
+const STORED: Color = Color::srgb(0.45, 0.75, 1.0);
+const FLAME: Color = Color::srgb(1.0, 0.55, 0.15);
+const ARROW: Color = Color::srgb(0.6, 0.55, 0.7);
+const MOST_SHOWN: usize = 9;
+
+fn watts(power: f32) -> String {
+  match power >= 1000.0 {
+    true => format!("{:.0}k", power / 1000.0),
+    false => format!("{power:.0}")
+  }
+}
+
+fn chip(
+  row: &mut ChildSpawnerCommands,
+  chip: legend::Chip,
+  palette: &Palette,
+  glyphs: &Glyphs
+) {
+  let marked = |row: &mut ChildSpawnerCommands,
+                glyph: Glyph,
+                colour: Color,
+                label: Option<String>| {
+    row.spawn(glyph_image(glyphs, glyph, colour, 18.0));
+    if let Some(label) = label {
+      row.spawn((words(&label, 13.0, colour), SHADOW));
+    }
+  };
+  match chip {
+    legend::Chip::Liquid(liquid) => marked(row, Glyph::Drop, liquid.color(), None),
+    legend::Chip::Made(power) => marked(row, Glyph::Thunder, MADE, Some(watts(power))),
+    legend::Chip::Drawn(power) => marked(row, Glyph::Thunder, DRAWN, Some(watts(power))),
+    legend::Chip::Stored(energy) => {
+      marked(row, Glyph::Thunder, STORED, Some(watts(energy)))
+    }
+    legend::Chip::Fuel(seconds) => {
+      marked(row, Glyph::Flame, FLAME, seconds.map(|seconds| format!("{seconds:.0}s")))
+    }
+    legend::Chip::Sign(glyph) => marked(row, glyph, TAGLINE, None),
+    legend::Chip::Item(block) => {
+      row.spawn(icon(block, 22.0, palette));
+    }
+  }
+}
+
+fn arrow(row: &mut ChildSpawnerCommands) { row.spawn((words(">", 14.0, ARROW), SHADOW)); }
+
+fn strip(card: &mut ChildSpawnerCommands, fill: impl FnOnce(&mut ChildSpawnerCommands)) {
+  card
+    .spawn(Node {
+      align_items: AlignItems::Center,
+      column_gap: px(3),
+      flex_wrap: FlexWrap::Wrap,
+      ..default()
+    })
+    .with_children(fill);
+}
+
+fn summary(
+  card: &mut ChildSpawnerCommands,
+  stack: Stack,
+  line: String,
+  known: &[Block],
+  palette: &Palette,
+  glyphs: &Glyphs
+) {
+  let block = stack.block;
+  card.spawn((words(&line, 15.0, INK), SHADOW));
+  if let Some(tagline) = legend::tagline(block) {
+    card.spawn((words(tagline, 13.0, TAGLINE), SHADOW));
+  }
+  let (inputs, outputs) = legend::flow(block);
+  if !inputs.is_empty() || !outputs.is_empty() {
+    strip(card, |row| {
+      for &input in inputs.iter() {
+        chip(row, input, palette, glyphs)
+      }
+      arrow(row);
+      row.spawn(icon(block, 22.0, palette));
+      if !outputs.is_empty() {
+        arrow(row);
+        for &output in outputs.iter() {
+          chip(row, output, palette, glyphs)
+        }
+      }
+    });
+  }
+  let feeds = legend::feeds(block);
+  if !feeds.is_empty() {
+    strip(card, |row| {
+      row.spawn(icon(block, 22.0, palette));
+      arrow(row);
+      for &feed in feeds.iter() {
+        chip(row, feed, palette, glyphs)
+      }
+    });
+  }
+  for making in legend::makes(block, known).into_iter().take(5) {
+    strip(card, |row| {
+      match making.station {
+        Some(station) => {
+          row.spawn(icon(station, 22.0, palette));
+        }
+        None => {
+          row.spawn(glyph_image(glyphs, Glyph::Hand, ARROW, 18.0));
+        }
+      }
+      match making.price {
+        legend::Price::Mana => {
+          chip(row, legend::Chip::Liquid(Liquid::Mana), palette, glyphs)
+        }
+        legend::Price::Lifeblood => {
+          chip(row, legend::Chip::Liquid(Liquid::Lifeblood), palette, glyphs)
+        }
+        legend::Price::Essence => {
+          row.spawn(glyph_image(glyphs, Glyph::Rune, Color::srgb(0.75, 0.55, 1.0), 18.0));
+        }
+        legend::Price::Chance => {
+          row.spawn(glyph_image(glyphs, Glyph::Star, ARROW, 18.0));
+        }
+        legend::Price::Free => ()
+      }
+      arrow(row);
+      for &product in making.products.iter().take(MOST_SHOWN) {
+        row.spawn(icon(product, 22.0, palette));
+      }
+      if making.products.len() > MOST_SHOWN {
+        row.spawn((
+          words(&format!("+{}", making.products.len() - MOST_SHOWN), 13.0, ARROW),
+          SHADOW
+        ));
+      }
+    });
+  }
+}
+
 fn hint(
-  menu: Res<Menu>,
-  pilot: Option<Res<Pilot>>,
-  inventories: Query<&Inventory>,
-  coffer: Res<Coffer>,
-  hovered: Query<(&Interaction, &Act)>,
-  keys: Res<ButtonInput<KeyCode>>,
-  focus: Res<Focus>,
-  windows: Query<&Window, With<PrimaryWindow>>,
-  scale: Res<UiScale>,
+  (menu, pilot, inventories, coffer): (
+    Res<Menu>,
+    Option<Res<Pilot>>,
+    Query<&Inventory>,
+    Res<Coffer>
+  ),
+  (hovered, keys, focus): (
+    Query<(&Interaction, &Act)>,
+    Res<ButtonInput<KeyCode>>,
+    Res<Focus>
+  ),
+  (windows, scale): (Query<&Window, With<PrimaryWindow>>, Res<UiScale>),
+  (palette, glyphs, skills): (Res<Palette>, Option<Res<Glyphs>>, Query<&Skills>),
   mut marks: MessageWriter<Mark>,
-  mut tips: Query<(&mut Node, &mut Visibility, &Children), With<Tooltip>>,
-  mut texts: Query<&mut Text>
+  mut tips: Query<(Entity, &mut Node, &mut Visibility, &ComputedNode), With<Tooltip>>,
+  mut shown: Local<Option<Stack>>,
+  mut commands: Commands
 ) {
   let inventory = carried(&pilot, &inventories);
   let pointed = hovered
@@ -859,88 +1076,35 @@ fn hint(
   }
   let cursor =
     windows.single().ok().and_then(Window::cursor_position).map(|at| at / scale.0);
-  for (mut node, mut visibility, children) in tips.iter_mut() {
+  let room = windows.single().map_or(Vec2::splat(f32::MAX), |window| {
+    Vec2::new(window.width(), window.height()) / scale.0
+  });
+  for (tip, mut node, mut visibility, computed) in tips.iter_mut() {
     match pointed.zip(cursor) {
       Some((stack, at)) => {
-        node.left = px(at.x + 16.0);
-        node.top = px(at.y + 12.0);
+        let size = computed.size * computed.inverse_scale_factor;
+        let left = match at.x + 16.0 + size.x > room.x {
+          true => (at.x - 12.0 - size.x).max(0.0),
+          false => at.x + 16.0
+        };
+        let top = (at.y + 12.0).min((room.y - size.y).max(0.0));
+        node.left = px(left);
+        node.top = px(top);
         visibility.set_if_neq(Visibility::Inherited);
-        let block = stack.block;
-        let line = block
-          .spell()
-          .then(|| {
-            format!(
-              "{} - {}. Hold right click to charge, release to cast; each cast uses one",
-              block.name(),
-              crate::skill::spell_text(block)
-            )
-          })
-          .or_else(|| {
-            block.portable().then(|| {
-              let room = crate::chest::room(block);
-              match block.pack() {
-                true => format!(
-                  "{} - right-click to open: {room} slots that travel with the bag",
-                  block.name()
-                ),
-                false => format!(
-                  "{} - right-click to open your pocket of folded space: {room} slots, the \
-                   same from every rift you carry",
-                  block.name()
-                )
-              }
-            })
-          })
-          .or_else(|| {
-            stack.gear.map(|_| {
-              [gear::title(&stack)]
-                .into_iter()
-                .chain(gear::lines(&stack))
-                .collect::<Vec<_>>()
-                .join("\n")
-            })
-          })
-          .or_else(|| {
-            block.forged().then(|| {
-              let (hardness, toughness) = gear::needs(block);
-              format!(
-                "{} - made from any material with hardness {hardness} and toughness \
-                 {toughness} or more",
-                block.name()
-              )
-            })
-          })
-          .or_else(|| {
-            Material::of(block).map(|material| {
-              let gear::Grit { hardness, toughness } = material.grit();
-              let tools: Vec<&str> = Block::TOOLS
-                .into_iter()
-                .filter(|&tool| material.suits(tool))
-                .map(Block::name)
-                .collect();
-              format!(
-                "{} - hardness {hardness}, toughness {toughness}: {}",
-                block.name(),
-                match tools.is_empty() {
-                  true => "too weak for tools".to_string(),
-                  false => format!("strong enough for: {}", tools.join(", "))
-                }
-              )
-            })
-          })
-          .unwrap_or_else(|| match stack.count {
-            count if count > 1 => format!("{} x{count}", block.name()),
-            _ => block.name().to_string()
-          });
-        for child in children.iter() {
-          if let Ok(mut text) = texts.get_mut(child)
-            && text.0 != line
-          {
-            text.0 = line.clone()
-          }
+        if *shown != Some(stack)
+          && let Some(glyphs) = glyphs.as_deref()
+        {
+          *shown = Some(stack);
+          let line = note(stack);
+          let known = known(&pilot, &skills);
+          commands
+            .entity(tip)
+            .despawn_children()
+            .with_children(|tip| summary(tip, stack, line, &known, &palette, glyphs));
         }
       }
       None => {
+        *shown = None;
         visibility.set_if_neq(Visibility::Hidden);
       }
     }

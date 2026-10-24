@@ -6,7 +6,7 @@
     mesh_functions,
     view_transformations::position_world_to_clip,
 }
-#import bloxy::meadow::lawn
+#import bloxy::meadow::{lawn, fuzz}
 
 struct Surface {
     dug: vec4<f32>,
@@ -20,6 +20,8 @@ struct Surface {
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var atlas_sampler: sampler;
 
 const HIDDEN: vec4<f32> = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+const SEA_TOP: f32 = 62.88;
+const ABSORBED: vec3<f32> = vec3<f32>(0.22, 0.09, 0.06);
 const WIND: vec3<f32> = vec3<f32>(0.8, 0.0, 0.6);
 
 fn sway(at: vec3<f32>, bend: vec2<f32>, wind: f32, time: f32) -> vec3<f32> {
@@ -131,7 +133,8 @@ fn projected(top: vec2<f32>, code: f32, at: vec3<f32>, normal: vec3<f32>, dx: ve
     let covered = smoothstep(0.34, 0.5, normal.y + ragged);
     var cover = painted(top, tile, at.xz, dx.xz, dy.xz);
     if all(abs(top - surface.turf.xy) < tile * 0.5) {
-        cover = vec4<f32>(lawn(at.xz, globals.time, distance(at.xz, view.world_position.xz)), 1.0);
+        let size = max(length(dx.xz), length(dy.xz)) * 16.0;
+        cover = vec4<f32>(select(lawn(at.xz, globals.time, distance(at.xz, view.world_position.xz)), fuzz(at.xz, globals.time, size), surface.turf.z > 0.5), 1.0);
     }
     return mix(mixed, cover, covered);
 }
@@ -223,7 +226,138 @@ fn traces(plane: vec2<f32>, dense: f32, time: f32) -> f32 {
     return max(lit * pulse, knot);
 }
 
-fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>, time: f32) -> Finish {
+fn texel_hash(cell: vec3<i32>, salt: u32) -> f32 {
+    var state = u32(cell.x) * 73856093u ^ u32(cell.y) * 19349663u ^ u32(cell.z) * 83492791u ^ salt * 2654435761u;
+    state = state * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return f32(((word >> 22u) ^ word) & 0xffffffu) / 16777216.0;
+}
+
+fn ramped(palette: array<vec3<f32>, 4>, along: f32) -> vec3<f32> {
+    let position = clamp(along, 0.0, 1.0) * 3.0;
+    let low = min(i32(floor(position)), 2);
+    var shades = palette;
+    return mix(shades[low], shades[low + 1], position - f32(low));
+}
+
+fn shades(base: vec3<f32>) -> array<vec3<f32>, 4> {
+    return array<vec3<f32>, 4>(base * 0.62, base * 0.83, base, base * 1.17);
+}
+
+fn rock_palette(kind: f32) -> array<vec3<f32>, 4> {
+    if kind < 9.5 || kind > 15.5 {
+        return array<vec3<f32>, 4>(vec3<f32>(0.3, 0.3, 0.32), vec3<f32>(0.4, 0.4, 0.42), vec3<f32>(0.48, 0.48, 0.5), vec3<f32>(0.56, 0.56, 0.58));
+    } else if kind < 10.5 {
+        return shades(vec3<f32>(0.6, 0.42, 0.37));
+    } else if kind < 11.5 {
+        return shades(vec3<f32>(0.72, 0.71, 0.67));
+    } else if kind < 12.5 {
+        return shades(vec3<f32>(0.4, 0.44, 0.42));
+    } else if kind < 13.5 {
+        return shades(vec3<f32>(0.74, 0.68, 0.53));
+    } else if kind < 14.5 {
+        return shades(vec3<f32>(0.25, 0.27, 0.33));
+    }
+    return array<vec3<f32>, 4>(vec3<f32>(0.26, 0.25, 0.24), vec3<f32>(0.4, 0.39, 0.37), vec3<f32>(0.52, 0.51, 0.49), vec3<f32>(0.64, 0.63, 0.61));
+}
+
+struct Vein {
+    dark: vec3<f32>,
+    base: vec3<f32>,
+    light: vec3<f32>,
+    glow: f32,
+}
+
+fn vein(kind: f32) -> Vein {
+    if kind < 16.5 {
+        return Vein(vec3<f32>(0.05, 0.05, 0.06), vec3<f32>(0.12, 0.12, 0.13), vec3<f32>(0.22, 0.22, 0.24), 0.0);
+    } else if kind < 17.5 {
+        return Vein(vec3<f32>(0.55, 0.4, 0.32), vec3<f32>(0.76, 0.6, 0.5), vec3<f32>(0.88, 0.75, 0.65), 0.0);
+    } else if kind < 18.5 {
+        return Vein(vec3<f32>(0.55, 0.28, 0.12), vec3<f32>(0.82, 0.47, 0.22), vec3<f32>(0.95, 0.65, 0.38), 0.0);
+    } else if kind < 19.5 {
+        return Vein(vec3<f32>(0.6, 0.62, 0.66), vec3<f32>(0.8, 0.82, 0.85), vec3<f32>(0.93, 0.94, 0.96), 0.0);
+    } else if kind < 20.5 {
+        return Vein(vec3<f32>(0.7, 0.52, 0.1), vec3<f32>(0.96, 0.8, 0.24), vec3<f32>(1.0, 0.93, 0.55), 0.35);
+    } else if kind < 21.5 {
+        return Vein(vec3<f32>(0.18, 0.6, 0.65), vec3<f32>(0.45, 0.92, 0.95), vec3<f32>(0.8, 1.0, 1.0), 1.0);
+    }
+    return Vein(vec3<f32>(0.6, 0.62, 0.66), vec3<f32>(0.84, 0.86, 0.9), vec3<f32>(1.0, 1.0, 1.0), 0.15);
+}
+
+fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
+    let cell = vec3<i32>(floor(at * 16.0 - normal * 0.02));
+    let centre = (vec3<f32>(cell) + 0.5) / 16.0;
+    let palette = rock_palette(kind);
+    let pick = texel_hash(cell, 1u);
+    let cloud = lumpy(centre * 4.0) * 0.6 + lumpy(centre * 2.0 + 7.0) * 0.4;
+    var along = 0.15 + cloud * 0.75;
+    var color = vec3<f32>(0.0);
+    var glow = 0.0;
+    var rough = 0.9;
+    let clump = texel_hash(vec3<i32>(floor(vec3<f32>(cell) / 2.0)), 2u);
+    if kind < 9.5 || kind > 15.5 {
+        along = along + select(0.0, -0.28, pick < 0.06) + select(0.0, 0.14, pick > 0.95);
+        color = ramped(palette, along);
+    } else if kind < 10.5 {
+        along = along + select(0.0, 0.22, clump > 0.72);
+        color = ramped(palette, along);
+        color = select(color, vec3<f32>(0.12, 0.1, 0.1), pick < 0.14);
+        color = select(color, vec3<f32>(0.86, 0.74, 0.7), pick > 0.93);
+    } else if kind < 11.5 {
+        color = ramped(palette, along + 0.1);
+        color = select(color, vec3<f32>(0.16, 0.16, 0.17), clump < 0.16 && pick < 0.7);
+        color = select(color, vec3<f32>(0.34, 0.34, 0.35), pick < 0.05);
+    } else if kind < 12.5 {
+        along = 0.35 + cloud * 0.35 + (pick - 0.5) * 0.5;
+        color = ramped(palette, along);
+    } else if kind < 13.5 {
+        let bed = lumpy(vec3<f32>(centre.x * 0.7, centre.y * 5.0, centre.z * 0.7));
+        along = 0.25 + bed * 0.6 + cloud * 0.2;
+        color = ramped(palette, along);
+        color = select(color, palette[0] * 0.85, pick < 0.04);
+    } else if kind < 14.5 {
+        let row = f32(cell.y) + floor(lumpy(centre * 1.3) * 3.0);
+        let seam = abs(row - 3.0 * floor(row / 3.0)) < 0.5;
+        along = 0.3 + cloud * 0.4 + select(0.0, -0.25, seam) + (pick - 0.5) * 0.12;
+        color = ramped(palette, along);
+        rough = 0.62;
+    } else {
+        let grid = vec3<f32>(cell) / 4.0;
+        let a = floor(grid);
+        let b = floor(grid + 0.5);
+        let offset_a = vec3<f32>(texel_hash(vec3<i32>(a), 3u), texel_hash(vec3<i32>(a), 4u), texel_hash(vec3<i32>(a), 5u)) * 0.5 + 0.25;
+        let offset_b = vec3<f32>(texel_hash(vec3<i32>(b), 6u), texel_hash(vec3<i32>(b), 7u), texel_hash(vec3<i32>(b), 8u)) * 0.5 - 0.25;
+        let gap_a = length(grid - a - offset_a);
+        let gap_b = length(grid - b - offset_b);
+        let near_a = gap_a < gap_b;
+        let gap = min(gap_a, gap_b);
+        let stone = select(b, a, near_a);
+        let tone = texel_hash(vec3<i32>(stone), select(10u, 9u, near_a));
+        let lit = dot(normalize(grid - stone - select(offset_b, offset_a, near_a) + vec3<f32>(0.0, 0.0, 0.001)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
+        along = 0.35 + tone * 0.45 + lit * 0.18 * smoothstep(0.1, 0.4, gap);
+        color = select(ramped(palette, along), palette[0] * 0.7, gap > 0.48);
+    }
+    if kind > 15.5 {
+        let ore = vein(kind);
+        let blob = floor(vec3<f32>(cell) / 5.0);
+        let present = texel_hash(vec3<i32>(blob), 11u) < 0.7;
+        let middle = blob * 5.0 + 1.0 + vec3<f32>(texel_hash(vec3<i32>(blob), 12u), texel_hash(vec3<i32>(blob), 13u), texel_hash(vec3<i32>(blob), 14u)) * 3.0;
+        let toward = vec3<f32>(cell) + 0.5 - middle;
+        let reach = length(toward);
+        if present && reach < 1.3 + texel_hash(vec3<i32>(blob), 15u) * 0.8 {
+            let lean = dot(toward, vec3<f32>(-0.5, 0.7, -0.5));
+            color = select(select(ore.base, ore.light, lean > 0.4), ore.dark, lean < -0.5);
+            glow = ore.glow;
+            rough = 0.5;
+        }
+    }
+    let flat = ramped(palette, 0.5);
+    let shown = mix(color, flat, smoothstep(0.8, 2.0, size) * select(1.0, 0.0, glow > 0.0));
+    return Finish(shown, 0.0, shown * glow * 0.6, rough, 0.0);
+}
+
+fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>, time: f32, size: f32) -> Finish {
     let axis = abs(normal);
     var first = vec3<f32>(1.0, 0.0, 0.0);
     var second = vec3<f32>(0.0, 1.0, 0.0);
@@ -328,7 +462,7 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>
         out.color = color * (1.0 - max(pore * 0.6, osculum * 0.85));
         out.height = -max(pore, osculum * 1.5);
         out.rough = 1.0;
-    } else {
+    } else if kind < 8.5 {
         let veins = cellular(at * 1.5 + layered(at * 0.5));
         let vein = 1.0 - smoothstep(0.0, 0.12, veins.edge);
         let breathe = 0.65 + 0.35 * sin(time * 0.9 + veins.id.x * 2.0 + veins.id.z);
@@ -337,6 +471,8 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>
         out.glow = vec3<f32>(0.25, 1.0, 0.75) * (vein * 0.9 + core * 0.35) * breathe;
         out.height = core - vein * 0.5;
         out.rough = 0.4;
+    } else {
+        out = rocky(kind, at, normal, size);
     }
     return out;
 }
@@ -376,7 +512,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let packed = round(-in.uv_b.y - 100000.0);
         let kind = floor(packed / 256.0);
         let mask = packed - kind * 256.0;
-        let made = finish(kind, mask, at, normal, view.world_position, globals.time);
+        let made = finish(kind, mask, at, normal, view.world_position, globals.time, max(length(dx), length(dy)) * 16.0);
         pbr_input.material.base_color = vec4<f32>(made.color, 1.0) * in.color;
         pbr_input.material.perceptual_roughness = made.rough;
         pbr_input.material.metallic = made.metal;
@@ -387,6 +523,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
 #endif
 #endif
+    let sunk = max(SEA_TOP - at.y, 0.0) - surface.weather.z;
+    let drowned = clamp(exp(-sunk * ABSORBED), vec3<f32>(0.12), vec3<f32>(1.8));
+    pbr_input.material.base_color = vec4<f32>(pbr_input.material.base_color.rgb * select(vec3<f32>(1.0), drowned, at.y < SEA_TOP && surface.weather.z >= 0.0), pbr_input.material.base_color.a);
     let soaked = surface.weather.y * smoothstep(0.3, 0.9, normal.y);
     pbr_input.material.base_color = vec4<f32>(pbr_input.material.base_color.rgb * (1.0 - 0.3 * soaked), pbr_input.material.base_color.a);
     pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.28, soaked);

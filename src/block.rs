@@ -565,7 +565,21 @@ pub enum Surface {
   Nacre,
   Brain,
   Sponge,
-  Biolume
+  Biolume,
+  Stone,
+  Granite,
+  Diorite,
+  Andesite,
+  Limestone,
+  Slate,
+  Gravel,
+  CoalOre,
+  IronOre,
+  CopperOre,
+  TinOre,
+  GoldOre,
+  DiamondOre,
+  PlatinumOre
 }
 
 impl Surface {
@@ -972,6 +986,20 @@ impl Block {
       Block::BrainCoral => Some(Surface::Brain),
       Block::Sponge => Some(Surface::Sponge),
       Block::Biolume => Some(Surface::Biolume),
+      Block::Stone => Some(Surface::Stone),
+      Block::Granite => Some(Surface::Granite),
+      Block::Diorite => Some(Surface::Diorite),
+      Block::Andesite => Some(Surface::Andesite),
+      Block::Limestone => Some(Surface::Limestone),
+      Block::Slate => Some(Surface::Slate),
+      Block::Gravel => Some(Surface::Gravel),
+      Block::CoalOre => Some(Surface::CoalOre),
+      Block::IronOre => Some(Surface::IronOre),
+      Block::CopperOre => Some(Surface::CopperOre),
+      Block::TinOre => Some(Surface::TinOre),
+      Block::GoldOre => Some(Surface::GoldOre),
+      Block::DiamondOre => Some(Surface::DiamondOre),
+      Block::PlatinumOre => Some(Surface::PlatinumOre),
       _ => None
     }
   }

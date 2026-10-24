@@ -49,13 +49,6 @@ fn blade_colour(lushness: f32, along: f32) -> vec3<f32> {
     return mix(root, tip, smoothstep(0.0, 1.0, pow(along, 0.8)));
 }
 
-fn lawn(at: vec2<f32>, time: f32, away: f32) -> vec3<f32> {
-    let tufts = noise(at * 1.7) * 0.6 + noise(at * 4.3 + vec2<f32>(3.0, 1.0)) * 0.4;
-    let under = blade_colour(lush(at), 0.05 + 0.15 * tufts) * 0.8;
-    let seen = blade_colour(lush(at), 0.35 + 0.3 * tufts) * 0.9 + SHEEN * gust(at, time) * 0.5;
-    return mix(under, seen, smoothstep(OUT - THINNING, OUT, away));
-}
-
 fn mixed(seed: u32) -> u32 {
     let state = seed * 747796405u + 2891336453u;
     let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -65,6 +58,30 @@ fn mixed(seed: u32) -> u32 {
 fn unit(seed: u32) -> f32 {
     return f32(mixed(seed) & 0xffffffu) / 16777216.0;
 }
+
+fn lawn(at: vec2<f32>, time: f32, away: f32) -> vec3<f32> {
+    let tufts = noise(at * 1.7) * 0.6 + noise(at * 4.3 + vec2<f32>(3.0, 1.0)) * 0.4;
+    let under = blade_colour(lush(at), 0.05 + 0.15 * tufts) * 0.8;
+    let seen = blade_colour(lush(at), 0.35 + 0.3 * tufts) * 0.9 + SHEEN * gust(at, time) * 0.5;
+    return mix(under, seen, smoothstep(OUT - THINNING, OUT, away));
+}
+
+fn fuzz(at: vec2<f32>, time: f32, size: f32) -> vec3<f32> {
+    let texel = vec2<i32>(floor(at * 16.0));
+    let pick = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y) * 19349663u));
+    let below = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y + 1) * 19349663u));
+    let lushness = lush(at);
+    let tufts = noise(at * 1.7) * 0.6 + noise(at * 4.3 + vec2<f32>(3.0, 1.0)) * 0.4;
+    let gusting = gust(at, time);
+    let rise = clamp(pick * 0.75 + tufts * 0.45 - 0.1, 0.0, 1.0);
+    let shadowed = select(1.0, 0.72, below > pick + 0.35);
+    let gap = select(1.0, 0.6, pick < 0.1);
+    let near = blade_colour(lushness, 0.2 + 0.65 * rise) * shadowed * gap
+        + SHEEN * gusting * (0.3 + 0.7 * rise);
+    let far = blade_colour(lushness, 0.35 + 0.3 * tufts) * 0.9 + SHEEN * gusting * 0.5;
+    return mix(near, far, smoothstep(0.7, 1.6, size));
+}
+
 
 const BAND: f32 = TALLEST * 1.45 + 0.05;
 

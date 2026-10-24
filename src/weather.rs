@@ -309,7 +309,8 @@ fn drift(
   climate.murk = ease(climate.murk, sky.murk(), rate);
   elements.set_if_neq(Elements {
     wind: (climate.wind * 50.0).round() / 50.0,
-    wet: (climate.wet * 50.0).round() / 50.0
+    wet: (climate.wet * 50.0).round() / 50.0,
+    ..*elements
   });
   for mut transform in skies.iter_mut() {
     transform.translation = pilot.at.with_y(CLOUD_HEIGHT + CLOUD_THICK / 2.0).floor()
