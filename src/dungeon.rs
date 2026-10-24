@@ -602,9 +602,9 @@ impl Plan {
           IVec3::new(high.x - 1, low.y, low.z + 1)
         ] {
           for up in -2..tall {
-            self.put(corner + IVec3::Y * up, Block::Lumen)
+            self.put(corner + IVec3::Y * up, Block::Lumen);
+            self.lights.push(corner + IVec3::Y * up)
           }
-          self.lights.push(corner + IVec3::Y * (tall - 1));
         }
         self.light(centre);
         lair(self, centre, Foe::Spider, 1 + more);

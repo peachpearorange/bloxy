@@ -427,6 +427,7 @@ pub fn toggle(
     (true, true, _, _) => menu.open = false,
     _ => ()
   }
+  local::resume_on_tab(menu.open && !menu.chatting && opts().shot.is_none());
   if *was != menu.open
     && let Ok(mut cursor) = cursor.single_mut()
   {

@@ -7,6 +7,7 @@ mod web {
     static PASTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static CAPTURING: Cell<bool> = const { Cell::new(false) };
     static WIDENING: Cell<bool> = const { Cell::new(false) };
+    static RESUMING: Cell<bool> = const { Cell::new(false) };
   }
 
   fn storage() -> Option<web_sys::Storage> {
@@ -54,6 +55,8 @@ mod web {
   pub fn capture_on_click(wanted: bool) {
     CAPTURING.with(|capturing| capturing.set(wanted))
   }
+
+  pub fn resume_on_tab(wanted: bool) { RESUMING.with(|resuming| resuming.set(wanted)) }
 
   fn settled(promise: JsValue) {
     if let Ok(promise) = promise.dyn_into::<js_sys::Promise>() {
@@ -136,8 +139,29 @@ mod web {
           )
         })
     });
+    let typed = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(
+      |event: web_sys::KeyboardEvent| {
+        if event.key() == "Tab"
+          && !event.repeat()
+          && RESUMING.with(Cell::get)
+          && let Some(document) = web_sys::window().and_then(|window| window.document())
+          && let Some(canvas) = document.query_selector("canvas").ok().flatten()
+          && document.pointer_lock_element().is_none()
+        {
+          settled(call(&canvas, "requestPointerLock"))
+        }
+      }
+    );
+    web_sys::window().map(|window| {
+      window.add_event_listener_with_callback_and_bool(
+        "keydown",
+        typed.as_ref().unchecked_ref(),
+        true
+      )
+    });
     pressed.forget();
-    released.forget()
+    released.forget();
+    typed.forget()
   }
 
   pub fn release() {
@@ -178,6 +202,8 @@ mod web {
   pub fn pasted() -> Vec<String> { Vec::new() }
 
   pub fn capture_on_click(_wanted: bool) {}
+
+  pub fn resume_on_tab(_wanted: bool) {}
 
   pub fn listen_for_clicks() {}
 
