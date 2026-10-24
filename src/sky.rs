@@ -36,6 +36,7 @@ const MOON_DISK: SunDisk = SunDisk { angular_size: 0.035, intensity: 40.0 };
 const TORCH_LUMENS: f32 = 70_000.0;
 const TORCH_LIGHTS: usize = 16;
 const TORCH_TINT: Color = Color::srgb(1.0, 0.86, 0.68);
+const LUMEN_TINT: Color = Color::srgb(0.55, 0.88, 1.0);
 const TORCH_SEEN: f32 = 28.0;
 
 fn toward_sun(hour: f32) -> Vec3 {
@@ -210,13 +211,23 @@ fn kindle(
           }
         }
         None => {
-          let flame = voxels.block(torch).map_or(Vec3::splat(0.5), crate::model::flame);
+          let block = voxels.block(torch).unwrap_or_default();
+          let flame = crate::model::flame(block);
+          let burning = block.torch() || block == Block::Brazier;
+          let glow = match block {
+            Block::Lumen => PointLight { color: LUMEN_TINT, ..torchlight() },
+            _ => torchlight()
+          };
           let entity = commands
-            .spawn((torchlight(), Transform::from_translation(torch.as_vec3() + flame)))
-            .with_child((
-              effects.emit(&effects.ember),
-              Transform::from_xyz(0.0, 0.08, 0.0)
-            ))
+            .spawn((glow, Transform::from_translation(torch.as_vec3() + flame)))
+            .with_children(|lit| {
+              if burning {
+                lit.spawn((
+                  effects.emit(&effects.ember),
+                  Transform::from_xyz(0.0, 0.08, 0.0)
+                ));
+              }
+            })
             .id();
           flames.0.insert(torch, entity);
         }

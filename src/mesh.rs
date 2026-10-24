@@ -1,4 +1,4 @@
-use {crate::{block::{Block, Fluid, Look},
+use {crate::{block::{Block, Fluid, Look, Tile},
              generate,
              hull::{Facet, Hull},
              island::SEA,
@@ -645,7 +645,27 @@ fn builders(
       let light = sky(local);
       let torch = torchlight(origin.as_vec3() + local.as_vec3() + 0.5);
       let links = model::links(block, |side| padded.get(local + side));
-      for &Bit { low, high, color: [r, g, b], tile } in model::shape(block, links).iter()
+      let shards = model::shards(block, model::turn(seed, origin + local));
+      for &model::Shard { corners, color: [r, g, b] } in shards.iter().flatten() {
+        let hue = LinearRgba::from_f32_array(lit(
+          LinearRgba::from(Color::srgb(r, g, b)),
+          light,
+          torch,
+          1.0
+        ));
+        let normal =
+          (corners[1] - corners[0]).cross(corners[2] - corners[0]).normalize_or(Vec3::Y);
+        modelled.polygon(
+          &corners.map(|corner| local.as_vec3() + (corner + shift) / 16.0),
+          &[uv_corner(Tile::Grain, Vec2::splat(0.5)); 3],
+          normal,
+          hue,
+          owned,
+          |index| corners[index].y / 16.0
+        )
+      }
+      for &Bit { low, high, color: [r, g, b], tile } in
+        model::shape(block, links).iter().filter(|_| shards.is_none())
       {
         let (low, high) =
           (Vec3::from(low.map(f32::from)), Vec3::from(high.map(f32::from)));

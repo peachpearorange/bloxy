@@ -420,6 +420,59 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     return Finish(shown, 0.0, shown * glow * 0.6, rough, 0.0);
 }
 
+const TURF: f32 = 34.0;
+const LEAVES: f32 = 37.0;
+
+fn turfed(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> vec3<f32> {
+    let soil = rocky(23.0, at, normal, size).color;
+    let ragged = (lumpy(at * 2.3) - 0.5) * 0.3 + (lumpy(at * 7.0) - 0.5) * 0.12;
+    let inside = at - normal * 0.02;
+    let texel = vec3<i32>(floor(inside * 16.0));
+    let block = floor(inside);
+    let hang = (2.0 + texel_hash(vec3<i32>(texel.x, i32(block.y), texel.z), 21u) * 4.0) / 16.0;
+    let fringe = abs(normal.y) < 0.6 && block.y + 1.0 - at.y < hang;
+    let covered = max(smoothstep(0.34, 0.5, normal.y + ragged), select(0.0, 1.0, fringe));
+    let pick = texel_hash(texel, 22u);
+    let cloud = lumpy((vec3<f32>(texel) + 0.5) / 16.0 * 3.0) * 0.6 + lumpy(at * 0.9 + 5.0) * 0.4;
+    var cover = vec3<f32>(0.0);
+    if kind < TURF + 0.5 {
+        cover = select(lawn(at.xz, time, distance(at.xz, view.world_position.xz)), fuzz(at.xz, time, size), surface.turf.z > 0.5);
+        cover = cover * select(1.0, 0.82, fringe && normal.y < 0.6);
+    } else if kind < TURF + 1.5 {
+        let snow = array<vec3<f32>, 4>(vec3<f32>(0.7, 0.75, 0.82), vec3<f32>(0.82, 0.86, 0.92), vec3<f32>(0.92, 0.95, 0.99), vec3<f32>(1.0, 1.0, 1.0));
+        cover = ramped(snow, 0.55 + (cloud - 0.5) * 0.6 + (pick - 0.5) * 0.1) + vec3<f32>(select(0.0, 0.25, pick > 0.985 && size < 1.0));
+    } else {
+        let spores = array<vec3<f32>, 4>(vec3<f32>(0.32, 0.26, 0.35), vec3<f32>(0.4, 0.33, 0.43), vec3<f32>(0.47, 0.39, 0.49), vec3<f32>(0.58, 0.5, 0.58));
+        cover = ramped(spores, 0.45 + (cloud - 0.5) * 0.9 + (pick - 0.5) * 0.3);
+        cover = select(cover, vec3<f32>(0.72, 0.66, 0.7), pick > 0.94 && size < 1.0);
+    }
+    return mix(soil, cover, covered);
+}
+
+fn leafy(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> vec4<f32> {
+    var palette = array<vec3<f32>, 4>(vec3<f32>(0.11, 0.27, 0.09), vec3<f32>(0.16, 0.36, 0.12), vec3<f32>(0.22, 0.45, 0.16), vec3<f32>(0.3, 0.55, 0.21));
+    var stretch = vec3<f32>(1.0);
+    if kind > LEAVES + 0.5 && kind < LEAVES + 1.5 {
+        palette = array<vec3<f32>, 4>(vec3<f32>(0.24, 0.38, 0.12), vec3<f32>(0.33, 0.49, 0.17), vec3<f32>(0.42, 0.6, 0.22), vec3<f32>(0.52, 0.69, 0.29));
+    } else if kind > LEAVES + 1.5 && kind < LEAVES + 2.5 {
+        palette = array<vec3<f32>, 4>(vec3<f32>(0.06, 0.17, 0.12), vec3<f32>(0.09, 0.23, 0.16), vec3<f32>(0.12, 0.29, 0.2), vec3<f32>(0.17, 0.36, 0.25));
+        stretch = vec3<f32>(1.8, 0.6, 1.8);
+    } else if kind > LEAVES + 2.5 {
+        palette = array<vec3<f32>, 4>(vec3<f32>(0.15, 0.36, 0.08), vec3<f32>(0.22, 0.47, 0.11), vec3<f32>(0.3, 0.58, 0.15), vec3<f32>(0.4, 0.68, 0.22));
+        stretch = vec3<f32>(0.5, 1.0, 0.5);
+    }
+    let point = floor(at * 16.0 - normal * 0.02) + 0.5;
+    let leaf = pebbles(point / 3.0 * stretch, false);
+    let clump = lumpy(point / 16.0 * 2.5);
+    let lit = dot(normalize(point / 3.0 * stretch - leaf.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
+    let tone = texel_hash(leaf.id, 17u);
+    let body = leaf.near < 0.62 && leaf.edge > 0.04;
+    let open = !body && clump < 0.62 && size < 1.2;
+    let color = ramped(palette, 0.2 + tone * 0.45 + lit * 0.25 * smoothstep(0.0, 0.4, leaf.near) + clump * 0.15);
+    let shown = select(color, palette[0] * 0.8, !body);
+    return vec4<f32>(mix(shown, ramped(palette, 0.45), smoothstep(0.8, 2.0, size)), select(1.0, 0.0, open));
+}
+
 fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>, time: f32, size: f32) -> Finish {
     let axis = abs(normal);
     var first = vec3<f32>(1.0, 0.0, 0.0);
@@ -534,6 +587,8 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>
         out.glow = vec3<f32>(0.25, 1.0, 0.75) * (vein * 0.9 + core * 0.35) * breathe;
         out.height = core - vein * 0.5;
         out.rough = 0.4;
+    } else if kind > TURF - 0.5 {
+        out = Finish(turfed(kind, at, normal, size, time), 0.0, vec3<f32>(0.0), 0.95, 0.0);
     } else {
         out = rocky(kind, at, normal, size);
     }
@@ -565,17 +620,31 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let dx = dpdx(at);
     let dy = dpdy(at);
     var pbr_input = pbr_input_from_standard_material(in, is_front);
-    pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
     let normal = normalize(in.world_normal);
+    let size = max(length(dx), length(dy)) * 16.0;
     var mark = 0.0;
+    var procedural = false;
+#ifdef VERTEX_UVS_B
+    procedural = in.uv_b.y < -99999.5;
+#endif
+    if !procedural {
+        pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
+    }
 #ifdef VERTEX_UVS_B
     mark = in.uv_b.x;
 #ifdef VERTEX_COLORS
-    if in.uv_b.y < -99999.5 {
-        let packed = round(-in.uv_b.y - 100000.0);
-        let kind = floor(packed / 256.0);
+    let packed = round(-in.uv_b.y - 100000.0);
+    let kind = floor(packed / 256.0);
+    if procedural && kind > LEAVES - 0.5 {
+        let leaf = leafy(kind, at, normal, size);
+        if leaf.a < 0.5 {
+            discard;
+        }
+        pbr_input.material.base_color = vec4<f32>(leaf.rgb, 1.0) * in.color;
+        pbr_input.material.perceptual_roughness = 0.7;
+    } else if procedural {
         let mask = packed - kind * 256.0;
-        let made = finish(kind, mask, at, normal, view.world_position, globals.time, max(length(dx), length(dy)) * 16.0);
+        let made = finish(kind, mask, at, normal, view.world_position, globals.time, size);
         pbr_input.material.base_color = vec4<f32>(made.color, 1.0) * in.color;
         pbr_input.material.perceptual_roughness = made.rough;
         pbr_input.material.metallic = made.metal;

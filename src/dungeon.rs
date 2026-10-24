@@ -484,7 +484,8 @@ impl Plan {
                 .into_iter()
                 .any(|way| self.cells.get(&(at + way)) == Some(&Stamp::Open));
               if bordered && self.speck(at, 0xAD7A) < 0.06 {
-                self.put(at, Block::Lumen)
+                self.put(at, Block::Lumen);
+                self.lights.push(at)
               }
             }
           }
@@ -603,6 +604,7 @@ impl Plan {
           for up in -2..tall {
             self.put(corner + IVec3::Y * up, Block::Lumen)
           }
+          self.lights.push(corner + IVec3::Y * (tall - 1));
         }
         self.light(centre);
         lair(self, centre, Foe::Spider, 1 + more);

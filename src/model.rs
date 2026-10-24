@@ -1009,6 +1009,150 @@ pub fn bits(block: Block) -> &'static [Bit] {
   }
 }
 
+pub struct Shard {
+  pub corners: [Vec3; 3],
+  pub color: [f32; 3]
+}
+
+fn stem(height: f32) -> Vec<Shard> {
+  [Vec3::X, Vec3::Z]
+    .into_iter()
+    .flat_map(|across| {
+      let (low, high) = (Vec3::new(8.0, 0.0, 8.0), Vec3::new(8.0, height, 8.0));
+      let side = across * 0.35;
+      [Shard { corners: [low - side, low + side, high + side], color: STALK }, Shard {
+        corners: [low - side, high + side, high - side],
+        color: STALK
+      }]
+    })
+    .collect()
+}
+
+fn leaf(rise: f32, turn: f32, reach: f32) -> Shard {
+  let out = Vec3::new(turn.cos(), 0.0, turn.sin());
+  let root = Vec3::new(8.0, rise, 8.0);
+  Shard {
+    corners: [root, root + Vec3::Y * 1.2, root + out * reach + Vec3::Y * 1.6],
+    color: LEAF
+  }
+}
+
+fn around(count: usize, turn: f32) -> impl Iterator<Item = (Vec3, Vec3)> {
+  (0..count).map(move |index| {
+    let angle = turn + index as f32 / count as f32 * std::f32::consts::TAU;
+    let out = Vec3::new(angle.cos(), 0.0, angle.sin());
+    (out, Vec3::new(-out.z, 0.0, out.x))
+  })
+}
+
+fn disc(centre: Vec3, radius: f32, count: usize, color: [f32; 3]) -> Vec<Shard> {
+  around(count, 0.0)
+    .zip(around(count, std::f32::consts::TAU / count as f32))
+    .map(|((from, _), (to, _))| Shard {
+      corners: [centre, centre + from * radius, centre + to * radius],
+      color
+    })
+    .collect()
+}
+
+fn rays(
+  centre: Vec3,
+  count: usize,
+  turn: f32,
+  (base, width, reach, lift): (f32, f32, f32, f32),
+  color: [f32; 3]
+) -> Vec<Shard> {
+  around(count, turn)
+    .map(|(out, side)| {
+      let root = centre + out * base;
+      Shard {
+        corners: [
+          root - side * width,
+          root + side * width,
+          centre + out * reach + Vec3::Y * lift
+        ],
+        color
+      }
+    })
+    .collect()
+}
+
+pub fn shards(block: Block, turn: f32) -> Option<Vec<Shard>> {
+  let flower: Option<Vec<Shard>> = match block {
+    Block::Poppy => Some(
+      [stem(7.5), vec![leaf(2.0, 0.4, 3.0), leaf(4.0, 3.4, 2.6)]]
+        .into_iter()
+        .flatten()
+        .chain(around(5, 0.0).zip(around(5, 1.2566)).map(|((from, _), (to, _))| {
+          let centre = Vec3::new(8.0, 7.4, 8.0);
+          Shard {
+            corners: [
+              centre,
+              centre + from * 2.8 + Vec3::Y * 2.4,
+              centre + to * 2.8 + Vec3::Y * 2.4
+            ],
+            color: POPPY
+          }
+        }))
+        .chain(disc(Vec3::new(8.0, 8.6, 8.0), 0.9, 5, SOOT))
+        .collect()
+    ),
+    Block::Daisy => Some(
+      [
+        stem(6.0),
+        vec![leaf(1.5, 2.0, 2.8)],
+        rays(Vec3::new(8.0, 6.4, 8.0), 12, 0.0, (0.7, 0.45, 3.4, 0.5), WHITE),
+        disc(Vec3::new(8.0, 6.6, 8.0), 1.0, 6, YELLOW)
+      ]
+      .into_iter()
+      .flatten()
+      .collect()
+    ),
+    Block::Cornflower => Some(
+      [
+        stem(8.0),
+        vec![leaf(3.0, 0.9, 2.6)],
+        rays(Vec3::new(8.0, 8.4, 8.0), 9, 0.0, (0.5, 0.4, 2.6, 1.4), BLUE),
+        rays(Vec3::new(8.0, 8.6, 8.0), 5, 0.6, (0.2, 0.3, 1.0, 1.4), DEEP_BLUE)
+      ]
+      .into_iter()
+      .flatten()
+      .collect()
+    ),
+    Block::Dandelion => Some({
+      let centre = Vec3::new(8.0, 8.0, 8.0);
+      let (top, bottom) = (centre + Vec3::Y * 1.9, centre - Vec3::Y * 1.6);
+      [stem(6.5), vec![leaf(0.2, 1.0, 3.2), leaf(0.2, 4.1, 3.0)]]
+        .into_iter()
+        .flatten()
+        .chain(around(6, 0.0).zip(around(6, 1.0472)).flat_map(|((from, _), (to, _))| {
+          let (a, b) = (centre + from * 1.9, centre + to * 1.9);
+          [Shard { corners: [top, a, b], color: PALE_YELLOW }, Shard {
+            corners: [bottom, b, a],
+            color: YELLOW
+          }]
+        }))
+        .collect()
+    }),
+    _ => None
+  };
+  flower.map(|shards| {
+    let spin = Quat::from_rotation_y(turn);
+    let pivot = Vec3::new(8.0, 0.0, 8.0);
+    shards
+      .into_iter()
+      .map(|Shard { corners, color }| Shard {
+        corners: corners.map(|corner| pivot + spin * (corner - pivot)),
+        color
+      })
+      .collect()
+  })
+}
+
+pub fn turn(seed: u32, at: IVec3) -> f32 {
+  (hash(seed ^ 0x53, at.x, at.y, at.z) % 360) as f32 * std::f32::consts::PI / 180.0
+}
+
 pub fn shift(block: Block, seed: u32, at: IVec3) -> Vec3 {
   let jitter = |salt: u32| (hash(seed ^ salt, at.x, at.y, at.z) % 5) as f32 - 2.0;
   match block.plant() {

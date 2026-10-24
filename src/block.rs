@@ -590,7 +590,14 @@ pub enum Surface {
   DioriteCobble,
   AndesiteCobble,
   LimestoneCobble,
-  SlateCobble
+  SlateCobble,
+  Grass,
+  Snow,
+  Mycelium,
+  Leaves,
+  BirchLeaves,
+  SpruceLeaves,
+  PalmLeaves
 }
 
 impl Surface {
@@ -794,6 +801,7 @@ impl Block {
       || matches!(
         self,
         Block::Brazier
+          | Block::Lumen
           | Block::ElectricLampLit
           | Block::AetherLamp
           | Block::Biolume
@@ -1022,6 +1030,13 @@ impl Block {
       Block::AndesiteCobble => Some(Surface::AndesiteCobble),
       Block::LimestoneCobble => Some(Surface::LimestoneCobble),
       Block::SlateCobble => Some(Surface::SlateCobble),
+      Block::Grass => Some(Surface::Grass),
+      Block::Snow => Some(Surface::Snow),
+      Block::Mycelium => Some(Surface::Mycelium),
+      Block::Leaves => Some(Surface::Leaves),
+      Block::BirchLeaves => Some(Surface::BirchLeaves),
+      Block::SpruceLeaves => Some(Surface::SpruceLeaves),
+      Block::PalmLeaves => Some(Surface::PalmLeaves),
       _ => None
     }
   }
