@@ -579,7 +579,18 @@ pub enum Surface {
   TinOre,
   GoldOre,
   DiamondOre,
-  PlatinumOre
+  PlatinumOre,
+  Dirt,
+  Sand,
+  Clay,
+  Basalt,
+  Bedrock,
+  Cobblestone,
+  GraniteCobble,
+  DioriteCobble,
+  AndesiteCobble,
+  LimestoneCobble,
+  SlateCobble
 }
 
 impl Surface {
@@ -1000,6 +1011,17 @@ impl Block {
       Block::GoldOre => Some(Surface::GoldOre),
       Block::DiamondOre => Some(Surface::DiamondOre),
       Block::PlatinumOre => Some(Surface::PlatinumOre),
+      Block::Dirt => Some(Surface::Dirt),
+      Block::Sand => Some(Surface::Sand),
+      Block::Clay => Some(Surface::Clay),
+      Block::Basalt => Some(Surface::Basalt),
+      Block::Bedrock => Some(Surface::Bedrock),
+      Block::Cobblestone => Some(Surface::Cobblestone),
+      Block::GraniteCobble => Some(Surface::GraniteCobble),
+      Block::DioriteCobble => Some(Surface::DioriteCobble),
+      Block::AndesiteCobble => Some(Surface::AndesiteCobble),
+      Block::LimestoneCobble => Some(Surface::LimestoneCobble),
+      Block::SlateCobble => Some(Surface::SlateCobble),
       _ => None
     }
   }

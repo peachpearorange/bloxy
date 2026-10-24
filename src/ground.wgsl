@@ -129,6 +129,7 @@ fn projected(top: vec2<f32>, code: f32, at: vec3<f32>, normal: vec3<f32>, dx: ve
     if same {
         return mixed;
     }
+    let soil = vec4<f32>(rocky(23.0, at, normal, max(length(dx), length(dy)) * 16.0).color, 1.0);
     let ragged = (lumpy(at * 2.3) - 0.5) * 0.3 + (lumpy(at * 7.0) - 0.5) * 0.12;
     let covered = smoothstep(0.34, 0.5, normal.y + ragged);
     var cover = painted(top, tile, at.xz, dx.xz, dy.xz);
@@ -136,7 +137,7 @@ fn projected(top: vec2<f32>, code: f32, at: vec3<f32>, normal: vec3<f32>, dx: ve
         let size = max(length(dx.xz), length(dy.xz)) * 16.0;
         cover = vec4<f32>(select(lawn(at.xz, globals.time, distance(at.xz, view.world_position.xz)), fuzz(at.xz, globals.time, size), surface.turf.z > 0.5), 1.0);
     }
-    return mix(mixed, cover, covered);
+    return mix(soil, cover, covered);
 }
 
 
@@ -234,31 +235,45 @@ fn texel_hash(cell: vec3<i32>, salt: u32) -> f32 {
 }
 
 fn ramped(palette: array<vec3<f32>, 4>, along: f32) -> vec3<f32> {
-    let position = clamp(along, 0.0, 1.0) * 3.0;
-    let low = min(i32(floor(position)), 2);
-    var shades = palette;
-    return mix(shades[low], shades[low + 1], position - f32(low));
+    var points = array<vec3<f32>, 6>(palette[0], palette[0], palette[1], palette[2], palette[3], palette[3]);
+    let position = clamp(along, 0.0, 1.0) * 3.999;
+    let low = i32(floor(position));
+    let f = position - f32(low);
+    return points[low] * (0.5 * (1.0 - f) * (1.0 - f)) + points[low + 1] * (0.5 + f - f * f) + points[low + 2] * (0.5 * f * f);
 }
 
 fn shades(base: vec3<f32>) -> array<vec3<f32>, 4> {
     return array<vec3<f32>, 4>(base * 0.62, base * 0.83, base, base * 1.17);
 }
 
+const GREY: array<vec3<f32>, 4> = array<vec3<f32>, 4>(vec3<f32>(0.3, 0.3, 0.32), vec3<f32>(0.4, 0.4, 0.42), vec3<f32>(0.48, 0.48, 0.5), vec3<f32>(0.56, 0.56, 0.58));
+
 fn rock_palette(kind: f32) -> array<vec3<f32>, 4> {
-    if kind < 9.5 || kind > 15.5 {
-        return array<vec3<f32>, 4>(vec3<f32>(0.3, 0.3, 0.32), vec3<f32>(0.4, 0.4, 0.42), vec3<f32>(0.48, 0.48, 0.5), vec3<f32>(0.56, 0.56, 0.58));
-    } else if kind < 10.5 {
+    let rock = select(kind, kind - 19.0, kind > 28.5);
+    if rock > 9.5 && rock < 10.5 {
         return shades(vec3<f32>(0.6, 0.42, 0.37));
-    } else if kind < 11.5 {
+    } else if rock > 10.5 && rock < 11.5 {
         return shades(vec3<f32>(0.72, 0.71, 0.67));
-    } else if kind < 12.5 {
+    } else if rock > 11.5 && rock < 12.5 {
         return shades(vec3<f32>(0.4, 0.44, 0.42));
-    } else if kind < 13.5 {
+    } else if rock > 12.5 && rock < 13.5 {
         return shades(vec3<f32>(0.74, 0.68, 0.53));
-    } else if kind < 14.5 {
+    } else if rock > 13.5 && rock < 14.5 {
         return shades(vec3<f32>(0.25, 0.27, 0.33));
+    } else if kind > 14.5 && kind < 15.5 {
+        return array<vec3<f32>, 4>(vec3<f32>(0.26, 0.25, 0.24), vec3<f32>(0.4, 0.39, 0.37), vec3<f32>(0.52, 0.51, 0.49), vec3<f32>(0.64, 0.63, 0.61));
+    } else if kind > 22.5 && kind < 23.5 {
+        return array<vec3<f32>, 4>(vec3<f32>(0.25, 0.17, 0.11), vec3<f32>(0.36, 0.25, 0.16), vec3<f32>(0.44, 0.31, 0.2), vec3<f32>(0.53, 0.39, 0.26));
+    } else if kind > 23.5 && kind < 24.5 {
+        return array<vec3<f32>, 4>(vec3<f32>(0.7, 0.62, 0.42), vec3<f32>(0.8, 0.72, 0.5), vec3<f32>(0.86, 0.79, 0.56), vec3<f32>(0.92, 0.87, 0.66));
+    } else if kind > 24.5 && kind < 25.5 {
+        return array<vec3<f32>, 4>(vec3<f32>(0.5, 0.53, 0.6), vec3<f32>(0.56, 0.59, 0.66), vec3<f32>(0.61, 0.64, 0.71), vec3<f32>(0.68, 0.71, 0.78));
+    } else if kind > 25.5 && kind < 26.5 {
+        return shades(vec3<f32>(0.22, 0.22, 0.24));
+    } else if kind > 26.5 && kind < 27.5 {
+        return array<vec3<f32>, 4>(vec3<f32>(0.08, 0.08, 0.09), vec3<f32>(0.18, 0.18, 0.19), vec3<f32>(0.3, 0.3, 0.31), vec3<f32>(0.42, 0.42, 0.43));
     }
-    return array<vec3<f32>, 4>(vec3<f32>(0.26, 0.25, 0.24), vec3<f32>(0.4, 0.39, 0.37), vec3<f32>(0.52, 0.51, 0.49), vec3<f32>(0.64, 0.63, 0.61));
+    return GREY;
 }
 
 struct Vein {
@@ -285,9 +300,41 @@ fn vein(kind: f32) -> Vein {
     return Vein(vec3<f32>(0.6, 0.62, 0.66), vec3<f32>(0.84, 0.86, 0.9), vec3<f32>(1.0, 1.0, 1.0), 0.15);
 }
 
+struct Pebble {
+    near: f32,
+    edge: f32,
+    id: vec3<i32>,
+    centre: vec3<f32>,
+}
+
+fn pebbles(at: vec3<f32>, flat: bool) -> Pebble {
+    let base = floor(at - 0.5);
+    var first = 9.0;
+    var second = 9.0;
+    var id = vec3<i32>(0);
+    var centre = vec3<f32>(0.0);
+    for (var i = 0; i < 8; i++) {
+        let step = vec3<f32>(f32(i & 1), f32((i >> 1u) & 1), f32((i >> 2u) & 1));
+        let cell = base + select(step, vec3<f32>(step.x, 0.0, step.z), flat);
+        let key = vec3<i32>(cell);
+        let seed = cell + vec3<f32>(texel_hash(key, 3u), select(texel_hash(key, 4u), 0.5, flat), texel_hash(key, 5u)) * 0.5 + 0.25;
+        let gap = select(distance(at, seed), distance(at.xz, seed.xz), flat) * (0.8 + texel_hash(key, 6u) * 0.4);
+        if gap < first {
+            second = first;
+            first = gap;
+            id = key;
+            centre = seed;
+        } else if gap < second {
+            second = gap;
+        }
+    }
+    return Pebble(first, second - first, id, centre);
+}
+
 fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let fine = at * 16.0 - normal * 0.02;
     let gravel = kind > 14.5 && kind < 15.5;
+    let cobbled = kind > 27.5;
     let pixel = surface.turf.w < 0.5 && !gravel;
     let cell = vec3<i32>(floor(fine));
     let point = select(fine, vec3<f32>(cell) + 0.5, pixel);
@@ -295,70 +342,80 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let palette = rock_palette(kind);
     let speckle = clamp((lumpy(fine * 0.9 + 13.0) - 0.5) * 2.4 + 0.5, 0.0, 1.0);
     let pick = select(speckle, texel_hash(cell, 1u), pixel);
-    let cloud = lumpy(centre * 3.0) * 0.5 + lumpy(centre * 1.1 + 7.0) * 0.5;
-    var along = clamp((cloud - 0.5) * 1.6 + 0.5, 0.0, 1.0) * 0.8 + (pick - 0.5) * 0.16 + 0.05;
+    let cloud = lumpy(centre * 3.0) * 0.55 + lumpy(centre * 1.1 + 7.0) * 0.45;
+    var along = 0.5 + (cloud - 0.5) * 1.5 + (pick - 0.5) * 0.12;
     var color = vec3<f32>(0.0);
     var glow = 0.0;
     var rough = 0.9;
     let clump = select(clamp((lumpy(fine * 0.45 + 29.0) - 0.5) * 2.2 + 0.5, 0.0, 1.0), texel_hash(vec3<i32>(floor(vec3<f32>(cell) / 2.0)), 2u), pixel);
-    if kind < 9.5 || kind > 15.5 {
-        along = along + select(0.0, -0.28, pick < 0.06) + select(0.0, 0.14, pick > 0.95);
-        color = ramped(palette, along);
-    } else if kind < 10.5 {
-        along = along + select(0.0, 0.22, clump > 0.72);
-        color = ramped(palette, along);
-        color = select(color, vec3<f32>(0.12, 0.1, 0.1), pick < 0.14);
-        color = select(color, vec3<f32>(0.86, 0.74, 0.7), pick > 0.93);
-    } else if kind < 11.5 {
+    if cobbled || gravel {
+        let scale = select(3.0, 5.0, cobbled);
+        let stone = pebbles(point / scale, false);
+        let tone = texel_hash(stone.id, 9u);
+        let lit = dot(normalize(point / scale - stone.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
+        let rim = select(0.42, 0.9, cobbled);
+        let body = 1.0 - smoothstep(rim - 0.08, rim, stone.near);
+        let seam = smoothstep(0.02, 0.08, stone.edge);
+        let warm = select(vec3<f32>(1.0), vec3<f32>(1.1, 0.98, 0.86), texel_hash(stone.id, 16u) < 0.3);
+        let grit = palette[0] * (0.42 + clump * 0.12);
+        along = 0.25 + tone * 0.5 + lit * 0.22 * smoothstep(0.0, 0.35, stone.near) + (pick - 0.5) * 0.08;
+        color = mix(grit, ramped(palette, along) * warm, body * seam);
+    } else if kind > 9.5 && kind < 10.5 {
+        color = ramped(palette, along + select(0.0, 0.2, clump > 0.72));
+        color = select(color, vec3<f32>(0.12, 0.1, 0.1), pick < 0.12);
+        color = select(color, vec3<f32>(0.86, 0.74, 0.7), pick > 0.94);
+    } else if kind > 10.5 && kind < 11.5 {
         color = ramped(palette, along + 0.1);
         color = select(color, vec3<f32>(0.16, 0.16, 0.17), clump < 0.16 && pick < 0.7);
         color = select(color, vec3<f32>(0.34, 0.34, 0.35), pick < 0.05);
-    } else if kind < 12.5 {
-        along = 0.35 + cloud * 0.35 + (pick - 0.5) * 0.5;
-        color = ramped(palette, along);
-    } else if kind < 13.5 {
+    } else if kind > 11.5 && kind < 12.5 {
+        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.8 + (pick - 0.5) * 0.45);
+    } else if kind > 12.5 && kind < 13.5 {
         let bed = lumpy(vec3<f32>(centre.x * 0.7, centre.y * 5.0, centre.z * 0.7));
-        along = 0.25 + bed * 0.6 + cloud * 0.2;
-        color = ramped(palette, along);
+        color = ramped(palette, 0.2 + bed * 0.6 + (cloud - 0.5) * 0.4);
         color = select(color, palette[0] * 0.85, pick < 0.04);
-    } else if kind < 14.5 {
+    } else if kind > 13.5 && kind < 14.5 {
         let row = point.y + lumpy(centre * 1.3) * 3.0;
         let seam = select(abs(fract(row / 3.0) - 0.5) > 0.38, abs(floor(row) - 3.0 * floor(floor(row) / 3.0)) < 0.5, pixel);
-        along = 0.3 + cloud * 0.4 + select(0.0, -0.25, seam) + (pick - 0.5) * 0.12;
-        color = ramped(palette, along);
+        color = ramped(palette, along + select(0.0, -0.25, seam) - 0.05);
         rough = 0.62;
+    } else if kind > 22.5 && kind < 23.5 {
+        color = ramped(palette, along + select(0.0, -0.3, pick < 0.08) + select(0.0, 0.18, pick > 0.95));
+        rough = 0.95;
+    } else if kind > 23.5 && kind < 24.5 {
+        let ripple = lumpy(vec3<f32>(centre.x * 2.0 + centre.z * 0.5, centre.y * 6.0, centre.z * 2.0 - centre.x * 0.5));
+        color = ramped(palette, 0.45 + (ripple - 0.5) * 0.5 + (pick - 0.5) * 0.3);
+        rough = 1.0;
+    } else if kind > 24.5 && kind < 25.5 {
+        let band = lumpy(vec3<f32>(centre.x * 0.5, centre.y * 4.0, centre.z * 0.5));
+        color = ramped(palette, 0.35 + band * 0.4 + (pick - 0.5) * 0.1);
+        rough = 0.85;
+    } else if kind > 25.5 && kind < 26.5 {
+        let column = pebbles(point / 6.0, true);
+        let joint = 1.0 - smoothstep(0.03, 0.1, column.edge);
+        let crack = abs(fract((point.y + texel_hash(column.id, 7u) * 16.0) / 16.0) - 0.5) > 0.47;
+        color = ramped(palette, 0.35 + texel_hash(column.id, 8u) * 0.3 + (pick - 0.5) * 0.15) * (1.0 - joint * 0.6) * select(1.0, 0.6, crack);
+        rough = 0.75;
+    } else if kind > 26.5 && kind < 27.5 {
+        let crack = pebbles(point / 4.0, false);
+        color = ramped(palette, along * 0.8 + 0.1) * (0.5 + 0.5 * smoothstep(0.02, 0.1, crack.edge));
     } else {
-        let grid = point / 3.0;
-        let a = floor(grid);
-        let b = floor(grid + 0.5);
-        let offset_a = vec3<f32>(texel_hash(vec3<i32>(a), 3u), texel_hash(vec3<i32>(a), 4u), texel_hash(vec3<i32>(a), 5u)) * 0.5 + 0.25;
-        let offset_b = vec3<f32>(texel_hash(vec3<i32>(b), 6u), texel_hash(vec3<i32>(b), 7u), texel_hash(vec3<i32>(b), 8u)) * 0.5 - 0.25;
-        let gap_a = length(grid - a - offset_a);
-        let gap_b = length(grid - b - offset_b);
-        let near_a = gap_a < gap_b;
-        let gap = min(gap_a, gap_b);
-        let stone = select(b, a, near_a);
-        let tone = texel_hash(vec3<i32>(stone), select(10u, 9u, near_a));
-        let lit = dot(normalize(grid - stone - select(offset_b, offset_a, near_a) + vec3<f32>(0.0, 0.0, 0.001)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
-        along = 0.2 + tone * 0.6 + lit * 0.3 * smoothstep(0.05, 0.4, gap);
-        let warm = select(vec3<f32>(1.0), vec3<f32>(1.12, 0.98, 0.84), texel_hash(vec3<i32>(stone), 16u) < 0.3);
-        color = select(ramped(palette, along) * warm, palette[0] * 0.45, gap > 0.44);
+        color = ramped(palette, along + select(0.0, -0.28, pick < 0.06) + select(0.0, 0.14, pick > 0.95));
     }
-    if kind > 15.5 {
+    if kind > 15.5 && kind < 22.5 {
         let ore = vein(kind);
         let blob = floor(point / 5.0);
         let present = texel_hash(vec3<i32>(blob), 11u) < 0.7;
         let middle = blob * 5.0 + 1.0 + vec3<f32>(texel_hash(vec3<i32>(blob), 12u), texel_hash(vec3<i32>(blob), 13u), texel_hash(vec3<i32>(blob), 14u)) * 3.0;
         let toward = point - middle;
-        let reach = length(toward);
-        if present && reach < 1.3 + texel_hash(vec3<i32>(blob), 15u) * 0.8 {
+        if present && length(toward) < 1.3 + texel_hash(vec3<i32>(blob), 15u) * 0.8 {
             let lean = dot(toward, vec3<f32>(-0.5, 0.7, -0.5));
             color = select(select(ore.base, ore.light, lean > 0.4), ore.dark, lean < -0.5);
             glow = ore.glow;
             rough = 0.5;
         }
     }
-    let flat = ramped(palette, 0.5);
+    let flat = ramped(palette, select(0.5, 0.4, cobbled || gravel)) * select(1.0, 0.85, cobbled || gravel);
     let shown = mix(color, flat, smoothstep(0.8, 2.0, size) * select(1.0, 0.0, glow > 0.0));
     return Finish(shown, 0.0, shown * glow * 0.6, rough, 0.0);
 }
