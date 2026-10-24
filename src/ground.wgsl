@@ -411,7 +411,22 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         color = ramped(palette, along - 0.25 * seam - 0.05);
         rough = 0.62;
     } else if kind > 22.5 && kind < 23.5 {
-        color = ramped(palette, along - 0.3 * below(pick, 0.08, pixel) + 0.18 * (1.0 - below(pick, 0.95, pixel)));
+        let warped = point / 1.8 + (vec3<f32>(supple(point * 0.35), supple(point * 0.35 + 19.0), supple(point * 0.35 + 37.0)) - 0.5) * 1.6;
+        let clod = pebbles(warped, false);
+        let lit = dot(normalize(warped - clod.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
+        let crumb = 1.0 - smoothstep(0.1, 0.6, clod.near);
+        let crevice = (1.0 - smoothstep(0.0, 0.14, clod.edge)) * smoothstep(0.4, 0.7, supple(point * 0.5 + 71.0));
+        let grain = supple(point * 1.7 + 61.0);
+        let crumbs = smoothstep(0.66, 0.78, supple(point * 0.8 + 83.0));
+        let flecks = smoothstep(0.7, 0.8, supple(point * 1.2 + 97.0));
+        let broad = supple(centre * 1.6 + 23.0) * 0.6 + supple(centre * 4.5 + 3.0) * 0.4;
+        let soil = 0.45 + (broad - 0.5) * 0.7 + (texel_hash(clod.id, 18u) - 0.5) * 0.12 + lit * 0.1 * crumb + (grain - 0.5) * 0.25 - crevice * 0.14 - crumbs * 0.22 + flecks * 0.14;
+        color = ramped(palette, soil);
+        let stone = pebbles(point / 5.0 + 7.3, false);
+        let present = texel_hash(stone.id, 19u) < 0.14;
+        let shine = dot(normalize(point / 5.0 + 7.3 - stone.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
+        let pebble = select(0.0, select(1.0 - smoothstep(0.2, 0.32, stone.near), select(0.0, 1.0, stone.near < 0.26), pixel), present);
+        color = mix(color, vec3<f32>(0.4, 0.36, 0.31) * (0.8 + 0.35 * shine), pebble);
         rough = 0.95;
     } else if kind > 23.5 && kind < 24.5 {
         let ripple = supple(vec3<f32>(centre.x * 2.0 + centre.z * 0.5, centre.y * 6.0, centre.z * 2.0 - centre.x * 0.5));

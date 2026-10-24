@@ -80,23 +80,38 @@ fn hashed_noise(at: vec2<f32>) -> f32 {
     return mix(low, high, fade.y);
 }
 
+fn streak(fine: vec2<f32>, toward: vec2<f32>) -> f32 {
+    let along = dot(fine, toward);
+    let across = dot(fine, vec2<f32>(-toward.y, toward.x));
+    return hashed_noise(vec2<f32>(across * 1.6, along * 0.4));
+}
+
+fn strands(fine: vec2<f32>) -> f32 {
+    let one = streak(fine, vec2<f32>(1.0, 0.0));
+    let two = streak(fine + vec2<f32>(31.0, 17.0), vec2<f32>(0.5, 0.866));
+    let three = streak(fine + vec2<f32>(11.0, 43.0), vec2<f32>(-0.5, 0.866));
+    let blend = vec2<f32>(hashed_noise(fine * 0.09 + vec2<f32>(5.0, 1.0)), hashed_noise(fine * 0.09 + vec2<f32>(2.0, 9.0)));
+    return mix(mix(one, two, smoothstep(0.3, 0.7, blend.x)), three, smoothstep(0.35, 0.65, blend.y));
+}
+
 fn fuzz(at: vec2<f32>, time: f32, size: f32, pixel: bool) -> vec3<f32> {
-    let texel = vec2<i32>(floor(at * 16.0));
-    let fine = at * 16.0;
-    let soft = smoothstep(0.0, 1.0, (hashed_noise(fine * 0.55) * 0.65 + hashed_noise(fine * 1.3 + vec2<f32>(7.0, 2.0)) * 0.35 - 0.5) * 1.9 + 0.5);
-    let softer = smoothstep(0.0, 1.0, (hashed_noise((fine + vec2<f32>(0.0, 1.0)) * 0.55) * 0.65 + hashed_noise((fine + vec2<f32>(0.0, 1.0)) * 1.3 + vec2<f32>(7.0, 2.0)) * 0.35 - 0.5) * 1.9 + 0.5);
-    let pick = select(soft, unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y) * 19349663u)), pixel);
-    let below = select(softer, unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y + 1) * 19349663u)), pixel);
     let lushness = lush(at);
     let tufts = noise(at * 1.7) * 0.6 + noise(at * 4.3 + vec2<f32>(3.0, 1.0)) * 0.4;
     let gusting = gust(at, time);
-    let rise = clamp(pick * 0.75 + tufts * 0.45 - 0.1, 0.0, 1.0);
-    let shadowed = select(1.0 - 0.16 * smoothstep(0.15, 0.45, below - pick), select(1.0, 0.72, below > pick + 0.35), pixel);
-    let gap = select(mix(0.78, 1.0, smoothstep(0.02, 0.25, pick)), select(1.0, 0.6, pick < 0.1), pixel);
-    let near = blade_colour(lushness, 0.2 + 0.65 * rise) * shadowed * gap
-        + SHEEN * gusting * (0.3 + 0.7 * rise);
     let far = blade_colour(lushness, 0.35 + 0.3 * tufts) * 0.9 + SHEEN * gusting * 0.5;
-    return mix(near, far, smoothstep(0.7, 1.6, size));
+    let texel = vec2<i32>(floor(at * 16.0));
+    let pick = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y) * 19349663u));
+    let below = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y + 1) * 19349663u));
+    let rise = clamp(pick * 0.75 + tufts * 0.45 - 0.1, 0.0, 1.0);
+    let blocky = blade_colour(lushness, 0.2 + 0.65 * rise) * select(1.0, 0.72, below > pick + 0.35) * select(1.0, 0.6, pick < 0.1)
+        + SHEEN * gusting * (0.3 + 0.7 * rise);
+    let blur = smoothstep(0.3, 0.9, size);
+    let fibre = mix(strands(at * 16.0), 0.5, blur);
+    let speck = mix(hashed_noise(at * 16.0 * 1.9 + vec2<f32>(3.0, 8.0)), 0.5, blur);
+    let lift = 0.38 + (fibre - 0.5) * 0.4 + (speck - 0.5) * 0.15 + (tufts - 0.5) * 0.25;
+    let blade = blade_colour(lushness, clamp(lift, 0.15, 0.7)) * (0.86 + 0.14 * tufts);
+    let soft = mix(blade, vec3<f32>(dot(blade, vec3<f32>(0.3, 0.6, 0.1))), 0.2) + SHEEN * gusting * (0.3 + 0.5 * fibre);
+    return mix(select(soft, blocky, pixel), far, smoothstep(0.7, 1.6, size));
 }
 
 
