@@ -248,7 +248,7 @@ fn slope(cell: vec3<i32>, offset: vec3<f32>) -> f32 {
     return select(-u, u, (pick & 1u) == 0u) + select(-v, v, (pick & 2u) == 0u);
 }
 
-fn smooth(at: vec3<f32>) -> f32 {
+fn supple(at: vec3<f32>) -> f32 {
     let base = floor(at);
     let cell = vec3<i32>(base);
     let f = at - base;
@@ -367,14 +367,14 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let point = select(fine, vec3<f32>(cell) + 0.5, pixel);
     let centre = point / 16.0;
     let palette = rock_palette(kind);
-    let speckle = clamp((smooth(fine * 0.9 + 13.0) - 0.5) * 2.4 + 0.5, 0.0, 1.0);
+    let speckle = clamp((supple(fine * 0.9 + 13.0) - 0.5) * 2.4 + 0.5, 0.0, 1.0);
     let pick = select(speckle, texel_hash(cell, 1u), pixel);
-    let cloud = smooth(centre * 3.0) * 0.55 + smooth(centre * 1.1 + 7.0) * 0.45;
+    let cloud = supple(centre * 3.0) * 0.55 + supple(centre * 1.1 + 7.0) * 0.45;
     var along = 0.5 + (cloud - 0.5) * 1.5 + (pick - 0.5) * 0.12;
     var color = vec3<f32>(0.0);
     var glow = 0.0;
     var rough = 0.9;
-    let clump = select(clamp((smooth(fine * 0.45 + 29.0) - 0.5) * 2.2 + 0.5, 0.0, 1.0), texel_hash(vec3<i32>(floor(vec3<f32>(cell) / 2.0)), 2u), pixel);
+    let clump = select(clamp((supple(fine * 0.45 + 29.0) - 0.5) * 2.2 + 0.5, 0.0, 1.0), texel_hash(vec3<i32>(floor(vec3<f32>(cell) / 2.0)), 2u), pixel);
     if cobbled || gravel {
         let scale = select(3.0, 5.0, cobbled);
         let stone = pebbles(point / scale, false);
@@ -398,11 +398,11 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     } else if kind > 11.5 && kind < 12.5 {
         color = ramped(palette, 0.5 + (cloud - 0.5) * 0.8 + (pick - 0.5) * 0.45);
     } else if kind > 12.5 && kind < 13.5 {
-        let bed = smooth(vec3<f32>(centre.x * 0.7, centre.y * 5.0, centre.z * 0.7));
+        let bed = supple(vec3<f32>(centre.x * 0.7, centre.y * 5.0, centre.z * 0.7));
         color = ramped(palette, 0.2 + bed * 0.6 + (cloud - 0.5) * 0.4);
         color = select(color, palette[0] * 0.85, pick < 0.04);
     } else if kind > 13.5 && kind < 14.5 {
-        let row = point.y + smooth(centre * 1.3) * 3.0;
+        let row = point.y + supple(centre * 1.3) * 3.0;
         let seam = select(abs(fract(row / 3.0) - 0.5) > 0.38, abs(floor(row) - 3.0 * floor(floor(row) / 3.0)) < 0.5, pixel);
         color = ramped(palette, along + select(0.0, -0.25, seam) - 0.05);
         rough = 0.62;
@@ -410,11 +410,11 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         color = ramped(palette, along + select(0.0, -0.3, pick < 0.08) + select(0.0, 0.18, pick > 0.95));
         rough = 0.95;
     } else if kind > 23.5 && kind < 24.5 {
-        let ripple = smooth(vec3<f32>(centre.x * 2.0 + centre.z * 0.5, centre.y * 6.0, centre.z * 2.0 - centre.x * 0.5));
+        let ripple = supple(vec3<f32>(centre.x * 2.0 + centre.z * 0.5, centre.y * 6.0, centre.z * 2.0 - centre.x * 0.5));
         color = ramped(palette, 0.45 + (ripple - 0.5) * 0.5 + (pick - 0.5) * 0.3);
         rough = 1.0;
     } else if kind > 24.5 && kind < 25.5 {
-        let band = smooth(vec3<f32>(centre.x * 0.5, centre.y * 4.0, centre.z * 0.5));
+        let band = supple(vec3<f32>(centre.x * 0.5, centre.y * 4.0, centre.z * 0.5));
         color = ramped(palette, 0.35 + band * 0.4 + (pick - 0.5) * 0.1);
         rough = 0.85;
     } else if kind > 25.5 && kind < 26.5 {
@@ -452,7 +452,7 @@ const LEAVES: f32 = 37.0;
 
 fn turfed(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> vec3<f32> {
     let soil = rocky(23.0, at, normal, size).color;
-    let ragged = (smooth(at * 2.3) - 0.5) * 0.3 + (smooth(at * 7.0) - 0.5) * 0.12;
+    let ragged = (supple(at * 2.3) - 0.5) * 0.3 + (supple(at * 7.0) - 0.5) * 0.12;
     let inside = at - normal * 0.02;
     let texel = vec3<i32>(floor(inside * 16.0));
     let block = floor(inside);
@@ -460,7 +460,7 @@ fn turfed(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> 
     let fringe = abs(normal.y) < 0.6 && block.y + 1.0 - at.y < hang;
     let covered = max(smoothstep(0.34, 0.5, normal.y + ragged), select(0.0, 1.0, fringe));
     let pick = texel_hash(texel, 22u);
-    let cloud = smooth((vec3<f32>(texel) + 0.5) / 16.0 * 3.0) * 0.6 + smooth(at * 0.9 + 5.0) * 0.4;
+    let cloud = supple((vec3<f32>(texel) + 0.5) / 16.0 * 3.0) * 0.6 + supple(at * 0.9 + 5.0) * 0.4;
     var cover = vec3<f32>(0.0);
     if kind < TURF + 0.5 {
         cover = select(lawn(at.xz, time, distance(at.xz, view.world_position.xz)), fuzz(at.xz, time, size), surface.turf.z > 0.5);
@@ -490,7 +490,7 @@ fn leafy(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> vec4<f32> {
     }
     let point = floor(at * 16.0 - normal * 0.02) + 0.5;
     let leaf = pebbles(point / 3.0 * stretch, false);
-    let clump = smooth(point / 16.0 * 2.5);
+    let clump = supple(point / 16.0 * 2.5);
     let lit = dot(normalize(point / 3.0 * stretch - leaf.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
     let tone = texel_hash(leaf.id, 17u);
     let body = leaf.near < 0.48 && leaf.edge > 0.05;
