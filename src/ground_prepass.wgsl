@@ -68,7 +68,7 @@ fn vertex(vertex: prepass_io::Vertex) -> prepass_io::VertexOutput {
 #endif
 #endif
 #ifdef VERTEX_COLORS
-    out.color = vertex.color;
+    out.color = vec4<f32>(vertex.color.rgb, 1.0);
 #endif
 #ifdef MOTION_VECTOR_PREPASS
     out.previous_world_position = world;

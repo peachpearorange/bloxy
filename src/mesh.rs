@@ -348,7 +348,7 @@ impl Builder {
       self.positions.push(point.to_array());
       self.normals.push(normal.to_array());
       self.uvs.push(uv.to_array());
-      self.colors.push(hue.with_alpha(1.0).to_f32_array())
+      self.colors.push(hue.to_f32_array())
     }
     let facing = (points[1] - points[0]).cross(points[2] - points[0]).dot(normal) > 0.0;
     for corner in 1..points.len() as u32 - 1 {
@@ -365,7 +365,7 @@ impl Builder {
       self.positions.push(point.to_array());
       self.normals.push(normal.to_array());
       self.uvs.push(uv.to_array());
-      self.colors.push(hue.with_alpha(1.0).to_f32_array());
+      self.colors.push(hue.to_f32_array());
       self.sways.push([owner, 0.0])
     }
     let facing =
@@ -418,34 +418,15 @@ pub fn sea_tint(floor: f32) -> LinearRgba {
 }
 
 pub const TORCH_REACH: f32 = 14.0;
-const TORCH_GLOW: LinearRgba = LinearRgba::rgb(1.0, 0.86, 0.68);
 
-fn lit(hue: LinearRgba, sky: f32, torch: f32, shade: f32) -> [f32; 4] {
-  let channel = |hue: f32, warm: f32| hue * sky.max(torch * warm) * shade;
-  [
-    channel(hue.red, TORCH_GLOW.red),
-    channel(hue.green, TORCH_GLOW.green),
-    channel(hue.blue, TORCH_GLOW.blue),
-    1.0
-  ]
-}
-
-fn torchlight(torches: &[IVec3], point: Vec3) -> f32 {
-  torches
-    .iter()
-    .map(|torch| {
-      let flame = torch.as_vec3() + Vec3::new(0.5, 0.7, 0.5);
-      (1.0 - point.distance(flame) / TORCH_REACH).max(0.0)
-    })
-    .fold(0.0, f32::max)
-    .powf(1.4)
+fn lit(hue: LinearRgba, sky: f32, shade: f32) -> [f32; 4] {
+  [hue.red * sky * shade, hue.green * sky * shade, hue.blue * sky * shade, sky]
 }
 
 fn builders(
   padded: &Padded,
   key: IVec3,
   seed: u32,
-  torches: &[IVec3],
   only: Option<IVec3>,
   painted: bool
 ) -> (Builder, Builder, Builder, Builder, Hull) {
@@ -470,7 +451,6 @@ fn builders(
         / 4.0
     )
   };
-  let torchlight = |point: Vec3| torchlight(torches, point);
   let mut solid = Builder::default();
   let mut cutout = Builder::default();
   let mut liquid = Builder::default();
@@ -596,8 +576,7 @@ fn builders(
               (Some(Fluid::Water), _) => tint(flat),
               _ => LinearRgba::WHITE
             };
-            let torch = torchlight(origin.as_vec3() + position);
-            builder.colors.push(lit(hue, blend(skies, u, v), torch, shade));
+            builder.colors.push(lit(hue, blend(skies, u, v), shade));
             builder.sways.push([
               owned + f32::from(u8::from(block.leafy() && only.is_none())),
               surfaced.or(projected).unwrap_or(0.0)
@@ -643,14 +622,12 @@ fn builders(
         false => &mut cutout
       };
       let light = sky(local);
-      let torch = torchlight(origin.as_vec3() + local.as_vec3() + 0.5);
       let links = model::links(block, |side| padded.get(local + side));
       let shards = model::shards(block, model::turn(seed, origin + local));
       for &model::Shard { corners, color: [r, g, b] } in shards.iter().flatten() {
         let hue = LinearRgba::from_f32_array(lit(
           LinearRgba::from(Color::srgb(r, g, b)),
           light,
-          torch,
           1.0
         ));
         let normal =
@@ -672,7 +649,6 @@ fn builders(
         let hue = LinearRgba::from_f32_array(lit(
           LinearRgba::from(Color::srgb(r, g, b)),
           light,
-          torch,
           1.0
         ));
         for face in FACES.iter() {
@@ -702,7 +678,7 @@ fn builders(
       }
       if block.look() == Look::Log {
         let [top, side, bottom] = block.tiles();
-        let hue = LinearRgba::from_f32_array(lit(LinearRgba::WHITE, light, torch, 1.0));
+        let hue = LinearRgba::from_f32_array(lit(LinearRgba::WHITE, light, 1.0));
         let corner = local.as_vec3();
         let ring = trunk();
         for edge in 0..TRUNK_SIDES {
@@ -758,9 +734,8 @@ fn builders(
   (solid, cutout, liquid, unshadowed, hull)
 }
 
-pub fn build(padded: &Padded, key: IVec3, seed: u32, torches: &[IVec3]) -> Meshes {
-  let (solid, cutout, liquid, unshadowed, hull) =
-    builders(padded, key, seed, torches, None, true);
+pub fn build(padded: &Padded, key: IVec3, seed: u32) -> Meshes {
+  let (solid, cutout, liquid, unshadowed, hull) = builders(padded, key, seed, None, true);
   Meshes {
     solid: solid.mesh(),
     cutout: cutout.mesh(),
@@ -783,7 +758,6 @@ pub fn lone(
   block: Block,
   at: IVec3,
   seed: u32,
-  torches: &[IVec3],
   around: Option<&Voxels>
 ) -> Vec<[Corner; 3]> {
   let key = chunk_of(at);
@@ -804,7 +778,7 @@ pub fn lone(
       .collect()
   );
   let (solid, cutout, _, unshadowed, _) =
-    builders(&padded, key, seed, torches, Some(local), around.is_some());
+    builders(&padded, key, seed, Some(local), around.is_some());
   [solid, cutout, unshadowed]
     .iter()
     .flat_map(|built| {
@@ -855,7 +829,7 @@ mod tests {
       Some(if near == key { chunk.clone() } else { Arc::new(Chunk::Uniform(Block::Air)) })
     })
     .unwrap();
-    let meshes = build(&padded, key, 1, &[]);
+    let meshes = build(&padded, key, 1);
     let liquid = meshes.liquid.expect("water is meshed");
     let positions = match liquid.attribute(Mesh::ATTRIBUTE_POSITION) {
       Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) => positions.clone(),

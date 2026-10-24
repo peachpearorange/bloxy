@@ -72,6 +72,7 @@ mod save;
 mod sculpt;
 mod sea;
 mod settings;
+mod shine;
 mod ship;
 mod shroomling;
 mod sign;
@@ -149,9 +150,17 @@ fn snapshot(
       && progress.pending == 0
       && progress.distant == 0
       && progress.lawns == 0
+      && progress.shine == 0
       && (pilot.is_some() || opts().menu.is_some());
     if time.elapsed_secs() as u32 != (time.elapsed_secs() - time.delta_secs()) as u32 {
-      info!("shot waits: {} pending, pilot {}", progress.pending, pilot.is_some())
+      info!(
+        "shot waits: {} pending, {} distant, {} lawns, {} shine, pilot {}",
+        progress.pending,
+        progress.distant,
+        progress.lawns,
+        progress.shine,
+        pilot.is_some()
+      )
     }
     *warmed = warmed.map(|frames| frames + 1).or(settled.then_some(0));
     let drawing = warmed.is_some();
@@ -371,7 +380,8 @@ fn main() {
         ghost::Ghosts,
         far::Distance,
         lawn::Sowing,
-        apparatus::Apparatus
+        apparatus::Apparatus,
+        shine::Shining
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)

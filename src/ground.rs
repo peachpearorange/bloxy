@@ -15,9 +15,14 @@ pub struct Surface {
   pub weather: Vec4,
   #[uniform(100)]
   pub turf: Vec4,
+  #[uniform(100)]
+  pub shone: Vec4,
   #[texture(101)]
   #[sampler(102)]
-  pub atlas: Option<Handle<Image>>
+  pub atlas: Option<Handle<Image>>,
+  #[texture(103, dimension = "3d")]
+  #[sampler(104)]
+  pub shine: Option<Handle<Image>>
 }
 
 impl MaterialExtension for Surface {

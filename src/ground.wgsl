@@ -13,16 +13,34 @@ struct Surface {
     aimed: vec4<f32>,
     weather: vec4<f32>,
     turf: vec4<f32>,
+    shone: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: Surface;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var atlas: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var atlas_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(103) var shine: texture_3d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(104) var shine_sampler: sampler;
 
 const HIDDEN: vec4<f32> = vec4<f32>(2.0, 2.0, 2.0, 1.0);
 const SEA_TOP: f32 = 62.88;
 const ABSORBED: vec3<f32> = vec3<f32>(0.22, 0.09, 0.06);
 const WIND: vec3<f32> = vec3<f32>(0.8, 0.0, 0.6);
+const SHINE_SPAN: vec3<f32> = vec3<f32>(128.0, 64.0, 128.0);
+const BRIGHTEST: f32 = 6.0;
+const SHINE_FADE: f32 = 8.0;
+const CAVE_DARK: f32 = 0.05;
+
+fn shined(at: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    if surface.shone.w < 0.5 {
+        return vec3<f32>(0.0);
+    }
+    let inside = at + normal * 0.5 - surface.shone.xyz;
+    let margin = min(inside, SHINE_SPAN - inside);
+    let fade = clamp(min(margin.x, min(margin.y, margin.z)) / SHINE_FADE, 0.0, 1.0);
+    let stored = textureSampleLevel(shine, shine_sampler, inside / SHINE_SPAN, 0.0).rgb;
+    return stored * stored * BRIGHTEST * fade;
+}
 
 fn sway(at: vec3<f32>, bend: vec2<f32>, wind: f32, time: f32) -> vec3<f32> {
     let phase = at.x * 0.35 + at.z * 0.27 + at.y * 0.2;
@@ -670,7 +688,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let at = in.world_position.xyz;
     let dx = dpdx(at);
     let dy = dpdy(at);
-    var pbr_input = pbr_input_from_standard_material(in, is_front);
+    var tinted = in;
+    var sky = 1.0;
+#ifdef VERTEX_COLORS
+    sky = max(in.color.a, CAVE_DARK);
+    tinted.color = vec4<f32>(in.color.rgb, 1.0);
+#endif
+    var pbr_input = pbr_input_from_standard_material(tinted, is_front);
     let normal = normalize(in.world_normal);
     let size = max(length(dx), length(dy)) * 16.0;
     var mark = 0.0;
@@ -691,19 +715,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         if leaf.a < 0.5 {
             discard;
         }
-        pbr_input.material.base_color = vec4<f32>(leaf.rgb, 1.0) * in.color;
+        pbr_input.material.base_color = vec4<f32>(leaf.rgb, 1.0) * tinted.color;
         pbr_input.material.perceptual_roughness = 0.95;
         pbr_input.material.reflectance = vec3<f32>(0.12);
     } else if procedural {
         let mask = packed - kind * 256.0;
         let made = finish(kind, mask, at, normal, view.world_position, globals.time, size);
-        pbr_input.material.base_color = vec4<f32>(made.color, 1.0) * in.color;
+        pbr_input.material.base_color = vec4<f32>(made.color, 1.0) * tinted.color;
         pbr_input.material.perceptual_roughness = made.rough;
         pbr_input.material.metallic = made.metal;
         pbr_input.material.emissive = vec4<f32>(made.glow * 1.4, 0.0);
         pbr_input.N = bumped(pbr_input.N, at, made.height, 0.05);
     } else if in.uv_b.y < -0.5 {
-        pbr_input.material.base_color = projected(in.uv, in.uv_b.y, at, normal, dx, dy) * in.color;
+        pbr_input.material.base_color = projected(in.uv, in.uv_b.y, at, normal, dx, dy) * tinted.color;
     }
 #endif
 #endif
@@ -716,6 +740,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     pbr_input.material.reflectance = mix(pbr_input.material.reflectance, vec3<f32>(0.5), soaked);
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
+    out.color = vec4<f32>(out.color.rgb + pbr_input.material.base_color.rgb / sky * shined(at, normal), out.color.a);
     if mark > 1.5 {
         let shine = glow(at, globals.time);
         let base = pbr_input.material.base_color.rgb;

@@ -5,7 +5,7 @@ use {crate::{block::Block,
              player::{Aim, Pilot},
              protocol::plays,
              stream::Palette,
-             voxels::{Voxels, chunk_of}},
+             voxels::Voxels},
      bevy::{asset::RenderAssetUsages,
             light::NotShadowCaster,
             mesh::{Indices, PrimitiveTopology},
@@ -182,12 +182,8 @@ fn crumble(
       Some((at, block, voxels)) => {
         if shell.shape.as_ref().is_none_or(|(was, made, _)| *was != at || *made != block)
         {
-          let torches = voxels.torches_near(chunk_of(at));
-          shell.shape = Some((
-            at,
-            block,
-            shatter(lone(block, at, voxels.seed, &torches, Some(voxels)), at)
-          ))
+          shell.shape =
+            Some((at, block, shatter(lone(block, at, voxels.seed, Some(voxels)), at)))
         }
         if let Some((.., shards)) = &shell.shape
           && let Some(mut mesh) = meshes.get_mut(&shell.mesh)
@@ -221,7 +217,7 @@ mod tests {
   #[test]
   fn logs_crumble_round() {
     let at = IVec3::new(5, 80, 9);
-    let triangles = lone(Block::Log, at, 1, &[], None);
+    let triangles = lone(Block::Log, at, 1, None);
     let corners = || triangles.iter().flat_map(|triangle| triangle.iter());
     assert!(corners().any(|corner| {
       let Vec3 { x, z, .. } = corner.position;

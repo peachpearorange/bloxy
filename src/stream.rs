@@ -40,7 +40,8 @@ pub struct Meshed(pub HashSet<IVec2>);
 pub struct Progress {
   pub pending: usize,
   pub distant: usize,
-  pub lawns: usize
+  pub lawns: usize,
+  pub shine: usize
 }
 
 pub fn paint(
@@ -67,7 +68,9 @@ pub fn paint(
     aimed: Vec4::ZERO,
     weather: Vec4::ZERO,
     turf: texture::tile_origin(crate::block::Tile::GrassTop).extend(0.0).extend(0.0),
-    atlas: base.base_color_texture.clone()
+    shone: Vec4::ZERO,
+    atlas: base.base_color_texture.clone(),
+    shine: None
   };
   let ground = grounds.add(Ground {
     extension: extension.clone(),
@@ -159,22 +162,21 @@ fn stream(
       .collect();
     dirty.sort_by_key(|&key| (horizontal(key, centre), (key.y - centre.y).abs()));
     let room = MESHING.saturating_sub(streaming.meshing.len()).min(STARTS);
-    let gathered: Vec<(IVec3, Padded, Vec<IVec3>)> = dirty
+    let gathered: Vec<(IVec3, Padded)> = dirty
       .into_iter()
       .filter(|key| !streaming.meshing.contains_key(key))
       .filter_map(|key| {
         Padded::gather(key, |near| voxels.chunks.get(&near).cloned())
-          .map(|padded| (key, padded, voxels.torches_near(key)))
+          .map(|padded| (key, padded))
       })
       .take(room)
       .collect();
     let started: Vec<IVec3> = gathered
       .into_iter()
-      .map(|(key, padded, torches)| {
-        streaming.meshing.insert(
-          key,
-          pool.spawn(async move { mesh::build(&padded, key, seed, &torches) })
-        );
+      .map(|(key, padded)| {
+        streaming
+          .meshing
+          .insert(key, pool.spawn(async move { mesh::build(&padded, key, seed) }));
         key
       })
       .collect();

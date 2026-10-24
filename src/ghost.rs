@@ -29,7 +29,7 @@ struct Phantoms {
 }
 
 fn shape(block: Block, seed: u32) -> Mesh {
-  let triangles = lone(block, IVec3::ZERO, seed, &[], None);
+  let triangles = lone(block, IVec3::ZERO, seed, None);
   let corners = triangles.iter().flatten();
   let middle = Vec3::splat(0.5);
   Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)

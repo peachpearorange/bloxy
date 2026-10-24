@@ -157,7 +157,8 @@ pub struct Voxels {
   pub edits: Edits,
   pub dirty: HashSet<IVec3>,
   pub kept: Kept,
-  pub touched: HashSet<IVec2>
+  pub touched: HashSet<IVec2>,
+  pub relit: Option<HashSet<IVec3>>
 }
 
 impl Voxels {
@@ -168,7 +169,8 @@ impl Voxels {
       edits: default(),
       dirty: default(),
       kept: default(),
-      touched: default()
+      touched: default(),
+      relit: None
     }
   }
 
@@ -188,6 +190,9 @@ impl Voxels {
       chunk.set(local, block)
     }
     self.chunks.insert(key, Arc::new(chunk));
+    if let Some(relit) = self.relit.as_mut() {
+      relit.insert(key);
+    }
     self.touch(key)
   }
 
@@ -213,10 +218,15 @@ impl Voxels {
       self.touched.insert(key.xz());
       self.edits.entry(key).or_default().insert(local, block);
       if let Some(chunk) = self.chunks.get_mut(&key) {
-        let lit = block.lit() || chunk.get(local).lit();
+        let was = chunk.get(local);
+        if (was.opaque() != block.opaque() || was.lit() || block.lit())
+          && let Some(relit) = self.relit.as_mut()
+        {
+          relit.insert(key);
+        }
         Arc::make_mut(chunk).set(local, block);
         let near_edge = |axis: i32| axis == 0 || axis == SIZE - 1;
-        match lit || local.to_array().into_iter().any(near_edge) {
+        match local.to_array().into_iter().any(near_edge) {
           true => self.touch(key),
           false => {
             self.dirty.insert(key);

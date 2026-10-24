@@ -34,9 +34,8 @@ const MOON_TINT: Color = Color::srgb(0.62, 0.74, 1.0);
 const SUN_DISK: SunDisk = SunDisk { angular_size: 0.028, intensity: 1.0 };
 const MOON_DISK: SunDisk = SunDisk { angular_size: 0.035, intensity: 40.0 };
 const TORCH_LUMENS: f32 = 70_000.0;
-const TORCH_LIGHTS: usize = 16;
+const TORCH_EMBERS: usize = 16;
 const TORCH_TINT: Color = Color::srgb(1.0, 0.86, 0.68);
-const LUMEN_TINT: Color = Color::srgb(0.55, 0.88, 1.0);
 const TORCH_SEEN: f32 = 28.0;
 
 fn toward_sun(hour: f32) -> Vec3 {
@@ -181,20 +180,20 @@ fn kindle(
   pilot: Res<Pilot>,
   voxels: Option<Res<Voxels>>,
   mut flames: ResMut<Flames>,
-  mut lights: Query<&mut PointLight>,
   effects: Res<Effects>,
   mut commands: Commands
 ) {
   if let Some(voxels) = voxels {
     let eye = pilot.eye();
+    let burning = |block: Block| block.torch() || block == Block::Brazier;
     let mut near: Vec<IVec3> = voxels
       .torches_near(chunk_of(eye.floor().as_ivec3()))
       .into_iter()
-      .filter(|torch| voxels.block(*torch).is_some_and(Block::lit))
+      .filter(|torch| voxels.block(*torch).is_some_and(burning))
       .filter(|torch| torch.as_vec3().distance(eye) < TORCH_SEEN)
       .collect();
     near.sort_by(|a, b| a.as_vec3().distance(eye).total_cmp(&b.as_vec3().distance(eye)));
-    near.truncate(TORCH_LIGHTS);
+    near.truncate(TORCH_EMBERS);
     flames.0.retain(|torch, entity| {
       let kept = near.contains(torch);
       if !kept {
@@ -202,36 +201,17 @@ fn kindle(
       }
       kept
     });
-    let intensity = torchlight().intensity;
-    for &torch in near.iter() {
-      match flames.0.get(&torch).and_then(|&entity| lights.get_mut(entity).ok()) {
-        Some(mut light) => {
-          if light.intensity != intensity {
-            light.intensity = intensity
-          }
-        }
-        None => {
-          let block = voxels.block(torch).unwrap_or_default();
-          let flame = crate::model::flame(block);
-          let burning = block.torch() || block == Block::Brazier;
-          let glow = match block {
-            Block::Lumen => PointLight { color: LUMEN_TINT, ..torchlight() },
-            _ => torchlight()
-          };
-          let entity = commands
-            .spawn((glow, Transform::from_translation(torch.as_vec3() + flame)))
-            .with_children(|lit| {
-              if burning {
-                lit.spawn((
-                  effects.emit(&effects.ember),
-                  Transform::from_xyz(0.0, 0.08, 0.0)
-                ));
-              }
-            })
-            .id();
-          flames.0.insert(torch, entity);
-        }
-      }
+    let fresh: Vec<IVec3> =
+      near.into_iter().filter(|torch| !flames.0.contains_key(torch)).collect();
+    for torch in fresh {
+      let flame = crate::model::flame(voxels.block(torch).unwrap_or_default());
+      let entity = commands
+        .spawn((
+          effects.emit(&effects.ember),
+          Transform::from_translation(torch.as_vec3() + flame + Vec3::Y * 0.08)
+        ))
+        .id();
+      flames.0.insert(torch, entity);
     }
   }
 }
