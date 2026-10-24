@@ -66,16 +66,33 @@ fn lawn(at: vec2<f32>, time: f32, away: f32) -> vec3<f32> {
     return mix(under, seen, smoothstep(OUT - THINNING, OUT, away));
 }
 
-fn fuzz(at: vec2<f32>, time: f32, size: f32) -> vec3<f32> {
+fn corner(cell: vec2<i32>) -> f32 {
+    return unit(mixed(u32(cell.x) * 73856093u ^ u32(cell.y) * 19349663u ^ 0x5bd1e995u));
+}
+
+fn hashed_noise(at: vec2<f32>) -> f32 {
+    let base = floor(at);
+    let cell = vec2<i32>(base);
+    let f = at - base;
+    let fade = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let low = mix(corner(cell), corner(cell + vec2<i32>(1, 0)), fade.x);
+    let high = mix(corner(cell + vec2<i32>(0, 1)), corner(cell + vec2<i32>(1, 1)), fade.x);
+    return mix(low, high, fade.y);
+}
+
+fn fuzz(at: vec2<f32>, time: f32, size: f32, pixel: bool) -> vec3<f32> {
     let texel = vec2<i32>(floor(at * 16.0));
-    let pick = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y) * 19349663u));
-    let below = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y + 1) * 19349663u));
+    let fine = at * 16.0;
+    let soft = smoothstep(0.0, 1.0, (hashed_noise(fine * 0.55) * 0.65 + hashed_noise(fine * 1.3 + vec2<f32>(7.0, 2.0)) * 0.35 - 0.5) * 1.9 + 0.5);
+    let softer = smoothstep(0.0, 1.0, (hashed_noise((fine + vec2<f32>(0.0, 1.0)) * 0.55) * 0.65 + hashed_noise((fine + vec2<f32>(0.0, 1.0)) * 1.3 + vec2<f32>(7.0, 2.0)) * 0.35 - 0.5) * 1.9 + 0.5);
+    let pick = select(soft, unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y) * 19349663u)), pixel);
+    let below = select(softer, unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y + 1) * 19349663u)), pixel);
     let lushness = lush(at);
     let tufts = noise(at * 1.7) * 0.6 + noise(at * 4.3 + vec2<f32>(3.0, 1.0)) * 0.4;
     let gusting = gust(at, time);
     let rise = clamp(pick * 0.75 + tufts * 0.45 - 0.1, 0.0, 1.0);
-    let shadowed = select(1.0, 0.72, below > pick + 0.35);
-    let gap = select(1.0, 0.6, pick < 0.1);
+    let shadowed = select(1.0 - 0.16 * smoothstep(0.15, 0.45, below - pick), select(1.0, 0.72, below > pick + 0.35), pixel);
+    let gap = select(mix(0.78, 1.0, smoothstep(0.02, 0.25, pick)), select(1.0, 0.6, pick < 0.1), pixel);
     let near = blade_colour(lushness, 0.2 + 0.65 * rise) * shadowed * gap
         + SHEEN * gusting * (0.3 + 0.7 * rise);
     let far = blade_colour(lushness, 0.35 + 0.3 * tufts) * 0.9 + SHEEN * gusting * 0.5;
