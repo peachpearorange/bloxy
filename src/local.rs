@@ -98,13 +98,18 @@ mod web {
           lock(&document, &canvas)
         }
       });
-    web_sys::window().and_then(|window| window.document()).map(|document| {
-      document
-        .add_event_listener_with_callback("mousedown", pressed.as_ref().unchecked_ref())
+    web_sys::window().map(|window| {
+      window
+        .add_event_listener_with_callback_and_bool(
+          "pointerdown",
+          pressed.as_ref().unchecked_ref(),
+          true
+        )
         .and_then(|_| {
-          document.add_event_listener_with_callback(
-            "mouseup",
-            released.as_ref().unchecked_ref()
+          window.add_event_listener_with_callback_and_bool(
+            "pointerup",
+            released.as_ref().unchecked_ref(),
+            true
           )
         })
     });
