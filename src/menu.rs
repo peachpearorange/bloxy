@@ -433,11 +433,14 @@ pub fn toggle(
     *was = menu.open;
     focus.0 = None;
     let playing = !menu.open && opts().shot.is_none();
-    cursor.grab_mode = if playing { local::GRAB } else { CursorGrabMode::None };
+    if !local::WEB {
+      cursor.grab_mode =
+        if playing { CursorGrabMode::Locked } else { CursorGrabMode::None };
+      cursor.visible = !playing
+    }
     if !playing {
       local::release()
     }
-    cursor.visible = !playing
   }
 }
 
@@ -468,8 +471,10 @@ fn resume(
 ) {
   menu.open = false;
   focus.0 = None;
-  if let Ok(mut cursor) = cursor.single_mut() {
-    cursor.grab_mode = local::GRAB;
+  if !local::WEB
+    && let Ok(mut cursor) = cursor.single_mut()
+  {
+    cursor.grab_mode = CursorGrabMode::Locked;
     cursor.visible = false
   }
 }

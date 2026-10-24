@@ -185,8 +185,8 @@ fn grab(
     && opts().shot.is_none()
     && buttons.just_pressed(MouseButton::Left)
   {
-    if playing {
-      cursor.grab_mode = local::GRAB;
+    if playing && !local::WEB {
+      cursor.grab_mode = CursorGrabMode::Locked;
       cursor.visible = false
     }
     if !local::WEB && !matches!(window.mode, WindowMode::BorderlessFullscreen(_)) {

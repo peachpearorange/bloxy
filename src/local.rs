@@ -191,8 +191,3 @@ pub use web::*;
 pub const CAN_COPY: bool = cfg!(target_arch = "wasm32");
 
 pub const WEB: bool = cfg!(target_arch = "wasm32");
-
-pub const GRAB: bevy::window::CursorGrabMode = match WEB {
-  true => bevy::window::CursorGrabMode::None,
-  false => bevy::window::CursorGrabMode::Locked
-};
