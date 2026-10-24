@@ -287,7 +287,8 @@ fn vein(kind: f32) -> Vein {
 
 fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let fine = at * 16.0 - normal * 0.02;
-    let pixel = surface.turf.w < 0.5;
+    let gravel = kind > 14.5 && kind < 15.5;
+    let pixel = surface.turf.w < 0.5 && !gravel;
     let cell = vec3<i32>(floor(fine));
     let point = select(fine, vec3<f32>(cell) + 0.5, pixel);
     let centre = point / 16.0;

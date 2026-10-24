@@ -200,9 +200,9 @@ pub fn captured(
   menu: &Menu
 ) -> bool {
   !menu.open
-    && (local::pointer_locked().unwrap_or_else(|| {
-      cursor.single().is_ok_and(|cursor| cursor.grab_mode != CursorGrabMode::None)
-    }) || opts().shot.is_some())
+    && (local::WEB
+      || cursor.single().is_ok_and(|cursor| cursor.grab_mode != CursorGrabMode::None)
+      || opts().shot.is_some())
 }
 
 fn look(

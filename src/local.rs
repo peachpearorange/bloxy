@@ -6,6 +6,7 @@ mod web {
   thread_local! {
     static PASTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static CAPTURING: Cell<bool> = const { Cell::new(false) };
+    static WIDENING: Cell<bool> = const { Cell::new(false) };
   }
 
   fn storage() -> Option<web_sys::Storage> {
@@ -76,6 +77,27 @@ mod web {
     }
   }
 
+  fn widen(document: web_sys::Document, canvas: web_sys::Element) {
+    match call(&canvas, "requestFullscreen").dyn_into::<js_sys::Promise>() {
+      Ok(promise) => {
+        WIDENING.with(|widening| widening.set(true));
+        let (document_after, canvas_after) = (document.clone(), canvas.clone());
+        let widened = Closure::<dyn FnMut(JsValue)>::new(move |_: JsValue| {
+          WIDENING.with(|widening| widening.set(false));
+          lock(&document_after, &canvas_after)
+        });
+        let refused = Closure::<dyn FnMut(JsValue)>::new(move |_: JsValue| {
+          WIDENING.with(|widening| widening.set(false));
+          lock(&document, &canvas)
+        });
+        let _ = promise.then2(&widened, &refused);
+        widened.forget();
+        refused.forget()
+      }
+      Err(_) => lock(&document, &canvas)
+    }
+  }
+
   pub fn listen_for_clicks() {
     let pressed =
       Closure::<dyn FnMut(web_sys::MouseEvent)>::new(|event: web_sys::MouseEvent| {
@@ -83,10 +105,10 @@ mod web {
           && let Some(document) = web_sys::window().and_then(|window| window.document())
           && let Some(canvas) = document.query_selector("canvas").ok().flatten()
         {
-          if document.fullscreen_element().is_none() {
-            settled(call(&canvas, "requestFullscreen"))
+          match document.fullscreen_element().is_none() {
+            true => widen(document, canvas),
+            false => lock(&document, &canvas)
           }
-          lock(&document, &canvas)
         }
       });
     let released =
@@ -94,6 +116,7 @@ mod web {
         if event.button() == 0
           && let Some(document) = web_sys::window().and_then(|window| window.document())
           && let Some(canvas) = document.query_selector("canvas").ok().flatten()
+          && !WIDENING.with(Cell::get)
         {
           lock(&document, &canvas)
         }
