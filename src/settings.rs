@@ -13,7 +13,8 @@ pub struct Settings {
   pub fov: f32,
   pub invert: bool,
   pub blades: bool,
-  pub shadows: bool
+  pub shadows: bool,
+  pub smooth_rock: bool
 }
 
 impl Default for Settings {
@@ -24,7 +25,8 @@ impl Default for Settings {
       fov: 75.0,
       invert: false,
       blades: false,
-      shadows: true
+      shadows: true,
+      smooth_rock: opts().smooth
     }
   }
 }
@@ -36,7 +38,8 @@ pub enum Knob {
   Fov,
   Invert,
   Grass,
-  Shadows
+  Shadows,
+  Rock
 }
 
 impl Knob {
@@ -49,12 +52,13 @@ impl Knob {
       Knob::Fov => "Field of view",
       Knob::Invert => "Invert mouse",
       Knob::Grass => "Grass",
-      Knob::Shadows => "Sun shadows"
+      Knob::Shadows => "Sun shadows",
+      Knob::Rock => "Rock texture"
     }
   }
 
   pub fn toggled(self) -> bool {
-    matches!(self, Knob::Invert | Knob::Grass | Knob::Shadows)
+    matches!(self, Knob::Invert | Knob::Grass | Knob::Shadows | Knob::Rock)
   }
 }
 
@@ -78,7 +82,8 @@ impl Settings {
       Knob::Fov => self.fov = (self.fov + by as f32 * 5.0).clamp(50.0, 110.0),
       Knob::Invert => self.invert = !self.invert,
       Knob::Grass => self.blades = !self.blades,
-      Knob::Shadows => self.shadows = !self.shadows
+      Knob::Shadows => self.shadows = !self.shadows,
+      Knob::Rock => self.smooth_rock = !self.smooth_rock
     }
   }
 
@@ -89,7 +94,8 @@ impl Settings {
       Knob::Fov => format!("{:.0} degrees", self.fov),
       Knob::Invert => if self.invert { "On" } else { "Off" }.into(),
       Knob::Grass => if self.blades { "Blades" } else { "Fuzz" }.into(),
-      Knob::Shadows => if self.shadows { "On" } else { "Off" }.into()
+      Knob::Shadows => if self.shadows { "On" } else { "Off" }.into(),
+      Knob::Rock => if self.smooth_rock { "Smooth" } else { "Pixel" }.into()
     }
   }
 }

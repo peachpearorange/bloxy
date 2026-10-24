@@ -286,16 +286,20 @@ fn vein(kind: f32) -> Vein {
 }
 
 fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
-    let cell = vec3<i32>(floor(at * 16.0 - normal * 0.02));
-    let centre = (vec3<f32>(cell) + 0.5) / 16.0;
+    let fine = at * 16.0 - normal * 0.02;
+    let pixel = surface.turf.w < 0.5;
+    let cell = vec3<i32>(floor(fine));
+    let point = select(fine, vec3<f32>(cell) + 0.5, pixel);
+    let centre = point / 16.0;
     let palette = rock_palette(kind);
-    let pick = texel_hash(cell, 1u);
+    let speckle = clamp((lumpy(fine * 0.9 + 13.0) - 0.5) * 2.4 + 0.5, 0.0, 1.0);
+    let pick = select(speckle, texel_hash(cell, 1u), pixel);
     let cloud = lumpy(centre * 3.0) * 0.5 + lumpy(centre * 1.1 + 7.0) * 0.5;
     var along = clamp((cloud - 0.5) * 1.6 + 0.5, 0.0, 1.0) * 0.8 + (pick - 0.5) * 0.16 + 0.05;
     var color = vec3<f32>(0.0);
     var glow = 0.0;
     var rough = 0.9;
-    let clump = texel_hash(vec3<i32>(floor(vec3<f32>(cell) / 2.0)), 2u);
+    let clump = select(clamp((lumpy(fine * 0.45 + 29.0) - 0.5) * 2.2 + 0.5, 0.0, 1.0), texel_hash(vec3<i32>(floor(vec3<f32>(cell) / 2.0)), 2u), pixel);
     if kind < 9.5 || kind > 15.5 {
         along = along + select(0.0, -0.28, pick < 0.06) + select(0.0, 0.14, pick > 0.95);
         color = ramped(palette, along);
@@ -317,13 +321,13 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         color = ramped(palette, along);
         color = select(color, palette[0] * 0.85, pick < 0.04);
     } else if kind < 14.5 {
-        let row = f32(cell.y) + floor(lumpy(centre * 1.3) * 3.0);
-        let seam = abs(row - 3.0 * floor(row / 3.0)) < 0.5;
+        let row = point.y + lumpy(centre * 1.3) * 3.0;
+        let seam = select(abs(fract(row / 3.0) - 0.5) > 0.38, abs(floor(row) - 3.0 * floor(floor(row) / 3.0)) < 0.5, pixel);
         along = 0.3 + cloud * 0.4 + select(0.0, -0.25, seam) + (pick - 0.5) * 0.12;
         color = ramped(palette, along);
         rough = 0.62;
     } else {
-        let grid = vec3<f32>(cell) / 3.0;
+        let grid = point / 3.0;
         let a = floor(grid);
         let b = floor(grid + 0.5);
         let offset_a = vec3<f32>(texel_hash(vec3<i32>(a), 3u), texel_hash(vec3<i32>(a), 4u), texel_hash(vec3<i32>(a), 5u)) * 0.5 + 0.25;
@@ -341,10 +345,10 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     }
     if kind > 15.5 {
         let ore = vein(kind);
-        let blob = floor(vec3<f32>(cell) / 5.0);
+        let blob = floor(point / 5.0);
         let present = texel_hash(vec3<i32>(blob), 11u) < 0.7;
         let middle = blob * 5.0 + 1.0 + vec3<f32>(texel_hash(vec3<i32>(blob), 12u), texel_hash(vec3<i32>(blob), 13u), texel_hash(vec3<i32>(blob), 14u)) * 3.0;
-        let toward = vec3<f32>(cell) + 0.5 - middle;
+        let toward = point - middle;
         let reach = length(toward);
         if present && reach < 1.3 + texel_hash(vec3<i32>(blob), 15u) * 0.8 {
             let lean = dot(toward, vec3<f32>(-0.5, 0.7, -0.5));
