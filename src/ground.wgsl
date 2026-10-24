@@ -493,8 +493,8 @@ fn leafy(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> vec4<f32> {
     let clump = smooth(point / 16.0 * 2.5);
     let lit = dot(normalize(point / 3.0 * stretch - leaf.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
     let tone = texel_hash(leaf.id, 17u);
-    let body = leaf.near < 0.62 && leaf.edge > 0.04;
-    let open = !body && clump < 0.62 && size < 1.2;
+    let body = leaf.near < 0.48 && leaf.edge > 0.05;
+    let open = !body && clump < 0.6 && size < 1.2;
     let color = ramped(palette, 0.2 + tone * 0.45 + lit * 0.25 * smoothstep(0.0, 0.4, leaf.near) + clump * 0.15);
     let shown = select(color, palette[0] * 0.8, !body);
     return vec4<f32>(mix(shown, ramped(palette, 0.45), smoothstep(0.8, 2.0, size)), select(1.0, 0.0, open));
