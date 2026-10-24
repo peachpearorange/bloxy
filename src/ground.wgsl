@@ -290,8 +290,8 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let centre = (vec3<f32>(cell) + 0.5) / 16.0;
     let palette = rock_palette(kind);
     let pick = texel_hash(cell, 1u);
-    let cloud = lumpy(centre * 4.0) * 0.6 + lumpy(centre * 2.0 + 7.0) * 0.4;
-    var along = 0.15 + cloud * 0.75;
+    let cloud = lumpy(centre * 3.0) * 0.5 + lumpy(centre * 1.1 + 7.0) * 0.5;
+    var along = clamp((cloud - 0.5) * 1.6 + 0.5, 0.0, 1.0) * 0.8 + (pick - 0.5) * 0.16 + 0.05;
     var color = vec3<f32>(0.0);
     var glow = 0.0;
     var rough = 0.9;
@@ -323,7 +323,7 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         color = ramped(palette, along);
         rough = 0.62;
     } else {
-        let grid = vec3<f32>(cell) / 4.0;
+        let grid = vec3<f32>(cell) / 3.0;
         let a = floor(grid);
         let b = floor(grid + 0.5);
         let offset_a = vec3<f32>(texel_hash(vec3<i32>(a), 3u), texel_hash(vec3<i32>(a), 4u), texel_hash(vec3<i32>(a), 5u)) * 0.5 + 0.25;
@@ -335,8 +335,9 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         let stone = select(b, a, near_a);
         let tone = texel_hash(vec3<i32>(stone), select(10u, 9u, near_a));
         let lit = dot(normalize(grid - stone - select(offset_b, offset_a, near_a) + vec3<f32>(0.0, 0.0, 0.001)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
-        along = 0.35 + tone * 0.45 + lit * 0.18 * smoothstep(0.1, 0.4, gap);
-        color = select(ramped(palette, along), palette[0] * 0.7, gap > 0.48);
+        along = 0.2 + tone * 0.6 + lit * 0.3 * smoothstep(0.05, 0.4, gap);
+        let warm = select(vec3<f32>(1.0), vec3<f32>(1.12, 0.98, 0.84), texel_hash(vec3<i32>(stone), 16u) < 0.3);
+        color = select(ramped(palette, along) * warm, palette[0] * 0.45, gap > 0.44);
     }
     if kind > 15.5 {
         let ore = vein(kind);
