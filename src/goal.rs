@@ -165,8 +165,8 @@ pub const GOALS: [Goal; 77] = [
   ),
   goal(
     "Stone Age",
-    "Gather cobblestone.",
-    Task::Have(Block::Cobblestone, 16),
+    "Gather greywacke cobble.",
+    Task::Have(Block::GreywackeCobble, 16),
     &[2],
     (3.0, 1.0),
     15,
@@ -174,7 +174,7 @@ pub const GOALS: [Goal; 77] = [
   ),
   goal(
     "Furnace",
-    "Build a furnace from cobblestone at the table.",
+    "Build a furnace from greywacke cobble at the table.",
     Task::Have(Block::Furnace, 1),
     &[4],
     (4.0, 1.0),
@@ -191,9 +191,9 @@ pub const GOALS: [Goal; 77] = [
     Chapter::Basics
   ),
   goal(
-    "Smooth Stone",
-    "Smelt cobblestone back into stone.",
-    Task::Have(Block::Stone, 16),
+    "Smooth Rock",
+    "Smelt greywacke cobble back into greywacke.",
+    Task::Have(Block::Greywacke, 16),
     &[5],
     (5.0, 1.0),
     20,
@@ -201,8 +201,8 @@ pub const GOALS: [Goal; 77] = [
   ),
   goal(
     "Mason",
-    "Cut stone into stone bricks at the table.",
-    Task::Have(Block::StoneBricks, 16),
+    "Cut greywacke into bricks at the table.",
+    Task::Have(Block::GreywackeBricks, 16),
     &[7],
     (6.0, 1.0),
     25,
@@ -218,9 +218,9 @@ pub const GOALS: [Goal; 77] = [
     Chapter::Basics
   ),
   goal(
-    "Stone Pickaxe",
-    "Forge a pickaxe with a stone head.",
-    Task::Forge(Block::Pickaxe, Material::Stone),
+    "Greywacke Pickaxe",
+    "Forge a pickaxe with a greywacke head.",
+    Task::Forge(Block::Pickaxe, Material::Greywacke),
     &[2],
     (3.0, 3.0),
     20,

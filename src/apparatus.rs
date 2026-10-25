@@ -693,7 +693,7 @@ fn help(block: Block) -> &'static str {
       "Right-click with a Ritual Knife to bleed into it; creatures slain nearby feed it too. Set an item on it to transmute it. Crimson runes around and below it hold more and work faster."
     }
     Block::Crusher => {
-      "Crushes cobblestone into gravel, gravel into sand (sometimes sifting out platinum dust) and platinum ore into two dusts. Right-click it with what to crush, or pipe it in; what comes out goes into a pipe or chest beside it. Needs power."
+      "Crushes greywacke cobble into gravel, gravel into sand (sometimes sifting out platinum dust) and platinum ore into two dusts. Right-click it with what to crush, or pipe it in; what comes out goes into a pipe or chest beside it. Needs power."
     }
     Block::Plinth => "Holds one item for an Confluence Altar within 3 blocks.",
     Block::ConfluenceAltar => {

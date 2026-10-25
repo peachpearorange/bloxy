@@ -20,8 +20,10 @@ use {bevy::math::IVec3,
 pub enum Block {
   #[default]
   Air,
-  Stone,
-  Cobblestone,
+  #[serde(alias = "Stone")]
+  Greywacke,
+  #[serde(alias = "Cobblestone")]
+  GreywackeCobble,
   Dirt,
   Grass,
   Sand,
@@ -236,7 +238,8 @@ pub enum Block {
   ExpeditionPack,
   LesserRift,
   GreaterRift,
-  StoneBricks,
+  #[serde(alias = "StoneBricks")]
+  GreywackeBricks,
   Kelp,
   Seagrass,
   BrainCoral,
@@ -283,8 +286,8 @@ pub enum Block {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
 pub enum Tile {
-  Stone,
-  Cobblestone,
+  Greywacke,
+  GreywackeCobble,
   Dirt,
   GrassTop,
   GrassSide,
@@ -455,7 +458,7 @@ pub enum Tile {
   ExpeditionPack,
   LesserRift,
   GreaterRift,
-  StoneBricks,
+  GreywackeBricks,
   Kelp,
   Seagrass,
   BrainCoral,
@@ -566,7 +569,7 @@ pub enum Surface {
   Brain,
   Sponge,
   Biolume,
-  Stone,
+  Greywacke,
   Granite,
   Diorite,
   Andesite,
@@ -585,7 +588,7 @@ pub enum Surface {
   Clay,
   Basalt,
   Bedrock,
-  Cobblestone,
+  GreywackeCobble,
   GraniteCobble,
   DioriteCobble,
   AndesiteCobble,
@@ -597,7 +600,17 @@ pub enum Surface {
   Leaves,
   BirchLeaves,
   SpruceLeaves,
-  PalmLeaves
+  PalmLeaves,
+  AncientBrick,
+  MossyBrick,
+  CrackedBrick,
+  GreywackeBricks,
+  CarvedStone,
+  Planks,
+  OakBark,
+  BirchBark,
+  SpruceBark,
+  PalmBark
 }
 
 impl Surface {
@@ -626,7 +639,7 @@ impl Block {
   pub const ALL: [Block; Block::VARIANTS.len()] = *Block::VARIANTS.first_chunk().unwrap();
 
   pub const ROCKS: [(Block, Block); 6] = [
-    (Block::Stone, Block::Cobblestone),
+    (Block::Greywacke, Block::GreywackeCobble),
     (Block::Granite, Block::GraniteCobble),
     (Block::Diorite, Block::DioriteCobble),
     (Block::Andesite, Block::AndesiteCobble),
@@ -1005,7 +1018,7 @@ impl Block {
       Block::BrainCoral => Some(Surface::Brain),
       Block::Sponge => Some(Surface::Sponge),
       Block::Biolume => Some(Surface::Biolume),
-      Block::Stone => Some(Surface::Stone),
+      Block::Greywacke => Some(Surface::Greywacke),
       Block::Granite => Some(Surface::Granite),
       Block::Diorite => Some(Surface::Diorite),
       Block::Andesite => Some(Surface::Andesite),
@@ -1024,7 +1037,7 @@ impl Block {
       Block::Clay => Some(Surface::Clay),
       Block::Basalt => Some(Surface::Basalt),
       Block::Bedrock => Some(Surface::Bedrock),
-      Block::Cobblestone => Some(Surface::Cobblestone),
+      Block::GreywackeCobble => Some(Surface::GreywackeCobble),
       Block::GraniteCobble => Some(Surface::GraniteCobble),
       Block::DioriteCobble => Some(Surface::DioriteCobble),
       Block::AndesiteCobble => Some(Surface::AndesiteCobble),
@@ -1037,6 +1050,16 @@ impl Block {
       Block::BirchLeaves => Some(Surface::BirchLeaves),
       Block::SpruceLeaves => Some(Surface::SpruceLeaves),
       Block::PalmLeaves => Some(Surface::PalmLeaves),
+      Block::AncientBrick => Some(Surface::AncientBrick),
+      Block::MossyBrick => Some(Surface::MossyBrick),
+      Block::CrackedBrick => Some(Surface::CrackedBrick),
+      Block::GreywackeBricks => Some(Surface::GreywackeBricks),
+      Block::CarvedStone => Some(Surface::CarvedStone),
+      Block::Planks => Some(Surface::Planks),
+      Block::Log => Some(Surface::OakBark),
+      Block::BirchLog => Some(Surface::BirchBark),
+      Block::SpruceLog => Some(Surface::SpruceBark),
+      Block::PalmLog => Some(Surface::PalmBark),
       _ => None
     }
   }
@@ -1059,7 +1082,7 @@ impl Block {
       Block::Reefstone => 0.4,
       Block::Nacre | Block::Biolume => 0.25,
       Block::Gravel | Block::RedCap | Block::BrownCap | Block::MushroomStem => 0.8,
-      Block::Stone
+      Block::Greywacke
       | Block::Granite
       | Block::Diorite
       | Block::Andesite
@@ -1074,7 +1097,7 @@ impl Block {
       | Block::GoldOre
       | Block::DiamondOre
       | Block::PlatinumOre => 0.6,
-      Block::Cobblestone
+      Block::GreywackeCobble
       | Block::GraniteCobble
       | Block::DioriteCobble
       | Block::AndesiteCobble
@@ -1189,8 +1212,8 @@ impl Block {
   pub fn name(self) -> &'static str {
     match self {
       Block::Air => "Air",
-      Block::Stone => "Stone",
-      Block::Cobblestone => "Cobblestone",
+      Block::Greywacke => "Greywacke",
+      Block::GreywackeCobble => "Greywacke Cobble",
       Block::Dirt => "Dirt",
       Block::Grass => "Grass",
       Block::Sand => "Sand",
@@ -1211,7 +1234,7 @@ impl Block {
       Block::DiamondOre => "Diamond Ore",
       Block::Lamp => "Lamp",
       Block::Bricks => "Bricks",
-      Block::StoneBricks => "Stone Bricks",
+      Block::GreywackeBricks => "Greywacke Bricks",
       Block::BirchLog => "Birch Log",
       Block::BirchLeaves => "Birch Leaves",
       Block::SpruceLog => "Spruce Log",
@@ -1452,8 +1475,8 @@ impl Block {
   pub fn tiles(self) -> [Tile; 3] {
     let all = |tile| [tile; 3];
     match self {
-      Block::Air | Block::Stone => all(Tile::Stone),
-      Block::Cobblestone => all(Tile::Cobblestone),
+      Block::Air | Block::Greywacke => all(Tile::Greywacke),
+      Block::GreywackeCobble => all(Tile::GreywackeCobble),
       Block::Dirt => all(Tile::Dirt),
       Block::Grass => [Tile::GrassTop, Tile::GrassSide, Tile::Dirt],
       Block::Sand => all(Tile::Sand),
@@ -1657,7 +1680,7 @@ impl Block {
       Block::ExpeditionPack => all(Tile::ExpeditionPack),
       Block::LesserRift => all(Tile::LesserRift),
       Block::GreaterRift => all(Tile::GreaterRift),
-      Block::StoneBricks => all(Tile::StoneBricks),
+      Block::GreywackeBricks => all(Tile::GreywackeBricks),
       Block::Kelp => all(Tile::Kelp),
       Block::Seagrass => all(Tile::Seagrass),
       Block::BrainCoral => all(Tile::BrainCoral),

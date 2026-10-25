@@ -204,10 +204,14 @@ fn kindle(
     let fresh: Vec<IVec3> =
       near.into_iter().filter(|torch| !flames.0.contains_key(torch)).collect();
     for torch in fresh {
-      let flame = crate::model::flame(voxels.block(torch).unwrap_or_default());
+      let block = voxels.block(torch).unwrap_or_default();
+      let flame = crate::model::flame(block);
       let entity = commands
         .spawn((
-          effects.emit(&effects.ember),
+          effects.emit(match block {
+            Block::Brazier => &effects.blaze,
+            _ => &effects.ember
+          }),
           Transform::from_translation(torch.as_vec3() + flame + Vec3::Y * 0.08)
         ))
         .id();

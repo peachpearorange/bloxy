@@ -359,14 +359,20 @@ impl Builder {
     }
   }
 
-  fn strip(&mut self, corners: [(Vec3, Vec3, Vec2); 4], hue: LinearRgba, owner: f32) {
+  fn strip(
+    &mut self,
+    corners: [(Vec3, Vec3, Vec2); 4],
+    hue: LinearRgba,
+    owner: f32,
+    paint: f32
+  ) {
     let first = self.positions.len() as u32;
     for (point, normal, uv) in corners {
       self.positions.push(point.to_array());
       self.normals.push(normal.to_array());
       self.uvs.push(uv.to_array());
       self.colors.push(hue.to_f32_array());
-      self.sways.push([owner, 0.0])
+      self.sways.push([owner, paint])
     }
     let facing =
       (corners[1].0 - corners[0].0).cross(corners[2].0 - corners[0].0).dot(corners[0].1)
@@ -679,6 +685,10 @@ fn builders(
       if block.look() == Look::Log {
         let [top, side, bottom] = block.tiles();
         let hue = LinearRgba::from_f32_array(lit(LinearRgba::WHITE, light, 1.0));
+        let paint = block
+          .surface()
+          .filter(|_| painted)
+          .map_or(0.0, |surface| -(SURFACED + (surface.code() * 256) as f32));
         let corner = local.as_vec3();
         let ring = trunk();
         for edge in 0..TRUNK_SIDES {
@@ -709,7 +719,8 @@ fn builders(
                 )
               }),
               hue,
-              owned
+              owned,
+              paint
             )
           }
         }
@@ -724,7 +735,7 @@ fn builders(
               normal.as_vec3(),
               hue,
               owned,
-              |_| 0.0
+              |_| paint
             )
           }
         }
@@ -813,7 +824,7 @@ mod tests {
     let mut blocks = Box::new([Block::Air; VOLUME]);
     for x in 0..SIZE {
       for z in 0..SIZE {
-        blocks[Chunk::index(IVec3::new(x, 4, z))] = Block::Stone
+        blocks[Chunk::index(IVec3::new(x, 4, z))] = Block::Greywacke
       }
     }
     for (x, block) in

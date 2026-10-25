@@ -30,7 +30,7 @@ fn fed(block: Block) -> Vec<Chip> {
   match block {
     Block::SteamEngine | Block::Emberbell => vec![Chip::Fuel(None)],
     Block::Fermenter => vec![Chip::Item(Block::Leaves)],
-    Block::Crusher => vec![Chip::Item(Block::Cobblestone)],
+    Block::Crusher => vec![Chip::Item(Block::GreywackeCobble)],
     Block::Pumpjack => vec![Chip::Item(Block::OilSeep)],
     Block::ElectricPump | Block::Dewcup => vec![Chip::Liquid(Liquid::Water)],
     Block::SolarPanel | Block::Sunsip => vec![Chip::Sign(Glyph::Sun)],

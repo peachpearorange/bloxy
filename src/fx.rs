@@ -18,6 +18,7 @@ const ENCHANTED: f32 = 96.0;
 #[derive(Resource)]
 pub struct Effects {
   pub ember: Handle<EffectAsset>,
+  pub blaze: Handle<EffectAsset>,
   pub magic: Handle<EffectAsset>,
   pub poof: Handle<EffectAsset>,
   pub dot: Handle<Image>
@@ -56,10 +57,20 @@ fn size(from: f32, to: f32) -> SizeOverLifetimeModifier {
   }
 }
 
-fn ember() -> EffectAsset {
+struct Fire {
+  scale: f32,
+  rate: f32
+}
+
+impl Fire {
+  const TORCH: Fire = Fire { scale: 1.0, rate: 7.0 };
+  const BRAZIER: Fire = Fire { scale: 2.6, rate: 16.0 };
+}
+
+fn ember(Fire { scale, rate }: Fire) -> EffectAsset {
   let writer = ExprWriter::new();
   let drift = (writer.rand(VectorType::VEC3F) * writer.lit(2.0) - writer.lit(1.0))
-    * writer.lit(Vec3::new(0.12, 0.05, 0.12));
+    * writer.lit(Vec3::new(0.16, 0.06, 0.16) * scale.sqrt());
   let velocity = SetAttributeModifier::new(
     Attribute::VELOCITY,
     (drift + writer.lit(Vec3::Y * 0.45)).expr()
@@ -71,7 +82,7 @@ fn ember() -> EffectAsset {
   );
   let position = SetPositionSphereModifier {
     center: writer.lit(Vec3::ZERO).expr(),
-    radius: writer.lit(0.035).expr(),
+    radius: writer.lit(0.05 * scale).expr(),
     dimension: ShapeDimension::Volume
   };
   let lift = AccelModifier::new(writer.lit(Vec3::Y * 0.5).expr());
@@ -79,7 +90,7 @@ fn ember() -> EffectAsset {
   let slot = writer.lit(0u32).expr();
   let mut module = writer.finish();
   module.add_texture_slot("dot");
-  EffectAsset::new(64, SpawnerSettings::rate(5.0.into()), module)
+  EffectAsset::new(128, SpawnerSettings::rate(rate.into()), module)
     .with_simulation_space(SimulationSpace::Global)
     .with_alpha_mode(Blending::Add)
     .init(position)
@@ -93,7 +104,7 @@ fn ember() -> EffectAsset {
       (0.5, Vec4::new(5.0, 1.6, 0.3, 0.8)),
       (1.0, Vec4::new(0.6, 0.12, 0.02, 0.0))
     ])))
-    .render(size(0.05, 0.015))
+    .render(size(0.11 * scale, 0.03 * scale))
     .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
     .render(ParticleTextureModifier::new(slot))
 }
@@ -417,7 +428,8 @@ fn prepare(
   mut images: ResMut<Assets<Image>>
 ) {
   commands.insert_resource(Effects {
-    ember: effects.add(ember()),
+    ember: effects.add(ember(Fire::TORCH)),
+    blaze: effects.add(ember(Fire::BRAZIER)),
     magic: effects.add(magic()),
     poof: effects.add(poof()),
     dot: images.add(dot())

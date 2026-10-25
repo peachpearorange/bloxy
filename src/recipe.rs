@@ -310,7 +310,7 @@ const ARCANA: &[Recipe] = &[
   hand(&[(Block::GlimmerCyan, 1), (Block::BoneDust, 1)], (Block::GlimmerCyan, 2)),
   hand(&[(Block::GlimmerViolet, 1), (Block::BoneDust, 1)], (Block::GlimmerViolet, 2)),
   hand(&[(Block::GlimmerGold, 1), (Block::BoneDust, 1)], (Block::GlimmerGold, 2)),
-  table(&[(Block::Cobblestone, 6), (Block::GlimmerViolet, 1)], (Block::BloomFont, 1)),
+  table(&[(Block::GreywackeCobble, 6), (Block::GlimmerViolet, 1)], (Block::BloomFont, 1)),
   bloom_font(
     &[(Block::GlimmerGold, 2), (Block::Dandelion, 1), (Block::Daisy, 1)],
     (Block::Sunsip, 1)
@@ -324,18 +324,18 @@ const ARCANA: &[Recipe] = &[
     (Block::Emberbell, 1)
   ),
   bloom_font(
-    &[(Block::Stone, 6), (Block::GlimmerViolet, 2), (Block::Glass, 1)],
+    &[(Block::Greywacke, 6), (Block::GlimmerViolet, 2), (Block::Glass, 1)],
     (Block::ManaCistern, 1)
   ),
-  bloom_font(&[(Block::Stone, 4), (Block::GlimmerCyan, 1)], (Block::Plinth, 1)),
+  bloom_font(&[(Block::Greywacke, 4), (Block::GlimmerCyan, 1)], (Block::Plinth, 1)),
   table(
-    &[(Block::Lumen, 2), (Block::Stone, 4), (Block::Starheart, 1)],
+    &[(Block::Lumen, 2), (Block::Greywacke, 4), (Block::Starheart, 1)],
     (Block::ConfluenceAltar, 1)
   ),
   furnace(&[(Block::IronOre, 6), (Block::CoalOre, 1)], (Block::Cauldron, 1)),
   table(
     &[
-      (Block::Stone, 6),
+      (Block::Greywacke, 6),
       (Block::Furnace, 1),
       (Block::GoldOre, 1),
       (Block::DiamondOre, 1)
@@ -343,7 +343,7 @@ const ARCANA: &[Recipe] = &[
     (Block::CrimsonAltar, 1)
   ),
   table(&[(Block::IronOre, 2), (Block::Planks, 1)], (Block::RitualKnife, 1)),
-  table(&[(Block::BareTablet, 1), (Block::Stone, 4)], (Block::CrimsonRune, 2)),
+  table(&[(Block::BareTablet, 1), (Block::Greywacke, 4)], (Block::CrimsonRune, 2)),
   table(
     &[(Block::BoundTablet, 1), (Block::WaterBucket, 1), (Block::Glass, 2)],
     (Block::WellspringSigil, 1)
@@ -368,7 +368,7 @@ const ARCANA: &[Recipe] = &[
     Cost::Mana(800)
   ),
   rite(
-    &[(Block::Stone, 1)],
+    &[(Block::Greywacke, 1)],
     (Block::BareTablet, 1),
     Block::CrimsonAltar,
     Cost::Lifeblood(1000)
@@ -423,7 +423,7 @@ const ARCANA: &[Recipe] = &[
     (Block::Crusher, 1)
   ),
   rite(&[(Block::PlatinumOre, 1)], (Block::PlatinumDust, 2), Block::Crusher, Cost::Free),
-  rite(&[(Block::Cobblestone, 1)], (Block::Gravel, 1), Block::Crusher, Cost::Free),
+  rite(&[(Block::GreywackeCobble, 1)], (Block::Gravel, 1), Block::Crusher, Cost::Free),
   rite(&[(Block::Gravel, 1)], (Block::Sand, 1), Block::Crusher, Cost::Free),
   rite(&[(Block::Gravel, 1)], (Block::PlatinumDust, 1), Block::Crusher, Cost::Chance(6)),
   rite(
@@ -526,15 +526,15 @@ const BASICS: &[Recipe] = &[
   hand(&[(Block::Planks, 4)], (Block::CraftingTable, 1)),
   hand(&[(Block::Planks, 1), (Block::CoalOre, 1)], (Block::Torch, 4)),
   hand(&[(Block::Planks, 1), (Block::Charcoal, 1)], (Block::Torch, 4)),
-  table(&[(Block::Cobblestone, 8)], (Block::Furnace, 1)),
+  table(&[(Block::GreywackeCobble, 8)], (Block::Furnace, 1)),
   table(&[(Block::Planks, 5)], (Block::Boat, 1)),
-  table(&[(Block::Stone, 4)], (Block::StoneBricks, 4)),
+  table(&[(Block::Greywacke, 4)], (Block::GreywackeBricks, 4)),
   table(
     &[(Block::Wool, 12), (Block::Planks, 6), (Block::Bucket, 1)],
     (Block::Balloon, 1)
   ),
   table(&[(Block::Glass, 2), (Block::CopperOre, 1)], (Block::Lamp, 2)),
-  furnace(&[(Block::Cobblestone, 8), (Block::CoalOre, 1)], (Block::Stone, 8)),
+  furnace(&[(Block::GreywackeCobble, 8), (Block::CoalOre, 1)], (Block::Greywacke, 8)),
   furnace(&[(Block::GraniteCobble, 8), (Block::CoalOre, 1)], (Block::Granite, 8)),
   furnace(&[(Block::DioriteCobble, 8), (Block::CoalOre, 1)], (Block::Diorite, 8)),
   furnace(&[(Block::AndesiteCobble, 8), (Block::CoalOre, 1)], (Block::Andesite, 8)),
@@ -547,7 +547,7 @@ const BASICS: &[Recipe] = &[
   furnace(&[(Block::BirchLog, 2)], (Block::Charcoal, 1)),
   furnace(&[(Block::SpruceLog, 2)], (Block::Charcoal, 1)),
   furnace(&[(Block::PalmLog, 2)], (Block::Charcoal, 1)),
-  hand(&[(Block::Cobblestone, 1)], (Block::Gravel, 1)),
+  hand(&[(Block::GreywackeCobble, 1)], (Block::Gravel, 1)),
   hand(&[(Block::Gravel, 1)], (Block::Sand, 1)),
   hand(&[(Block::Snow, 4)], (Block::Ice, 1)),
   hand(&[(Block::RedMushroom, 4)], (Block::RedCap, 1)),
@@ -566,7 +566,7 @@ const BASICS: &[Recipe] = &[
   table(&[(Block::Wool, 1), (Block::Cod, 1)], (Block::Candle, 3)),
   table(&[(Block::Wool, 1), (Block::Salmon, 1)], (Block::Candle, 3)),
   furnace(&[(Block::IronOre, 2), (Block::CoalOre, 1)], (Block::Brazier, 1)),
-  furnace(&[(Block::Cobblestone, 4), (Block::Clay, 1)], (Block::AncientBrick, 4)),
+  furnace(&[(Block::GreywackeCobble, 4), (Block::Clay, 1)], (Block::AncientBrick, 4)),
   hand(&[(Block::ArcaneDust, 1)], (Block::SpellFirebolt, 2)),
   hand(&[(Block::ArcaneDust, 1)], (Block::SpellFrost, 3)),
   hand(&[(Block::ArcaneDust, 1)], (Block::SpellMissile, 2)),

@@ -153,10 +153,10 @@ fn column(seed: u32, surface: Surface, steep: bool, x: i32, z: i32) -> Column {
     _ if frozen && height <= SEA => (Block::Gravel, Block::Gravel),
     _ if height <= SEA + 1 && beach => (Block::Sand, Block::Sand),
     _ if frozen => match steep {
-      true => (Block::Stone, Block::Stone),
+      true => (Block::Greywacke, Block::Greywacke),
       false => (Block::Snow, Block::Dirt)
     },
-    _ if steep && height > SEA + 24 => (Block::Stone, Block::Stone),
+    _ if steep && height > SEA + 24 => (Block::Greywacke, Block::Greywacke),
     Some(Kind::Mushroom) => (Block::Mycelium, Block::Dirt),
     _ if heat > ARID && wet < 0.0 => (Block::Sand, Block::Sand),
     _ => (Block::Grass, Block::Dirt)
@@ -236,7 +236,7 @@ fn rock(seed: u32, at: IVec3, strata: Strata, intruded: f32) -> Block {
       layer if layer < -0.3 => Block::Limestone,
       layer if layer > 0.32 => Block::Andesite,
       layer if (0.08..0.17).contains(&layer) => Block::Slate,
-      _ => Block::Stone
+      _ => Block::Greywacke
     }
   }
 }
@@ -722,10 +722,10 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
           () if depth == 0 => ground.top,
           () if depth < 4 => ground.under,
           () if ground.height < ABYSS && depth < 12 => Block::Abyssite,
-          () => Block::Stone
+          () => Block::Greywacke
         };
         blocks[Chunk::index(local)] = match block {
-          Block::Stone => rock(
+          Block::Greywacke => rock(
             seed,
             at,
             layers[(local.z * SIZE + local.x) as usize],
@@ -859,8 +859,8 @@ fn terrain(seed: u32, key: IVec3) -> Chunk {
                 let block = match y - stone.y {
                   0 if dx == 0 && dz == 0 => Block::Waystone,
                   1 if dx == 0 && dz == 0 => Block::WaystoneTop,
-                  -1 => Block::Cobblestone,
-                  rise if rise < -1 => Block::Stone,
+                  -1 => Block::GreywackeCobble,
+                  rise if rise < -1 => Block::Greywacke,
                   _ => Block::Air
                 };
                 if inside(cell) {
@@ -1067,7 +1067,7 @@ mod tests {
   fn exposed_rock_near_home() {
     let home = spawn_point(1).floor().as_ivec3();
     let mut voxels = Voxels::new(1);
-    for wanted in [Block::Stone, Block::Gravel, Block::Granite, Block::Slate] {
+    for wanted in [Block::Greywacke, Block::Gravel, Block::Granite, Block::Slate] {
       let found = (1..60).find_map(|ring| {
         (-ring..=ring)
           .flat_map(|step| {
@@ -1122,7 +1122,7 @@ mod tests {
         .any(|x| (0..3).any(|y| blocks(&chunk(1, IVec3::new(x, y, 0))).contains(&wanted)))
     };
     for wanted in [
-      Block::Stone,
+      Block::Greywacke,
       Block::CoalOre,
       Block::IronOre,
       Block::Grass,

@@ -49,6 +49,9 @@ struct Flash;
 struct Announcement;
 
 #[derive(Component)]
+struct Naming;
+
+#[derive(Component)]
 struct Cooling(usize);
 
 #[derive(Component)]
@@ -362,6 +365,27 @@ fn build(
         crate::hud::SHADE
       ));
     });
+  commands
+    .spawn((
+      Tucked,
+      Node {
+        width: percent(100),
+        position_type: PositionType::Absolute,
+        bottom: px(12.0 + SLOT + 64.0),
+        justify_content: JustifyContent::Center,
+        ..default()
+      },
+      GlobalZIndex(20)
+    ))
+    .with_children(|row| {
+      row.spawn((
+        Naming,
+        Text::new(""),
+        TextFont { font_size: FontSize::Px(16.0), ..default() },
+        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.0)),
+        crate::hud::SHADE
+      ));
+    });
   commands.spawn((
     Status,
     Text::new(""),
@@ -660,6 +684,40 @@ fn announce(
   }
 }
 
+const NAMED_FOR: f32 = 2.0;
+
+fn name_held(
+  time: Res<Time>,
+  pilot: Option<Res<Pilot>>,
+  selected: Res<Selected>,
+  inventories: Query<&Inventory>,
+  mut texts: Query<(&mut Text, &mut TextColor, &mut TextShadow), With<Naming>>,
+  mut held: Local<Option<(usize, Option<Block>)>>,
+  mut since: Local<f32>
+) {
+  let stack = pilot.and_then(|pilot| {
+    inventories.get(pilot.me).ok().and_then(|inventory| inventory.slots[selected.0])
+  });
+  let now = (selected.0, stack.map(|stack| stack.block));
+  let switched = held.is_some_and(|was| was != now);
+  *since = match switched {
+    true => 0.0,
+    false => *since + time.delta_secs()
+  };
+  let fade = match held.is_some() {
+    true => ((NAMED_FOR - *since) / 0.6).clamp(0.0, 1.0),
+    false => 0.0
+  };
+  *held = Some(now);
+  for (mut text, mut color, mut shadow) in texts.iter_mut() {
+    if switched {
+      text.0 = stack.map(|stack| crate::gear::title(&stack)).unwrap_or_default()
+    }
+    color.0.set_alpha(fade);
+    shadow.color.set_alpha(fade)
+  }
+}
+
 pub struct Hud;
 
 impl Plugin for Hud {
@@ -669,7 +727,8 @@ impl Plugin for Hud {
       .add_systems(Startup, build.after(crate::stream::paint).run_if(plays))
       .add_systems(
         Update,
-        (refresh, aim, status, vitals, announce, learning, shine).run_if(plays)
+        (refresh, aim, status, vitals, announce, name_held, learning, shine)
+          .run_if(plays)
       )
       .add_systems(PostUpdate, tuck.run_if(plays))
       .add_systems(PreUpdate, scale.run_if(plays));

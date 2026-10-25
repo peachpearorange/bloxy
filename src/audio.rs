@@ -392,7 +392,7 @@ fn travels(mut teleports: MessageReader<Teleport>, mut sounds: MessageWriter<Sou
   }
 }
 
-fn open_sky(voxels: &Voxels, eye: Vec3) -> f32 {
+pub fn open_sky(voxels: &Voxels, eye: Vec3) -> f32 {
   let at = eye.floor().as_ivec3();
   let columns =
     [(0, 0), (4, 0), (-4, 0), (0, 4), (0, -4), (3, 3), (-3, 3), (3, -3), (-3, -3)];

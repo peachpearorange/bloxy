@@ -80,9 +80,11 @@ const PLINTH_REACH: i32 = 3;
 pub fn aspects(block: Block) -> &'static [(Aspect, u16)] {
   use Aspect::*;
   match block {
-    Block::Stone | Block::Granite | Block::Diorite | Block::Andesite | Block::Slate => {
-      &[(Earth, 2)]
-    }
+    Block::Greywacke
+    | Block::Granite
+    | Block::Diorite
+    | Block::Andesite
+    | Block::Slate => &[(Earth, 2)],
     Block::Limestone => &[(Earth, 1), (Order, 1)],
     cobble if Block::ROCKS.iter().any(|&(_, rubble)| rubble == cobble) => {
       &[(Earth, 1), (Decay, 1)]
@@ -839,7 +841,7 @@ mod tests {
     voxels.set(BASE + IVec3::new(2, -1, 0), Block::CrimsonRune);
     let state = states.get_mut(&BASE).unwrap();
     state.intake = Some((Liquid::Lifeblood, 3000.0));
-    state.item = Some(Stack::of(Block::Stone, 1));
+    state.item = Some(Stack::of(Block::Greywacke, 1));
     for _ in 0..40 {
       bleed(&mut voxels, &mut states, &[BASE])
     }

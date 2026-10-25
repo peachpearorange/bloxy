@@ -26,7 +26,7 @@ const fn offer(give: (Block, u16), get: (Block, u16)) -> Offer { Offer { give, g
 
 const OFFERS: [Offer; 14] = [
   offer((Block::Log, 8), (Block::IronOre, 2)),
-  offer((Block::Cobblestone, 16), (Block::GoldOre, 1)),
+  offer((Block::GreywackeCobble, 16), (Block::GoldOre, 1)),
   offer((Block::IronOre, 4), (Block::DiamondOre, 1)),
   offer((Block::GoldOre, 2), (Block::PalmSapling, 3)),
   offer((Block::GoldOre, 2), (Block::SpruceSapling, 3)),

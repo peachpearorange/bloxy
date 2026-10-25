@@ -9,7 +9,8 @@ use {crate::{block::Block,
 )]
 pub enum Material {
   Wood,
-  Stone,
+  #[serde(alias = "Stone")]
+  Greywacke,
   Granite,
   Diorite,
   Andesite,
@@ -45,7 +46,7 @@ impl Material {
   pub fn name(self) -> &'static str {
     match self {
       Material::Wood => "Wooden",
-      Material::Stone => "Stone",
+      Material::Greywacke => "Greywacke",
       Material::Granite => "Granite",
       Material::Diorite => "Diorite",
       Material::Andesite => "Andesite",
@@ -70,7 +71,7 @@ impl Material {
   pub fn grit(self) -> Grit {
     let (hardness, toughness) = match self {
       Material::Wood => (2, 3),
-      Material::Stone => (4, 2),
+      Material::Greywacke => (4, 2),
       Material::Granite => (5, 3),
       Material::Diorite => (5, 2),
       Material::Andesite => (4, 3),
@@ -96,7 +97,7 @@ impl Material {
   pub fn ingredient(self) -> Option<Block> {
     match self {
       Material::Wood => Some(Block::Planks),
-      Material::Stone => Some(Block::Cobblestone),
+      Material::Greywacke => Some(Block::GreywackeCobble),
       Material::Granite => Some(Block::GraniteCobble),
       Material::Diorite => Some(Block::DioriteCobble),
       Material::Andesite => Some(Block::AndesiteCobble),
@@ -131,7 +132,7 @@ impl Material {
       Material::Wood => {
         [[0.3, 0.2, 0.11], [0.46, 0.33, 0.19], [0.6, 0.45, 0.27], [0.72, 0.57, 0.36]]
       }
-      Material::Stone => {
+      Material::Greywacke => {
         [[0.27, 0.27, 0.28], [0.42, 0.42, 0.44], [0.55, 0.55, 0.57], [0.68, 0.68, 0.7]]
       }
       Material::Granite => {

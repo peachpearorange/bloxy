@@ -143,6 +143,7 @@ pub struct Climate {
   wind: f32,
   murk: f32,
   flash: f32,
+  open: f32,
   luck: u32,
   settled: bool
 }
@@ -421,6 +422,10 @@ fn darken(
   let dt = time.delta_secs().min(0.1);
   let storm = weathers.iter().next().is_some_and(|weather| weather.sky == Sky::Storm);
   climate.flash = (climate.flash - dt * 5.0).max(0.0);
+  if let Some(voxels) = &voxels {
+    let open = crate::audio::open_sky(voxels, pilot.eye());
+    climate.open += (open - climate.open) * (1.0 - (-dt * 3.0).exp())
+  }
   if storm
     && let Some(voxels) = voxels
     && climate.dice() < dt * 0.1
@@ -468,7 +473,7 @@ fn darken(
   let day = daylight(opts().hour);
   let flash = FLASH * 2f32.powf(day.ev100 - 7.2);
   for mut sun in suns.iter_mut() {
-    sun.illuminance = day.lux * climate.sun + climate.flash * flash
+    sun.illuminance = day.lux * climate.sun + climate.flash * flash * climate.open
   }
   let gloom = ((1.0 - climate.sun) / (1.0 - Sky::Storm.sun())).clamp(0.0, 1.0);
   let bright = 1.0 - day.dark;
@@ -502,6 +507,7 @@ impl Plugin for Weathering {
         wind: Sky::Clear.wind(),
         murk: Sky::Clear.murk(),
         flash: 0.0,
+        open: 1.0,
         luck: 0xC10D,
         settled: false
       })

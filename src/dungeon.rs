@@ -273,8 +273,8 @@ impl Plan {
               match (round + wobble(self, at) * 0.35 < 0.9 && y >= low.y, y == low.y - 1)
               {
                 (true, _) => Stamp::Open,
-                (false, true) => Stamp::Seal(Block::Stone),
-                _ => Stamp::Seal(Block::Stone)
+                (false, true) => Stamp::Seal(Block::Greywacke),
+                _ => Stamp::Seal(Block::Greywacke)
               }
             }
             _ => match (inside, y == low.y - 1) {
@@ -499,7 +499,7 @@ impl Plan {
           if self.cells.get(&at) == Some(&Stamp::Open) && !Plan::near_door(room, at, 2) {
             let tall = self.range(1, 3);
             for up in 0..tall {
-              self.put(at + IVec3::Y * up, Block::Stone)
+              self.put(at + IVec3::Y * up, Block::Greywacke)
             }
           }
         }

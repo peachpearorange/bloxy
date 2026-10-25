@@ -166,7 +166,11 @@ fn tile(act: Act, border: Color) -> impl Bundle {
 
 fn slot(parent: &mut ChildSpawnerCommands, place: Place, palette: &Palette) {
   parent.spawn(tile(place.act(), EDGE)).with_children(|slot| {
-    slot.spawn((SlotIcon(place), icon(Block::Stone, 40.0, palette), Visibility::Hidden));
+    slot.spawn((
+      SlotIcon(place),
+      icon(Block::Greywacke, 40.0, palette),
+      Visibility::Hidden
+    ));
     slot.spawn((SlotCount(place), words("", 13.0, INK), SHADOW, Node {
       position_type: PositionType::Absolute,
       right: px(3),
@@ -358,7 +362,7 @@ fn tooltip(mut commands: Commands, palette: Res<Palette>) {
       Visibility::Hidden
     ))
     .with_children(|carried| {
-      carried.spawn(icon(Block::Stone, 40.0, &palette));
+      carried.spawn(icon(Block::Greywacke, 40.0, &palette));
       carried.spawn((words("", 13.0, INK), SHADOW, Node {
         position_type: PositionType::Absolute,
         right: px(1),

@@ -65,7 +65,7 @@ fn next(voxels: &mut Voxels, at: IVec3) -> Option<Block> {
       if replaceable(here) || here.fluid() =>
     {
       match touching.iter().any(|&other| other != fluid) {
-        true => Block::Cobblestone,
+        true => Block::GreywackeCobble,
         false => fluid.flowing(level)
       }
     }
@@ -150,7 +150,7 @@ mod tests {
     let spring = IVec3::new(4000, 220, 4000);
     for x in -8..=8 {
       for z in -8..=8 {
-        voxels.set(spring + IVec3::new(x, -3, z), Block::Stone)
+        voxels.set(spring + IVec3::new(x, -3, z), Block::Greywacke)
       }
     }
     voxels.set(spring, Block::Water);
@@ -168,12 +168,12 @@ mod tests {
   fn lava_meeting_water_hardens() {
     let mut voxels = Voxels::new(1);
     let at = IVec3::new(4000, 220, 4100);
-    voxels.set(at - IVec3::Y, Block::Stone);
-    voxels.set(at + IVec3::X - IVec3::Y, Block::Stone);
+    voxels.set(at - IVec3::Y, Block::Greywacke);
+    voxels.set(at + IVec3::X - IVec3::Y, Block::Greywacke);
     voxels.set(at, Block::Lava);
     voxels.set(at + IVec3::X * 2, Block::Water);
-    voxels.set(at + IVec3::X * 2 - IVec3::Y, Block::Stone);
+    voxels.set(at + IVec3::X * 2 - IVec3::Y, Block::Greywacke);
     settle(&mut voxels, at, 3);
-    assert_eq!(voxels.ensure(at + IVec3::X), Block::Cobblestone);
+    assert_eq!(voxels.ensure(at + IVec3::X), Block::GreywackeCobble);
   }
 }

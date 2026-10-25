@@ -7,7 +7,7 @@ mod web {
     static PASTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static CAPTURING: Cell<bool> = const { Cell::new(false) };
     static WIDENING: Cell<bool> = const { Cell::new(false) };
-    static RESUMING: Cell<bool> = const { Cell::new(false) };
+    static RESUMING: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
   }
 
   fn storage() -> Option<web_sys::Storage> {
@@ -56,7 +56,9 @@ mod web {
     CAPTURING.with(|capturing| capturing.set(wanted))
   }
 
-  pub fn resume_on_tab(wanted: bool) { RESUMING.with(|resuming| resuming.set(wanted)) }
+  pub fn resume_on(keys: Vec<&'static str>) {
+    RESUMING.with(|resuming| *resuming.borrow_mut() = keys)
+  }
 
   fn settled(promise: JsValue) {
     if let Ok(promise) = promise.dyn_into::<js_sys::Promise>() {
@@ -141,9 +143,8 @@ mod web {
     });
     let typed = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(
       |event: web_sys::KeyboardEvent| {
-        if event.key() == "Tab"
-          && !event.repeat()
-          && RESUMING.with(Cell::get)
+        if !event.repeat()
+          && RESUMING.with(|resuming| resuming.borrow().contains(&event.code().as_str()))
           && let Some(document) = web_sys::window().and_then(|window| window.document())
           && let Some(canvas) = document.query_selector("canvas").ok().flatten()
           && document.pointer_lock_element().is_none()
@@ -203,7 +204,7 @@ mod web {
 
   pub fn capture_on_click(_wanted: bool) {}
 
-  pub fn resume_on_tab(_wanted: bool) {}
+  pub fn resume_on(_keys: Vec<&'static str>) {}
 
   pub fn listen_for_clicks() {}
 

@@ -147,12 +147,12 @@ fn projected(top: vec2<f32>, code: f32, at: vec3<f32>, normal: vec3<f32>, dx: ve
     if same {
         return mixed;
     }
-    let soil = vec4<f32>(rocky(23.0, at, normal, max(length(dx), length(dy)) * 16.0).color, 1.0);
+    let soil = vec4<f32>(rocky(23.0, at, normal, sqrt(length(dx) * length(dy)) * 16.0).color, 1.0);
     let ragged = (lumpy(at * 2.3) - 0.5) * 0.3 + (lumpy(at * 7.0) - 0.5) * 0.12;
     let covered = smoothstep(0.34, 0.5, normal.y + ragged);
     var cover = painted(top, tile, at.xz, dx.xz, dy.xz);
     if all(abs(top - surface.turf.xy) < tile * 0.5) {
-        let size = max(length(dx.xz), length(dy.xz)) * 16.0;
+        let size = sqrt(length(dx.xz) * length(dy.xz)) * 16.0;
         cover = vec4<f32>(select(lawn(at.xz, globals.time, distance(at.xz, view.world_position.xz)), fuzz(at.xz, globals.time, size, surface.turf.w < 0.5), surface.turf.z > 0.5), 1.0);
     }
     return mix(soil, cover, covered);
@@ -479,7 +479,8 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         glow = ore.glow * inside;
         rough = mix(rough, 0.5, inside);
     }
-    let flat = ramped(palette, select(0.5, 0.4, cobbled || gravel)) * select(1.0, 0.85, cobbled || gravel);
+    let broad = supple(centre * 1.1 + 7.0) - 0.5;
+    let flat = ramped(palette, select(0.5, 0.4, cobbled || gravel) + broad * 0.7) * select(1.0, 0.85, cobbled || gravel);
     let shown = mix(color, flat, smoothstep(0.8, 2.0, size) * (1.0 - smoothstep(0.0, 0.05, glow)));
     return Finish(shown, 0.0, shown * glow * 0.6, rough, 0.0);
 }
@@ -540,6 +541,274 @@ fn leafy(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> vec4<f32> {
     let filled = select(smoothstep(0.42, 0.36, leaf.near) * smoothstep(0.04, 0.08, leaf.edge), select(0.0, 1.0, body), pixel);
     let shown = mix(palette[0] * 0.55, color, filled);
     return vec4<f32>(mix(shown, ramped(palette, 0.45), smoothstep(0.8, 2.0, size)), select(1.0, 0.0, open));
+}
+
+const MASONRY: f32 = 41.0;
+const CARVED: f32 = 45.0;
+const PLANKS: f32 = 46.0;
+const BARK: f32 = 47.0;
+const MOSS: array<vec3<f32>, 4> = array<vec3<f32>, 4>(vec3<f32>(0.1, 0.2, 0.08), vec3<f32>(0.17, 0.3, 0.11), vec3<f32>(0.24, 0.4, 0.14), vec3<f32>(0.33, 0.5, 0.2));
+const RUNE: vec3<f32> = vec3<f32>(0.35, 0.95, 0.8);
+
+fn facing(at: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    let axis = abs(normal);
+    if axis.y > axis.x && axis.y > axis.z {
+        return vec3<f32>(at.x, at.z, at.y);
+    } else if axis.x > axis.z {
+        return vec3<f32>(at.z, at.y, at.x);
+    }
+    return at;
+}
+
+fn snapped(at: vec3<f32>, normal: vec3<f32>, pixel: bool) -> vec3<f32> {
+    let inside = at - normal * 0.01;
+    return select(inside, (floor(inside * 16.0) + 0.5) / 16.0, pixel);
+}
+
+fn masonry(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
+    let pixel = surface.turf.w < 0.5;
+    let face = facing(at - normal * 0.01, normal) * 16.0;
+    let flat = select(face, floor(face) + 0.5, pixel);
+    let spot = snapped(at, normal, pixel);
+    let ancient = kind < MASONRY + 2.5;
+    let span = select(8.0, 16.0, ancient);
+    let wall = i32(floor(face.z / 16.0));
+    let course = floor(flat.y / 8.0);
+    let jitter = select(0.0, floor(texel_hash(vec3<i32>(i32(course), wall, 3), 40u) * 4.0), ancient);
+    let run = flat.x + course * span * 0.5 + jitter;
+    let brick = floor(run / span);
+    let u = run - brick * span;
+    let v = flat.y - course * 8.0;
+    let id = vec3<i32>(i32(brick), i32(course), wall);
+    let wear = select(0.3, 0.55, ancient);
+    let wobble = (supple(face * 0.55 + 5.0) - 0.5) * 2.2 * wear + (texel_hash(vec3<i32>(floor(face)), 44u) - 0.5) * 0.5 * wear;
+    let edge = min(min(u - 1.0, span - u), min(v - 1.0, 8.0 - v));
+    let mortar = below(edge + wobble, 0.0, pixel);
+    let top = below(8.0 - v, 1.0, pixel) * (1.0 - mortar);
+    let bottom = below(v - 1.0, 1.0, pixel) * (1.0 - mortar);
+    let speckle = smoothstep(0.0, 1.0, (supple(face * 0.9 + 13.0) - 0.5) * 2.4 + 0.5);
+    let pick = select(speckle, texel_hash(vec3<i32>(floor(face)), 45u), pixel);
+    let cloud = supple(spot * 1.4 + 3.0) * 0.6 + supple(spot * 4.0 + 9.0) * 0.4;
+    let tone = texel_hash(id, 42u);
+    let base = select(vec3<f32>(0.5, 0.5, 0.52), vec3<f32>(0.37, 0.4, 0.41), ancient);
+    let joint = select(vec3<f32>(0.27, 0.27, 0.27), vec3<f32>(0.12, 0.13, 0.14), ancient);
+    let palette = shades(base);
+    let stone = ramped(palette, 0.45 + (tone - 0.5) * 0.4 + (cloud - 0.5) * 0.55 + (pick - 0.5) * 0.18 + top * 0.18 - bottom * 0.14);
+    var color = mix(stone, joint * (0.85 + pick * 0.3), mortar);
+    var height = (1.0 - mortar) * 0.8 + (cloud - 0.5) * 0.3 + top * 0.2;
+    if kind > MASONRY + 0.5 && kind < MASONRY + 1.5 {
+        let growth = supple(spot * 0.9 + 11.0) * 0.55 + supple(spot * 2.6 + 3.0) * 0.25 + clamp(normal.y, 0.0, 1.0) * 0.35 + (1.0 - fract(spot.y)) * 0.12 + mortar * 0.2;
+        let moss = 1.0 - below(growth, 0.62, pixel);
+        let fuzz = select(supple(spot * 24.0), texel_hash(vec3<i32>(floor(spot * 16.0)), 46u), pixel);
+        color = mix(color, ramped(MOSS, 0.2 + fuzz * 0.6 + (growth - 0.62) * 1.5), moss);
+        height = mix(height, 1.0 + fuzz * 0.3, moss);
+    } else if kind > MASONRY + 1.5 && kind < MASONRY + 2.5 {
+        let split = pebbles(spot * 16.0 / 7.0, false);
+        let crack = below(split.edge, select(0.07, 0.14, pixel), pixel) * select(0.0, 1.0, supple(spot * 1.1 + 21.0) > 0.42);
+        color = mix(color, vec3<f32>(0.07, 0.07, 0.08), crack);
+        height = height - crack * 1.2;
+    }
+    let far = mix(ramped(palette, 0.45 + (tone - 0.5) * 0.3), joint, 0.15);
+    let fade = smoothstep(1.0, 2.5, size);
+    return Finish(mix(color, far, fade), height * (1.0 - fade), vec3<f32>(0.0), 0.9, 0.0);
+}
+
+fn stroke(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>) -> f32 {
+    let line = end - start;
+    let along = clamp(dot(point - start, line) / dot(line, line), 0.0, 1.0);
+    return length(point - start - line * along);
+}
+
+fn rune(texel: vec2<f32>, seed: vec3<i32>) -> f32 {
+    var spots = array<vec2<f32>, 9>(
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(2.0, 0.0),
+        vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0), vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, 2.0), vec2<f32>(1.0, 2.0), vec2<f32>(2.0, 2.0));
+    var lines = array<vec2<u32>, 20>(
+        vec2<u32>(0u, 1u), vec2<u32>(1u, 2u), vec2<u32>(3u, 4u), vec2<u32>(4u, 5u), vec2<u32>(6u, 7u), vec2<u32>(7u, 8u),
+        vec2<u32>(0u, 4u), vec2<u32>(1u, 3u), vec2<u32>(1u, 5u), vec2<u32>(2u, 4u),
+        vec2<u32>(3u, 7u), vec2<u32>(4u, 6u), vec2<u32>(4u, 8u), vec2<u32>(5u, 7u),
+        vec2<u32>(0u, 3u), vec2<u32>(3u, 6u), vec2<u32>(2u, 5u), vec2<u32>(5u, 8u), vec2<u32>(1u, 4u), vec2<u32>(4u, 7u));
+    let stem = u32(floor(texel_hash(seed, 60u) * 3.0));
+    let scale = vec2<f32>(2.0, 1.6);
+    var near = stroke(texel, vec2<f32>(f32(stem), 0.0) * scale, vec2<f32>(f32(stem), 2.0) * scale);
+    for (var index = 0u; index < 20u; index++) {
+        if texel_hash(seed, 61u + index) < 0.2 {
+            let pair = lines[index];
+            near = min(near, stroke(texel, spots[pair.x] * scale, spots[pair.y] * scale));
+        }
+    }
+    return near;
+}
+
+fn carved(at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> Finish {
+    let pixel = surface.turf.w < 0.5;
+    let face = facing(at - normal * 0.01, normal) * 16.0;
+    let flat = select(face, floor(face) + 0.5, pixel);
+    let inner = flat.xy - floor(face.xy / 16.0) * 16.0;
+    let frame = inner.x < 2.0 || inner.x > 14.0 || inner.y < 1.0 || inner.y > 15.0;
+    if frame {
+        return masonry(MASONRY, at, normal, size);
+    }
+    let spot = snapped(at, normal, pixel);
+    let cloud = supple(spot * 1.4 + 3.0) * 0.6 + supple(spot * 4.0 + 9.0) * 0.4;
+    let pick = select(supple(face * 0.9 + 13.0), texel_hash(vec3<i32>(floor(face)), 47u), pixel);
+    let inset = min(min(inner.x - 2.0, 14.0 - inner.x), min(inner.y - 1.0, 15.0 - inner.y));
+    let rim = below(inset, 1.0, pixel);
+    let panel = ramped(shades(vec3<f32>(0.37, 0.4, 0.41)), 0.4 + (cloud - 0.5) * 0.5 + (pick - 0.5) * 0.12) * (0.8 - rim * 0.12);
+    let block = vec3<i32>(floor(at - normal * 0.5));
+    let side = vec3<i32>(round(normal * 2.0));
+    let row = floor((inner.y - 1.0) / (14.0 / 3.0));
+    let seed = block * 7 + side + vec3<i32>(0, i32(row) * 31, 0);
+    let corner = vec2<f32>(4.0, 1.0 + row * 14.0 / 3.0 + 0.9);
+    let near = rune(inner - corner - vec2<f32>(select(0.0, 0.5, pixel), 0.0), seed);
+    let carving = select(1.0 - smoothstep(0.3, 0.5, near), select(0.0, 1.0, near < 0.5), pixel) * (1.0 - smoothstep(1.0, 2.5, size));
+    let pulse = 0.75 + 0.25 * sin(time * 1.4 + f32(seed.x + seed.z) * 0.37);
+    let color = mix(panel, RUNE, carving);
+    return Finish(color, -0.6 - carving * 0.6 - rim * 0.3, RUNE * carving * 0.55 * pulse, 0.85, 0.0);
+}
+
+fn planked(at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
+    let pixel = surface.turf.w < 0.5;
+    let face = facing(at - normal * 0.01, normal) * 16.0;
+    let flat = select(face, floor(face) + 0.5, pixel);
+    let depth = i32(floor(face.z / 16.0));
+    let board = floor(flat.y / 4.0);
+    let row = flat.y - board * 4.0;
+    let offset = floor(texel_hash(vec3<i32>(i32(board), depth, 1), 50u) * 16.0);
+    let run = flat.x + offset;
+    let piece = floor(run / 16.0);
+    let along = run - piece * 16.0;
+    let id = vec3<i32>(i32(board), i32(piece), depth);
+    let tone = 0.88 + texel_hash(id, 51u) * 0.2;
+    let hue = texel_hash(id, 52u) - 0.5;
+    let shift = texel_hash(id, 53u) * 37.0;
+    let grain = supple(vec3<f32>(flat.x * 0.09 + shift, flat.y * 0.9, f32(depth) * 3.1)) * 0.6 + supple(vec3<f32>(flat.x * 0.2 + shift, flat.y * 1.8, 7.0)) * 0.4;
+    let streak = 1.0 - below(supple(vec3<f32>(flat.x * 0.07 + shift, flat.y * 1.3, 19.0)), 0.7, pixel);
+    let knotty = texel_hash(id, 54u) < 0.3;
+    let knot_at = floor(texel_hash(id, 55u) * 13.0) + 2.0;
+    let reach = vec2<f32>((along - knot_at) / 1.7, row - 2.5);
+    let knot = select(9.0, dot(reach, reach), knotty);
+    let weather = (supple(vec3<f32>(flat.x, flat.y, 0.0) / 8.0 + vec3<f32>(f32(depth) * 1.7)) - 0.5) * 0.08;
+    let gap = below(row, 1.0, pixel);
+    let joint = below(along, 1.0, pixel);
+    let core = below(knot, 0.45, pixel);
+    let ring = below(knot, 1.5, pixel);
+    let open = (0.86 + grain * 0.24) * (1.0 - streak * 0.16) + (1.0 - below(row, 3.0, pixel)) * 0.07 + below(abs(along - 1.5), 0.5, pixel) * 0.05 + weather;
+    var shade = mix(open, 0.86, ring);
+    shade = mix(shade, 0.62, core);
+    shade = mix(shade, 0.6, joint);
+    shade = mix(shade, 0.5 + grain * 0.08, gap);
+    let warm = vec3<f32>(1.0 + hue * 0.08, 1.0, 1.0 - hue * 0.1);
+    var color = vec3<f32>(0.64, 0.48, 0.28) * warm * tone * shade;
+    let nail = select(0.0, below(abs(row - 2.5), 0.5, pixel) * below(abs(along - 1.5), 0.5, pixel), texel_hash(id, 56u) < 0.6);
+    color = mix(color, vec3<f32>(0.24, 0.23, 0.22), nail);
+    let far = vec3<f32>(0.64, 0.48, 0.28) * 0.82 * tone * warm;
+    let fade = smoothstep(1.0, 2.5, size);
+    let height = (1.0 - max(gap, joint)) * 0.8 + grain * 0.2 - core * 0.3;
+    return Finish(mix(color, far, fade), height * (1.0 - fade), vec3<f32>(0.0), 0.8, 0.0);
+}
+
+fn barked(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
+    let pixel = surface.turf.w < 0.5;
+    let wood = kind - BARK;
+    let middle = floor(at.xz) + 0.5;
+    var color = vec3<f32>(0.0);
+    var height = 0.0;
+    var far = vec3<f32>(0.0);
+    if abs(normal.y) > 0.7 {
+        let spot = select(at.xz, (floor(at.xz * 16.0) + 0.5) / 16.0, pixel);
+        let toward = spot - middle;
+        let reach = length(toward) / 0.47;
+        let wobble = supple(vec3<f32>(spot.x * 5.0, floor(at.y) * 3.0, spot.y * 5.0)) - 0.5;
+        let band = fract((reach + wobble * 0.08) * 5.5);
+        let late = below(band, 0.38, pixel);
+        var light = vec3<f32>(0.66, 0.52, 0.33);
+        var dark = vec3<f32>(0.57, 0.44, 0.27);
+        var rind = vec3<f32>(0.36, 0.26, 0.16);
+        if wood > 0.5 && wood < 1.5 {
+            light = vec3<f32>(0.84, 0.76, 0.6);
+            dark = vec3<f32>(0.75, 0.66, 0.5);
+            rind = vec3<f32>(0.78, 0.77, 0.72);
+        } else if wood > 1.5 && wood < 2.5 {
+            light = vec3<f32>(0.7, 0.55, 0.36);
+            dark = vec3<f32>(0.6, 0.45, 0.29);
+            rind = vec3<f32>(0.24, 0.16, 0.1);
+        } else if wood > 2.5 {
+            light = vec3<f32>(0.74, 0.64, 0.46);
+            dark = vec3<f32>(0.65, 0.55, 0.38);
+            rind = vec3<f32>(0.5, 0.4, 0.26);
+        }
+        let cut = vec3<i32>(floor(at));
+        let split = texel_hash(cut, 70u) * 6.2832;
+        let angle = atan2(toward.y, toward.x);
+        let apart = abs(fract((angle - split) / 6.2832 + 0.5) - 0.5) * 6.2832 * reach * 0.47 * 16.0;
+        let crack = select(0.0, below(apart, select(0.35, 0.5, pixel), pixel) * select(0.0, 1.0, reach > 0.25 && reach < 0.8), texel_hash(cut, 71u) < 0.6);
+        let fleck = select(supple(vec3<f32>(spot.x, 0.0, spot.y) * 40.0), texel_hash(vec3<i32>(vec3<f32>(floor(spot.x * 16.0), floor(at.y), floor(spot.y * 16.0))), 72u), pixel);
+        color = mix(light, dark, late) * (0.95 + fleck * 0.1);
+        color = mix(color, dark * 0.6, below(reach, 0.08, pixel));
+        color = mix(color, dark * 0.55, crack);
+        let bark = 1.0 - below(reach, 0.86, pixel);
+        color = mix(color, rind * (0.85 + fleck * 0.3), bark);
+        height = -late * 0.2 - crack + bark * 0.5;
+        far = mix(mix(light, dark, 0.4), rind, 0.25);
+    } else {
+        let offset = at.xz - middle;
+        let around = (atan2(offset.y, offset.x) / 6.2832 + 0.5) * 48.0;
+        let tall = at.y * 16.0;
+        let a = select(around, floor(around) + 0.5, pixel);
+        let h = select(tall, floor(tall) + 0.5, pixel);
+        let angle = (a / 48.0 - 0.5) * 6.2832;
+        let p = vec3<f32>(middle.x + cos(angle) * 0.47, h / 16.0, middle.y + sin(angle) * 0.47);
+        let texel = vec3<i32>(i32(floor(a)), i32(floor(h)), i32(floor(middle.x) * 31.0 + floor(middle.y)));
+        let pick = select(supple(p * 30.0), texel_hash(texel, 73u), pixel);
+        if wood < 0.5 {
+            let palette = array<vec3<f32>, 4>(vec3<f32>(0.22, 0.15, 0.09), vec3<f32>(0.3, 0.21, 0.13), vec3<f32>(0.38, 0.27, 0.17), vec3<f32>(0.45, 0.33, 0.21));
+            let ridge = supple(vec3<f32>(p.x * 7.0, p.y * 1.1, p.z * 7.0)) * 0.7 + supple(vec3<f32>(p.x * 16.0, p.y * 2.5, p.z * 16.0)) * 0.3;
+            let furrow = below(ridge, 0.42, pixel);
+            color = ramped(palette, 0.55 + (ridge - 0.5) * 1.2 + (pick - 0.5) * 0.15 - furrow * 0.3);
+            height = ridge - furrow;
+            far = palette[1];
+        } else if wood < 1.5 {
+            let palette = array<vec3<f32>, 4>(vec3<f32>(0.6, 0.59, 0.55), vec3<f32>(0.74, 0.73, 0.69), vec3<f32>(0.84, 0.83, 0.79), vec3<f32>(0.92, 0.91, 0.88));
+            let cloud = supple(p * 3.0 + 5.0);
+            let lenticel = 1.0 - below(supple(vec3<f32>(p.x * 5.0, p.y * 24.0, p.z * 5.0) + 3.0), 0.76, pixel);
+            let scar = 1.0 - below(supple(p * 1.6 + 17.0), 0.74, pixel);
+            color = ramped(palette, 0.55 + (cloud - 0.5) * 0.6 + (pick - 0.5) * 0.2);
+            color = mix(color, vec3<f32>(0.13, 0.12, 0.11), max(lenticel, scar));
+            height = -max(lenticel, scar) * 0.6 + cloud * 0.2;
+            far = mix(palette[2], vec3<f32>(0.13, 0.12, 0.11), 0.12);
+        } else if wood < 2.5 {
+            let palette = array<vec3<f32>, 4>(vec3<f32>(0.18, 0.11, 0.07), vec3<f32>(0.25, 0.16, 0.1), vec3<f32>(0.33, 0.22, 0.13), vec3<f32>(0.4, 0.28, 0.17));
+            let plate = pebbles(vec3<f32>(p.x * 7.0, p.y * 4.5, p.z * 7.0), false);
+            let seam = below(plate.edge, select(0.08, 0.16, pixel), pixel);
+            let lit = clamp(dot(normalize(vec3<f32>(p.x * 7.0, p.y * 4.5, p.z * 7.0) - plate.centre + vec3<f32>(0.0, 0.001, 0.0)), vec3<f32>(0.0, 1.0, 0.0)), -1.0, 1.0);
+            color = ramped(palette, 0.3 + texel_hash(plate.id, 74u) * 0.45 + lit * 0.15 + (pick - 0.5) * 0.12) * (1.0 - seam * 0.5);
+            height = 1.0 - seam - plate.near * 0.4;
+            far = palette[1];
+        } else {
+            let palette = array<vec3<f32>, 4>(vec3<f32>(0.38, 0.29, 0.18), vec3<f32>(0.48, 0.38, 0.24), vec3<f32>(0.57, 0.46, 0.3), vec3<f32>(0.66, 0.55, 0.37));
+            let ring = fract(p.y * 16.0 / 3.0 + (supple(p * 3.0) - 0.5) * 0.6);
+            let scar = below(ring, 0.3, pixel);
+            let fibre = supple(vec3<f32>(p.x * 22.0, p.y * 2.5, p.z * 22.0));
+            color = ramped(palette, 0.55 + (fibre - 0.5) * 0.5 + (pick - 0.5) * 0.15 - scar * 0.35 + (1.0 - below(ring, 0.85, pixel)) * 0.12);
+            height = ring - scar;
+            far = palette[1];
+        }
+    }
+    let fade = smoothstep(1.0, 2.5, size);
+    return Finish(mix(color, far, fade * 0.7), height * (1.0 - fade), vec3<f32>(0.0), 0.9, 0.0);
+}
+
+fn crafted(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> Finish {
+    if kind < CARVED - 0.5 {
+        return masonry(kind, at, normal, size);
+    } else if kind < CARVED + 0.5 {
+        return carved(at, normal, size, time);
+    } else if kind < PLANKS + 0.5 {
+        return planked(at, normal, size);
+    }
+    return barked(kind, at, normal, size);
 }
 
 fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>, time: f32, size: f32) -> Finish {
@@ -656,6 +925,8 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>
         out.glow = vec3<f32>(0.25, 1.0, 0.75) * (vein * 0.9 + core * 0.35) * breathe;
         out.height = core - vein * 0.5;
         out.rough = 0.4;
+    } else if kind > MASONRY - 0.5 {
+        out = crafted(kind, at, normal, size, time);
     } else if kind > TURF - 0.5 {
         out = Finish(turfed(kind, at, normal, size, time), 0.0, vec3<f32>(0.0), 0.95, 0.0);
     } else {
@@ -696,7 +967,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 #endif
     var pbr_input = pbr_input_from_standard_material(tinted, is_front);
     let normal = normalize(in.world_normal);
-    let size = max(length(dx), length(dy)) * 16.0;
+    let size = sqrt(length(dx) * length(dy)) * 16.0;
     var mark = 0.0;
     var procedural = false;
 #ifdef VERTEX_UVS_B
@@ -710,7 +981,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 #ifdef VERTEX_COLORS
     let packed = round(-in.uv_b.y - 100000.0);
     let kind = floor(packed / 256.0);
-    if procedural && kind > LEAVES - 0.5 {
+    if procedural && kind > LEAVES - 0.5 && kind < MASONRY - 0.5 {
         let leaf = leafy(kind, at - sway(at, vec2<f32>(1.0, 0.0), surface.weather.x, globals.time), normal, size);
         if leaf.a < 0.5 {
             discard;

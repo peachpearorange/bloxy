@@ -655,7 +655,7 @@ struct Masonry {
   salt: u32
 }
 
-const STONE_BRICKS: Masonry = Masonry {
+const GREYWACKE_BRICKS: Masonry = Masonry {
   courses: &[Course { height: 8, joints: &[6, 15] }, Course {
     height: 8,
     joints: &[2, 10]
@@ -2267,8 +2267,8 @@ fn aether_lamp(x: u32, y: u32) -> Texel {
 
 pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
   match tile {
-    Tile::Stone => smooth(&GREY, x, y),
-    Tile::Cobblestone => cobble([0.48, 0.48, 0.5], x, y),
+    Tile::Greywacke => smooth(&GREY, x, y),
+    Tile::GreywackeCobble => cobble([0.48, 0.48, 0.5], x, y),
     Tile::Granite | Tile::Diorite | Tile::Andesite | Tile::Limestone | Tile::Slate => {
       smooth(&shades(rock(tile), STONE_SPREAD), x, y)
     }
@@ -2297,7 +2297,7 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     }
     Tile::Leaves => cutout(&FOLIAGE, &OAK_LEAVES, x, y),
     Tile::Planks => planks([0.64, 0.48, 0.28], x, y),
-    Tile::StoneBricks => masonry(&STONE_BRICKS, x, y),
+    Tile::GreywackeBricks => masonry(&GREYWACKE_BRICKS, x, y),
     Tile::Kelp => frond(&KELP, 0.0, x, y),
     Tile::Glowkelp => frond(&GLOWKELP, 0.5, x, y),
     Tile::Seagrass => blades(x, y),
@@ -3018,12 +3018,12 @@ mod tests {
   fn swatches() {
     let tiles = [
       Tile::Planks,
-      Tile::Cobblestone,
+      Tile::GreywackeCobble,
       Tile::GraniteCobble,
-      Tile::StoneBricks,
+      Tile::GreywackeBricks,
       Tile::AncientBrick,
       Tile::MossyBrick,
-      Tile::Stone
+      Tile::Greywacke
     ];
     let (zoom, repeat) = (6, 3);
     let side = PIXELS * repeat * zoom;

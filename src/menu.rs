@@ -402,15 +402,16 @@ pub fn toggle(
     lost
   });
   let escape = keys.just_pressed(KeyCode::Escape) && now - menu.since > ESCAPE_GRACE;
-  let shortcut = [
-    (KeyCode::KeyE, Tab::Inventory),
-    (KeyCode::KeyM, Tab::Map),
-    (KeyCode::KeyK, Tab::Skills),
-    (KeyCode::KeyJ, Tab::Goals)
-  ]
-  .into_iter()
-  .find(|&(key, _)| keys.just_pressed(key) && focus.0.is_none())
-  .map(|(_, tab)| tab);
+  let shortcuts = [
+    (KeyCode::KeyE, Tab::Inventory, "KeyE"),
+    (KeyCode::KeyM, Tab::Map, "KeyM"),
+    (KeyCode::KeyK, Tab::Skills, "KeyK"),
+    (KeyCode::KeyJ, Tab::Goals, "KeyJ")
+  ];
+  let shortcut = shortcuts
+    .into_iter()
+    .find(|&(key, _, _)| keys.just_pressed(key) && focus.0.is_none())
+    .map(|(_, tab, _)| tab);
   match (
     menu.open,
     (keys.just_pressed(KeyCode::Tab) || escape) && !chatting,
@@ -427,7 +428,17 @@ pub fn toggle(
     (true, true, _, _) => menu.open = false,
     _ => ()
   }
-  local::resume_on_tab(menu.open && !menu.chatting && opts().shot.is_none());
+  local::resume_on(match menu.open && !menu.chatting && opts().shot.is_none() {
+    true => std::iter::once("Tab")
+      .chain(
+        shortcuts
+          .into_iter()
+          .filter(|&(_, tab, _)| tab == menu.tab && focus.0.is_none())
+          .map(|(_, _, code)| code)
+      )
+      .collect(),
+    false => Vec::new()
+  });
   if *was != menu.open
     && let Ok(mut cursor) = cursor.single_mut()
   {

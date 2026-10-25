@@ -24,7 +24,7 @@ pub struct Controller {
 fn starter(creative: bool) -> Inventory {
   let kit = [
     Block::Planks,
-    Block::Cobblestone,
+    Block::GreywackeCobble,
     Block::Glass,
     Block::Torch,
     Block::CraftingTable,
@@ -37,10 +37,10 @@ fn starter(creative: bool) -> Inventory {
     Block::Wool,
     Block::OakSign,
     Block::Log,
-    Block::Stone,
+    Block::Greywacke,
     Block::Reefstone,
     Block::Abyssite,
-    Block::StoneBricks,
+    Block::GreywackeBricks,
     Block::Dirt,
     Block::Sand,
     Block::Submarine,
