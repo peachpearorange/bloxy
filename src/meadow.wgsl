@@ -94,24 +94,18 @@ fn strands(fine: vec2<f32>) -> f32 {
     return mix(mix(one, two, smoothstep(0.3, 0.7, blend.x)), three, smoothstep(0.35, 0.65, blend.y));
 }
 
-fn fuzz(at: vec2<f32>, time: f32, size: f32, pixel: bool) -> vec3<f32> {
+fn fuzz(at: vec2<f32>, time: f32, size: f32) -> vec3<f32> {
     let lushness = lush(at);
     let tufts = noise(at * 1.7) * 0.6 + noise(at * 4.3 + vec2<f32>(3.0, 1.0)) * 0.4;
     let gusting = gust(at, time);
     let far = blade_colour(lushness, 0.35 + 0.3 * tufts) * 0.9 + SHEEN * gusting * 0.5;
-    let texel = vec2<i32>(floor(at * 16.0));
-    let pick = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y) * 19349663u));
-    let below = unit(mixed(u32(texel.x) * 73856093u ^ u32(texel.y + 1) * 19349663u));
-    let rise = clamp(pick * 0.75 + tufts * 0.45 - 0.1, 0.0, 1.0);
-    let blocky = blade_colour(lushness, 0.2 + 0.65 * rise) * select(1.0, 0.72, below > pick + 0.35) * select(1.0, 0.6, pick < 0.1)
-        + SHEEN * gusting * (0.3 + 0.7 * rise);
     let blur = smoothstep(0.3, 0.9, size);
     let fibre = mix(strands(at * 16.0), 0.5, blur);
     let speck = mix(hashed_noise(at * 16.0 * 1.9 + vec2<f32>(3.0, 8.0)), 0.5, blur);
     let lift = 0.38 + (fibre - 0.5) * 0.4 + (speck - 0.5) * 0.15 + (tufts - 0.5) * 0.25;
     let blade = blade_colour(lushness, clamp(lift, 0.15, 0.7)) * (0.86 + 0.14 * tufts);
     let soft = mix(blade, vec3<f32>(dot(blade, vec3<f32>(0.3, 0.6, 0.1))), 0.2) + SHEEN * gusting * (0.3 + 0.5 * fibre);
-    return mix(select(soft, blocky, pixel), far, smoothstep(0.7, 1.6, size));
+    return mix(soft, far, smoothstep(0.7, 1.6, size));
 }
 
 

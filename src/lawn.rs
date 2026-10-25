@@ -411,8 +411,7 @@ fn mow(
       });
     }
     for (_, ground) in grounds.iter_mut() {
-      ground.extension.turf.z = f32::from(u8::from(!settings.blades));
-      ground.extension.turf.w = f32::from(u8::from(settings.smooth_rock))
+      ground.extension.turf.z = f32::from(u8::from(!settings.blades))
     }
     if !settings.blades {
       progress.lawns = 0
