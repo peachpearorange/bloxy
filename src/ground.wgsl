@@ -281,7 +281,9 @@ fn supple(at: vec3<f32>) -> f32 {
 
 fn ramped(palette: array<vec3<f32>, 4>, along: f32) -> vec3<f32> {
     var points = array<vec3<f32>, 6>(palette[0], palette[0], palette[1], palette[2], palette[3], palette[3]);
-    let position = clamp(along, 0.0, 1.0) * 3.999;
+    let reach = (along - 0.5) * 2.0;
+    let eased = reach / sqrt(sqrt(1.0 + reach * reach * reach * reach));
+    let position = (0.5 + 0.5 * eased) * 3.999;
     let low = i32(floor(position));
     let f = position - f32(low);
     return points[low] * (0.5 * (1.0 - f) * (1.0 - f)) + points[low + 1] * (0.5 + f - f * f) + points[low + 2] * (0.5 * f * f);
@@ -463,7 +465,11 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         let crack = pebbles(point / 4.0, false);
         color = ramped(palette, along * 0.8 + 0.1) * (0.5 + 0.5 * smoothstep(0.02, 0.1, crack.edge));
     } else {
-        color = ramped(palette, along - 0.28 * below(pick, 0.06) + 0.14 * (1.0 - below(pick, 0.95)));
+        let sharp = 1.0 - smoothstep(0.3, 1.0, size);
+        let grain = (supple(fine * 0.3 + 3.0) - 0.5) * 0.55 + ((supple(fine * 1.1 + 41.0) - 0.5) * 0.4 + (supple(fine * 2.7 + 59.0) - 0.5) * 0.3) * sharp;
+        let dark = smoothstep(0.68, 0.78, supple(fine * 1.5 + 13.0)) * sharp;
+        let light = smoothstep(0.7, 0.8, supple(fine * 1.8 + 77.0)) * sharp;
+        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.9 + grain - dark * 0.3 + light * 0.22);
     }
     if kind > 15.5 && kind < 22.5 {
         let ore = vein(kind);
