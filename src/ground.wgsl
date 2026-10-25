@@ -399,6 +399,26 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     var rough = 0.9;
     var relief = 0.0;
     let clump = smoothstep(0.0, 1.0, (supple(fine * 0.45 + 29.0) - 0.5) * 2.2 + 0.5);
+    let bedded = (kind > 8.5 && kind < 14.5) || (kind > 15.5 && kind < 22.5) || (kind > 25.5 && kind < 27.5);
+    let sharp = 1.0 - smoothstep(0.3, 1.0, size);
+    let grain = (supple(fine * 0.3 + 3.0) - 0.5) * 0.55 + ((supple(fine * 1.1 + 41.0) - 0.5) * 0.4 + (supple(fine * 2.7 + 59.0) - 0.5) * 0.3) * sharp;
+    var seam = 0.0;
+    var worn = 0.0;
+    var facet = 0.0;
+    var stain = 0.0;
+    var tint = vec3<f32>(1.0);
+    if bedded {
+        let blocky = select(1.7, 1.15, kind > 9.5 && kind < 11.5);
+        let warp = vec3<f32>(supple(centre * 2.1 + 3.0), supple(centre * 2.1 + 17.0), supple(centre * 2.1 + 29.0)) - 0.5;
+        let split = cellular(centre * blocky + warp * 0.9);
+        let wide = max(0.045, size * 0.3);
+        let cracked = smoothstep(0.44, 0.5, supple(centre * 1.2 + 9.0 + kind));
+        seam = (1.0 - smoothstep(0.0, wide, split.edge)) * min(1.0, 0.07 / wide) * cracked;
+        worn = (1.0 - smoothstep(0.03, 0.12, split.edge)) * cracked;
+        facet = (hashed(split.id + kind).x - 0.5) * 0.16;
+        stain = smoothstep(0.66, 0.85, supple(vec3<f32>(centre.x * 1.8, centre.y * 0.5, centre.z * 1.8) + 31.0 + kind));
+        tint = mix(vec3<f32>(0.97, 0.99, 1.03), vec3<f32>(1.04, 1.0, 0.95), supple(centre * 0.6 + 5.0 + kind));
+    }
     if cobbled || gravel {
         let scale = select(3.0, 5.0, cobbled);
         let stone = pebbles(point / scale, false);
@@ -406,29 +426,43 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         let lit = dot(normalize(point / scale - stone.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
         let rim = select(0.42, 0.9, cobbled);
         let body = 1.0 - smoothstep(rim - 0.08, rim, stone.near);
-        let seam = smoothstep(0.02, 0.08, stone.edge);
+        let mortar = smoothstep(0.02, 0.08, stone.edge);
         let warm = select(vec3<f32>(1.0), vec3<f32>(1.1, 0.98, 0.86), texel_hash(stone.id, 16u) < 0.3);
         let grit = palette[0] * (0.42 + clump * 0.12);
         along = 0.25 + tone * 0.5 + lit * 0.22 * smoothstep(0.0, 0.35, stone.near) + (pick - 0.5) * 0.08;
-        color = mix(grit, ramped(palette, along) * warm, body * seam);
-    } else if kind > 9.5 && kind < 10.5 {
-        color = ramped(palette, along + 0.2 * (1.0 - below(clump, 0.72)));
-        color = mix(color, vec3<f32>(0.12, 0.1, 0.1), below(pick, 0.12));
-        color = mix(color, vec3<f32>(0.86, 0.74, 0.7), 1.0 - below(pick, 0.94));
-    } else if kind > 10.5 && kind < 11.5 {
-        color = ramped(palette, along + 0.1);
-        color = mix(color, vec3<f32>(0.16, 0.16, 0.17), below(clump, 0.16) * below(pick, 0.7));
-        color = mix(color, vec3<f32>(0.34, 0.34, 0.35), below(pick, 0.05));
+        color = mix(grit, ramped(palette, along) * warm, body * mortar);
+        relief = body * mortar * (0.5 + lit * 0.3) + grain * 0.2;
+    } else if kind > 9.5 && kind < 11.5 {
+        let granite = kind < 10.5;
+        let crystal = pebbles(fine * 2.6 + 3.1, false);
+        let mineral = texel_hash(crystal.id, 25u + u32(kind));
+        let shade = texel_hash(crystal.id, 26u) - 0.5;
+        let boundary = (1.0 - smoothstep(0.0, 0.08, crystal.edge)) * (1.0 - smoothstep(0.05, 0.15, size));
+        var grains = ramped(palette, 0.5 + shade * 0.4);
+        if granite {
+            grains = select(select(select(vec3<f32>(0.74, 0.6, 0.55), vec3<f32>(0.58, 0.58, 0.6), mineral > 0.42), vec3<f32>(0.1, 0.09, 0.09), mineral > 0.8), vec3<f32>(0.86, 0.84, 0.8), mineral > 0.92) * (1.0 + shade * 0.25);
+        } else {
+            grains = select(select(vec3<f32>(0.8, 0.8, 0.77), vec3<f32>(0.62, 0.62, 0.6), mineral > 0.55), vec3<f32>(0.13, 0.13, 0.14), mineral > 0.78) * (1.0 + shade * 0.2);
+        }
+        let mosaic = grains * (1.0 - boundary * 0.12);
+        let far_tone = ramped(palette, along * 0.6 + 0.2);
+        color = mix(mosaic, mix(far_tone, select(vec3<f32>(0.6, 0.52, 0.5), vec3<f32>(0.62, 0.62, 0.6), kind > 10.5), 0.6), smoothstep(0.12, 0.45, size)) * (1.0 + (cloud - 0.5) * 0.25 + grain * 0.3);
+        relief = grain * 0.25 + (shade * 0.04 - boundary * 0.03) * (1.0 - smoothstep(0.05, 0.2, size));
     } else if kind > 11.5 && kind < 12.5 {
-        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.8 + (pick - 0.5) * 0.45);
+        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.8 + (pick - 0.5) * 0.3 + grain * 0.7);
+        relief = grain * 0.5 + (pick - 0.5) * 0.15;
     } else if kind > 12.5 && kind < 13.5 {
         let bed = supple(vec3<f32>(centre.x * 0.7, centre.y * 5.0, centre.z * 0.7));
         color = ramped(palette, 0.2 + bed * 0.6 + (cloud - 0.5) * 0.4);
-        color = mix(color, palette[0] * 0.85, below(pick, 0.04));
+        let pit = smoothstep(0.74, 0.8, supple(fine * 1.4 + 11.0)) * sharp;
+        color = mix(color, palette[0] * 0.9, pit * 0.45);
+        color = color * (1.0 + grain * 0.4);
+        relief = bed * 0.4 + grain * 0.3 - pit * 0.06;
     } else if kind > 13.5 && kind < 14.5 {
         let row = point.y + supple(centre * 1.3) * 3.0;
-        let seam = smoothstep(0.33, 0.43, abs(fract(row / 3.0) - 0.5));
-        color = ramped(palette, along - 0.25 * seam - 0.05);
+        let cleave = smoothstep(0.33, 0.43, abs(fract(row / 3.0) - 0.5));
+        color = ramped(palette, along - 0.25 * cleave - 0.05 + grain * 0.3);
+        relief = -cleave * 0.8 + grain * 0.2;
         rough = 0.62;
     } else if kind > 22.5 && kind < 23.5 {
         let warped = point / 1.8 + (vec3<f32>(supple(point * 0.35), supple(point * 0.35 + 19.0), supple(point * 0.35 + 37.0)) - 0.5) * 1.6;
@@ -436,11 +470,11 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         let lit = dot(normalize(warped - clod.centre + vec3<f32>(0.0, 0.001, 0.0)), normalize(vec3<f32>(-0.4, 0.8, -0.4)));
         let crumb = 1.0 - smoothstep(0.1, 0.6, clod.near);
         let crevice = (1.0 - smoothstep(0.0, 0.14, clod.edge)) * smoothstep(0.4, 0.7, supple(point * 0.5 + 71.0));
-        let grain = supple(point * 1.7 + 61.0);
+        let crumbling = supple(point * 1.7 + 61.0);
         let crumbs = smoothstep(0.66, 0.78, supple(point * 0.8 + 83.0));
         let flecks = smoothstep(0.7, 0.8, supple(point * 1.2 + 97.0));
         let broad = supple(centre * 1.6 + 23.0) * 0.6 + supple(centre * 4.5 + 3.0) * 0.4;
-        let soil = 0.45 + (broad - 0.5) * 0.7 + (texel_hash(clod.id, 18u) - 0.5) * 0.12 + lit * 0.1 * crumb + (grain - 0.5) * 0.25 - crevice * 0.14 - crumbs * 0.22 + flecks * 0.14;
+        let soil = 0.45 + (broad - 0.5) * 0.7 + (texel_hash(clod.id, 18u) - 0.5) * 0.12 + lit * 0.1 * crumb + (crumbling - 0.5) * 0.25 - crevice * 0.14 - crumbs * 0.22 + flecks * 0.14;
         color = ramped(palette, soil);
         let stone = pebbles(point / 5.0 + 7.3, false);
         let present = texel_hash(stone.id, 19u) < 0.14;
@@ -461,29 +495,24 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         let joint = 1.0 - smoothstep(0.03, 0.1, column.edge);
         let crack = 1.0 - below(abs(fract((point.y + texel_hash(column.id, 7u) * 16.0) / 16.0) - 0.5), 0.47);
         color = ramped(palette, 0.35 + texel_hash(column.id, 8u) * 0.3 + (pick - 0.5) * 0.15) * (1.0 - joint * 0.6) * (1.0 - 0.4 * crack);
+        relief = grain * 0.3 - joint * 0.9 - crack * 0.5;
         rough = 0.75;
     } else if kind > 26.5 && kind < 27.5 {
         let crack = pebbles(point / 4.0, false);
         color = ramped(palette, along * 0.8 + 0.1) * (0.5 + 0.5 * smoothstep(0.02, 0.1, crack.edge));
+        relief = grain * 0.5 - (1.0 - smoothstep(0.02, 0.1, crack.edge)) * 0.8;
     } else {
-        let sharp = 1.0 - smoothstep(0.3, 1.0, size);
-        let grain = (supple(fine * 0.3 + 3.0) - 0.5) * 0.55 + ((supple(fine * 1.1 + 41.0) - 0.5) * 0.4 + (supple(fine * 2.7 + 59.0) - 0.5) * 0.3) * sharp;
         let dark = smoothstep(0.68, 0.78, supple(fine * 1.5 + 13.0)) * sharp;
         let light = smoothstep(0.7, 0.8, supple(fine * 1.8 + 77.0)) * sharp;
-        let warp = vec3<f32>(supple(centre * 2.1 + 3.0), supple(centre * 2.1 + 17.0), supple(centre * 2.1 + 29.0)) - 0.5;
-        let split = cellular(centre * 1.7 + warp * 0.9);
-        let wide = max(0.045, size * 0.3);
-        let seam = (1.0 - smoothstep(0.0, wide, split.edge)) * min(1.0, 0.07 / wide) * smoothstep(0.44, 0.5, supple(centre * 1.2 + 9.0));
-        let worn = (1.0 - smoothstep(0.03, 0.12, split.edge)) * smoothstep(0.38, 0.55, supple(centre * 1.2 + 9.0));
-        let facet = (hashed(split.id).x - 0.5) * 0.16;
-        let stain = smoothstep(0.66, 0.85, supple(vec3<f32>(centre.x * 1.8, centre.y * 0.5, centre.z * 1.8) + 31.0));
-        let hue = supple(centre * 0.6 + 5.0);
-        let tint = mix(vec3<f32>(0.97, 0.99, 1.03), vec3<f32>(1.04, 1.0, 0.95), hue);
-        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.8 + grain + facet - dark * 0.3 + light * 0.22 + worn * 0.12) * tint;
-        color = mix(color, vec3<f32>(0.5, 0.42, 0.34) * (0.85 + grain), stain * 0.22);
-        color = mix(color, palette[0] * 0.45, seam);
-        relief = grain * 0.45 + (cloud - 0.5) * 0.5 + facet * 1.5 - seam * 0.6 - dark * 0.1;
+        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.8 + grain - dark * 0.3 + light * 0.22);
+        relief = grain * 0.45 - dark * 0.1;
         rough = 0.82 + grain * 0.2;
+    }
+    if bedded {
+        let weathered = vec3<f32>(0.5, 0.42, 0.34) * (0.85 + grain);
+        color = mix(color * tint * (1.0 + facet * 0.9 + worn * 0.1), weathered, stain * 0.22);
+        color = mix(color, palette[0] * 0.45, seam);
+        relief = relief + (cloud - 0.5) * 0.5 + facet * 1.5 - seam * 0.25;
     }
     if kind > 15.5 && kind < 22.5 {
         let ore = vein(kind);
@@ -816,8 +845,14 @@ fn barked(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
             far = palette[1];
         }
     }
+    let near = 1.0 - smoothstep(0.08, 0.3, size);
+    let nearest = 1.0 - smoothstep(0.03, 0.12, size);
+    let fibre = (supple(vec3<f32>(at.x * 70.0, at.y * 14.0, at.z * 70.0) + 5.0) - 0.5) * near;
+    let speck = (supple(at * 190.0 + 23.0) - 0.5) * nearest;
+    let flake = smoothstep(0.66, 0.74, supple(at * 110.0 + 41.0)) * nearest;
+    let rugged = color * (1.0 + fibre * 0.35 + speck * 0.2 - flake * 0.15);
     let fade = smoothstep(1.0, 2.5, size);
-    return Finish(mix(color, far, fade * 0.7), height * (1.0 - fade), vec3<f32>(0.0), 0.9, 0.0);
+    return Finish(mix(rugged, far, fade * 0.7), height * (1.0 - fade) + fibre * 0.08 + speck * 0.025 - flake * 0.02, vec3<f32>(0.0), 0.9 + fibre * 0.1, 0.0);
 }
 
 fn crafted(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> Finish {
