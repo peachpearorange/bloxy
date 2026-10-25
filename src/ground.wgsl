@@ -397,6 +397,7 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     var color = vec3<f32>(0.0);
     var glow = 0.0;
     var rough = 0.9;
+    var relief = 0.0;
     let clump = smoothstep(0.0, 1.0, (supple(fine * 0.45 + 29.0) - 0.5) * 2.2 + 0.5);
     if cobbled || gravel {
         let scale = select(3.0, 5.0, cobbled);
@@ -469,7 +470,20 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
         let grain = (supple(fine * 0.3 + 3.0) - 0.5) * 0.55 + ((supple(fine * 1.1 + 41.0) - 0.5) * 0.4 + (supple(fine * 2.7 + 59.0) - 0.5) * 0.3) * sharp;
         let dark = smoothstep(0.68, 0.78, supple(fine * 1.5 + 13.0)) * sharp;
         let light = smoothstep(0.7, 0.8, supple(fine * 1.8 + 77.0)) * sharp;
-        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.9 + grain - dark * 0.3 + light * 0.22);
+        let warp = vec3<f32>(supple(centre * 2.1 + 3.0), supple(centre * 2.1 + 17.0), supple(centre * 2.1 + 29.0)) - 0.5;
+        let split = cellular(centre * 1.7 + warp * 0.9);
+        let wide = max(0.045, size * 0.3);
+        let seam = (1.0 - smoothstep(0.0, wide, split.edge)) * min(1.0, 0.07 / wide) * smoothstep(0.44, 0.5, supple(centre * 1.2 + 9.0));
+        let worn = (1.0 - smoothstep(0.03, 0.12, split.edge)) * smoothstep(0.38, 0.55, supple(centre * 1.2 + 9.0));
+        let facet = (hashed(split.id).x - 0.5) * 0.16;
+        let stain = smoothstep(0.66, 0.85, supple(vec3<f32>(centre.x * 1.8, centre.y * 0.5, centre.z * 1.8) + 31.0));
+        let hue = supple(centre * 0.6 + 5.0);
+        let tint = mix(vec3<f32>(0.97, 0.99, 1.03), vec3<f32>(1.04, 1.0, 0.95), hue);
+        color = ramped(palette, 0.5 + (cloud - 0.5) * 0.8 + grain + facet - dark * 0.3 + light * 0.22 + worn * 0.12) * tint;
+        color = mix(color, vec3<f32>(0.5, 0.42, 0.34) * (0.85 + grain), stain * 0.22);
+        color = mix(color, palette[0] * 0.45, seam);
+        relief = grain * 0.45 + (cloud - 0.5) * 0.5 + facet * 1.5 - seam * 0.6 - dark * 0.1;
+        rough = 0.82 + grain * 0.2;
     }
     if kind > 15.5 && kind < 22.5 {
         let ore = vein(kind);
@@ -487,7 +501,7 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let broad = supple(centre * 1.1 + 7.0) - 0.5;
     let flat = ramped(palette, select(0.5, 0.4, cobbled || gravel) + broad * 0.7) * select(1.0, 0.85, cobbled || gravel);
     let shown = mix(color, flat, smoothstep(0.8, 2.0, size) * (1.0 - smoothstep(0.0, 0.05, glow)));
-    return Finish(shown, 0.0, shown * glow * 0.6, rough, 0.0);
+    return Finish(shown, relief * (1.0 - smoothstep(0.5, 2.0, size)), shown * glow * 0.6, rough, 0.0);
 }
 
 const TURF: f32 = 34.0;
