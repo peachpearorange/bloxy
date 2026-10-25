@@ -500,8 +500,16 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     }
     let broad = supple(centre * 1.1 + 7.0) - 0.5;
     let flat = ramped(palette, select(0.5, 0.4, cobbled || gravel) + broad * 0.7) * select(1.0, 0.85, cobbled || gravel);
-    let shown = mix(color, flat, smoothstep(0.8, 2.0, size) * (1.0 - smoothstep(0.0, 0.05, glow)));
-    return Finish(shown, relief * (1.0 - smoothstep(0.5, 2.0, size)), shown * glow * 0.6, rough, 0.0);
+    let coarse = 0.35 + 0.65 * smoothstep(0.35, 0.7, supple(centre * 0.45 + 53.0));
+    let near = 1.0 - smoothstep(0.08, 0.3, size);
+    let nearest = 1.0 - smoothstep(0.03, 0.12, size);
+    let fine_grain = (supple(fine * 5.3 + 7.0) - 0.5) * near * coarse;
+    let finer_grain = (supple(fine * 13.7 + 19.0) - 0.5) * nearest * coarse;
+    let grit = smoothstep(0.62, 0.7, supple(fine * 9.1 + 37.0)) * nearest * coarse;
+    let micro = fine_grain * 0.07 + finer_grain * 0.025 - grit * 0.02;
+    let detailed = color * (1.0 + fine_grain * 0.18 + finer_grain * 0.12 - grit * 0.12);
+    let shown = mix(detailed, flat, smoothstep(0.8, 2.0, size) * (1.0 - smoothstep(0.0, 0.05, glow)));
+    return Finish(shown, relief * (1.0 - smoothstep(0.5, 2.0, size)) + micro, shown * glow * 0.6, rough + fine_grain * 0.1, 0.0);
 }
 
 const TURF: f32 = 34.0;
