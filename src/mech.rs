@@ -717,10 +717,10 @@ fn build(
     }),
     crate_: materials.add(colour(0.5, 0.36, 0.2, 0.85, 0.05)),
     glass: materials.add(StandardMaterial {
-      base_color: Color::srgba(0.6, 0.9, 1.0, 0.12),
+      base_color: Color::srgba(0.72, 0.9, 1.0, 0.05),
       alpha_mode: AlphaMode::Blend,
-      perceptual_roughness: 0.03,
-      reflectance: 0.9,
+      perceptual_roughness: 0.06,
+      reflectance: 0.3,
       double_sided: true,
       cull_mode: None,
       ..default()
@@ -1402,6 +1402,7 @@ fn walk(
   mechs: Query<&Mech>,
   mut pilot: ResMut<Pilot>,
   mut lamp: ResMut<Floodlit>,
+  bodies: Res<crate::bump::Bodies>,
   (mut leaves, mut strides, mut shots, mut sounds): (
     MessageWriter<Disembark>,
     MessageWriter<Stride>,
@@ -1509,9 +1510,26 @@ fn walk(
               }
             }
           }
+          let (at, decked) = bodies.0.iter().filter(|body| !body.soft).fold(
+            (at, false),
+            |(at, decked), body| match body
+              .deck_under(at, BULK)
+              .filter(|_| velocity.y <= 0.0)
+            {
+              Some(top) => (at.with_y(top), true),
+              None => (
+                crate::bump::pushed(&voxels, BULK, at, body.shove(at, BULK, STEP)),
+                decked
+              )
+            }
+          );
+          if decked {
+            velocity.y = 0.0
+          }
           pilot.at = at + Vec3::Y * SEAT;
           pilot.velocity = velocity;
-          pilot.grounded = landed || (footed && slide(&voxels, BULK, at, 1, -0.05).1);
+          pilot.grounded =
+            landed || decked || (footed && slide(&voxels, BULK, at, 1, -0.05).1);
           pilot.lift *= 1.0 - STEP * 10.0
         }
         riding.yaw = pilot.yaw;
