@@ -29,7 +29,8 @@ pub struct Opts {
   pub admin: Option<u16>,
   pub parade: bool,
   pub dive: bool,
-  pub mech: bool
+  pub mech: bool,
+  pub cubes: bool
 }
 
 impl Default for Opts {
@@ -59,7 +60,8 @@ impl Default for Opts {
       admin: None,
       parade: false,
       dive: false,
-      mech: false
+      mech: false,
+      cubes: false
     }
   }
 }

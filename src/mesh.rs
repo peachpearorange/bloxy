@@ -194,7 +194,9 @@ fn owner(local: IVec3) -> f32 {
   ((local.y * SIZE + local.z) * SIZE + local.x) as f32 * 2.0
 }
 
-fn rounds(block: Block) -> bool { block.look() == Look::Opaque }
+fn rounds(block: Block) -> bool {
+  block.look() == Look::Opaque && !crate::opts::opts().cubes
+}
 
 type Section = [[bool; 2]; 2];
 
