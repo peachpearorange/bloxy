@@ -43,7 +43,9 @@ pub struct World {
   #[serde(default)]
   pub pockets: Vec<(u32, Vec<Option<crate::protocol::Stack>>)>,
   #[serde(default)]
-  pub subs: Vec<crate::submarine::Sub>
+  pub subs: Vec<crate::submarine::Sub>,
+  #[serde(default)]
+  pub mechs: Vec<crate::mech::Mech>
 }
 
 pub fn load() -> Option<World> {
@@ -72,10 +74,11 @@ fn store(
   players: Query<(&Controller, Kept)>,
   shroomlings: Query<(&Hopper, &Wander)>,
   dormant: Res<Dormant>,
-  (boats, balloons, subs): (
+  (boats, balloons, subs, mechs): (
     Query<&Vessel>,
     Query<&crate::balloon::Aerostat>,
-    Query<&crate::submarine::Sub>
+    Query<&crate::submarine::Sub>,
+    Query<&crate::mech::Mech>
   ),
   signs: Query<&Sign>,
   claims: Query<(&Claim, &Holding)>,
@@ -97,6 +100,7 @@ fn store(
       Changed<Vessel>,
       Changed<crate::balloon::Aerostat>,
       Changed<crate::submarine::Sub>,
+      Changed<crate::mech::Mech>,
       Changed<Sign>,
       Changed<Claim>,
       Changed<Holding>
@@ -160,6 +164,15 @@ fn store(
       subs: subs
         .iter()
         .map(|sub| crate::submarine::Sub { rider: None, ..sub.clone() })
+        .collect(),
+      mechs: mechs
+        .iter()
+        .map(|mech| crate::mech::Mech {
+          rider: None,
+          jets: false,
+          striding: false,
+          ..mech.clone()
+        })
         .collect()
     };
     match write(path, &world) {

@@ -348,6 +348,7 @@ fn strike(
     Option<&mut Raider>,
     Option<&mut crate::haunt::Haunt>
   )>,
+  mechs: Query<&crate::mech::Mech>,
   mut commands: Commands
 ) {
   let now = time.elapsed_secs();
@@ -361,10 +362,15 @@ fn strike(
       && health.0 > 0
     {
       vigour.swung = now;
-      health.0 = health.0.saturating_sub(vigour.punch);
+      let crushing = mechs
+        .iter()
+        .any(|mech| mech.rider == Some(player) && mech.has(Block::HydraulicClamp));
+      let heft = if crushing { crate::mech::CRUSHING } else { 1 };
+      health.0 = health.0.saturating_sub(vigour.punch.saturating_mul(heft));
       commands.entity(target).insert(crate::haunt::Blamed(player));
-      let push =
-        (folk.at - avatar.at).with_y(0.0).normalize_or_zero() / folk.band.scale();
+      let push = (folk.at - avatar.at).with_y(0.0).normalize_or_zero()
+        / folk.band.scale()
+        * f32::from(heft).sqrt();
       if let Some(mut raider) = raider {
         raider.velocity = push * 7.0 + Vec3::Y * 5.0;
         raider.stagger = 0.35
@@ -407,6 +413,7 @@ fn perish(
   )>,
   mut boats: Query<&mut Vessel>,
   mut balloons: Query<&mut crate::balloon::Aerostat>,
+  mut mechs: Query<&mut crate::mech::Mech>,
   mut teleports: MessageWriter<ToClients<Teleport>>
 ) {
   for (entity, controller, mut health, mut avatar, mut vigour, bedside, mut conditions) in
@@ -425,6 +432,11 @@ fn perish(
     };
     for mut vessel in boats.iter_mut().filter(|vessel| vessel.rider == Some(entity)) {
       vessel.rider = None
+    }
+    for mut mech in mechs.iter_mut().filter(|mech| mech.rider == Some(entity)) {
+      mech.rider = None;
+      mech.jets = false;
+      mech.striding = false
     }
     for mut aerostat in
       balloons.iter_mut().filter(|aerostat| aerostat.rider == Some(entity))

@@ -330,7 +330,10 @@ fn prowl(
     (With<Servant>, Without<Haunt>, Without<Controller>, Without<Dying>)
   >,
   mut knocks: MessageWriter<ToClients<Knock>>,
-  mut subs: Query<&mut crate::submarine::Sub>,
+  (mut subs, mut mechs): (
+    Query<&mut crate::submarine::Sub>,
+    Query<&mut crate::mech::Mech>
+  ),
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -396,7 +399,8 @@ fn prowl(
           }
           match prey {
             Prey::Player(player) => {
-              if !crate::submarine::shield(&mut subs, player, foe.blow())
+              if !(crate::submarine::shield(&mut subs, player, foe.blow())
+                || crate::mech::shield(&mut mechs, player, foe.blow()))
                 && let Ok((_, controller, _, mut health, mut vigour, mut afflicted)) =
                   players.get_mut(player)
               {
@@ -538,7 +542,10 @@ fn scorch(
   )>,
   mut knocks: MessageWriter<ToClients<Knock>>,
   mut flourishes: MessageWriter<ToClients<Flourish>>,
-  mut subs: Query<&mut crate::submarine::Sub>,
+  (mut subs, mut mechs): (
+    Query<&mut crate::submarine::Sub>,
+    Query<&mut crate::mech::Mech>
+  ),
   mut commands: Commands
 ) {
   let dt = time.delta_secs().min(0.1);
@@ -566,7 +573,8 @@ fn scorch(
     ember.life -= dt;
     let ended = match (struck, wall) {
       (Some((near, (player, _, _, _, _, _))), _)
-        if crate::submarine::shield(&mut subs, player, EMBER_BLOW) =>
+        if crate::submarine::shield(&mut subs, player, EMBER_BLOW)
+          || crate::mech::shield(&mut mechs, player, EMBER_BLOW) =>
       {
         Some(from + direction * near)
       }

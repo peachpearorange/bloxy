@@ -28,7 +28,8 @@ pub struct Opts {
   pub weather: Option<String>,
   pub admin: Option<u16>,
   pub parade: bool,
-  pub dive: bool
+  pub dive: bool,
+  pub mech: bool
 }
 
 impl Default for Opts {
@@ -57,7 +58,8 @@ impl Default for Opts {
       weather: None,
       admin: None,
       parade: false,
-      dive: false
+      dive: false,
+      mech: false
     }
   }
 }

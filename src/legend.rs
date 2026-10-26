@@ -226,6 +226,19 @@ pub fn tagline(block: Block) -> Option<&'static str> {
     Block::SampleClaw => Some("Gathers life instead of shredding it."),
     Block::TorpedoBay => Some("Fires torpedoes."),
     Block::PowerCell => Some("Lasts longer."),
+    Block::Mech => Some("A sealed walking shell. Wherever you can stand."),
+    Block::HydraulicClamp => Some("Crushes."),
+    Block::MechDrill => Some("Bores through rock."),
+    Block::DiamondDrill => Some("Bores wide."),
+    Block::OreBox => Some("Keeps what the drill finds."),
+    Block::Jumpjets => Some("Up."),
+    Block::MechLaser => Some("Burns at a distance."),
+    Block::MissileRack => Some("Fires torpedoes through the air."),
+    Block::Sleeper => Some("Mends the pilot."),
+    Block::RepairDroid => Some("Mends the frame."),
+    Block::HeatShield => Some("Wades through lava."),
+    Block::BuildArm => Some("Builds from afar."),
+    Block::Dynamo => Some("Charges itself."),
     _ => None
   }
 }

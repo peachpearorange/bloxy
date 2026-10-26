@@ -27,7 +27,9 @@ pub enum Cue {
   Thunder,
   Craft,
   Rustle,
-  Clod
+  Clod,
+  Stomp,
+  Zap
 }
 
 impl Cue {
@@ -44,7 +46,8 @@ impl Cue {
       | Cue::Swim
       | Cue::Bleat
       | Cue::Rustle
-      | Cue::Clod => 3,
+      | Cue::Clod
+      | Cue::Stomp => 3,
       Cue::Splash | Cue::Honk | Cue::Cast | Cue::Burst | Cue::Thunder | Cue::Hurt => 2,
       _ => 1
     }
@@ -451,6 +454,22 @@ fn craft(rng: &mut Rng) -> Vec<f32> {
   out
 }
 
+fn stomp(rng: &mut Rng) -> Vec<f32> {
+  let mut out = vec![0.0; len(0.7)];
+  add(&mut out, 0.0, &thump(rng, 0.5, (90.0, 140.0), 0.004, 0.16), 1.6);
+  add(&mut out, 0.0, &glide(0.4, 72.0, 38.0, 0.003, 0.14), 0.9);
+  add(&mut out, 0.0, &grain(rng, 0.12, (900.0, 1400.0), 5.0, 0.001, 0.04), 0.35);
+  add(&mut out, 0.12, &hush(rng, 0.45, (2400.0, 3600.0), 0.05, 0.12), 0.18);
+  softened(out.into_iter().map(|x| (x * 1.8).tanh()).collect(), 2600.0)
+}
+
+fn zap(rng: &mut Rng) -> Vec<f32> {
+  let mut out = vec![0.0; len(0.3)];
+  add(&mut out, 0.0, &glide(0.25, 1700.0, 260.0, 0.002, 0.07), 0.8);
+  add(&mut out, 0.0, &grain(rng, 0.2, (3000.0, 4600.0), 2.0, 0.001, 0.05), 0.4);
+  out
+}
+
 pub fn render(cue: Cue, seed: u64) -> Wave {
   let mut rng = Rng::new(seed);
   let samples = match cue {
@@ -475,7 +494,9 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
     Cue::Thunder => thunder(&mut rng),
     Cue::Craft => craft(&mut rng),
     Cue::Rustle => rustle(&mut rng),
-    Cue::Clod => clod(&mut rng)
+    Cue::Clod => clod(&mut rng),
+    Cue::Stomp => stomp(&mut rng),
+    Cue::Zap => zap(&mut rng)
   };
   let wave = Wave::mono(samples).normalized(0.5).trimmed();
   match cue {

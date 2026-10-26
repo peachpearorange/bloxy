@@ -2208,6 +2208,24 @@ fn submarine(x: u32, y: u32) -> Texel {
   }
 }
 
+const MECH: Palette =
+  [[0.42, 0.2, 0.04], [0.82, 0.46, 0.1], [0.96, 0.64, 0.18], [1.0, 0.85, 0.45]];
+
+fn mech(x: u32, y: u32) -> Texel {
+  let leg = ((4..7).contains(&x) || (9..12).contains(&x)) && (10..15).contains(&y);
+  let foot = ((3..7).contains(&x) || (9..13).contains(&x)) && y == 15;
+  let torso = (3..13).contains(&x) && (2..10).contains(&y);
+  let canopy = (5..11).contains(&x) && (3..7).contains(&y);
+  let arm = ((1..3).contains(&x) || (13..15).contains(&x)) && (5..10).contains(&y);
+  match (canopy, torso, leg || foot, arm) {
+    (true, ..) => Texel::rgb(0.55 + y as f32 * 0.04, 0.88, 1.0),
+    (_, true, ..) => tone(&MECH, 0.62 - y as f32 * 0.03, x, y),
+    (_, _, true, _) => ramp(&ALLOY, 0.35 + f32::from(u8::from(foot)) * 0.2),
+    (.., true) => ramp(&ALLOY, 0.55),
+    _ => clear()
+  }
+}
+
 fn emblem(tile: Tile, x: u32, y: u32) -> Option<f32> {
   let (fx, fy) = (x as f32 - 7.5, y as f32 - 7.5);
   let reach = Vec2::new(fx, fy).length();
@@ -2215,7 +2233,32 @@ fn emblem(tile: Tile, x: u32, y: u32) -> Option<f32> {
     Tile::SonarModule | Tile::DeepSonar => {
       (reach - 1.5).abs() < 0.6 || (reach - 4.0).abs() < 0.6 && fy < 1.0
     }
-    Tile::DrillModule | Tile::PlasmaDrill => fx.abs() < (fy + 4.0) * 0.45 && fy > -4.0,
+    Tile::DrillModule | Tile::PlasmaDrill | Tile::MechDrill | Tile::DiamondDrill => {
+      fx.abs() < (fy + 4.0) * 0.45 && fy > -4.0
+    }
+    Tile::HydraulicClamp => {
+      (reach - 3.2).abs() < 0.7 && fy < 1.5 && fx.abs() > 0.8
+        || fx.abs() < 0.7 && fy > 1.0
+    }
+    Tile::OreBox => {
+      (2.6..3.8).contains(&fx.abs().max(fy.abs())) || fy.abs() < 0.6 && fx.abs() < 3.0
+    }
+    Tile::Jumpjets => {
+      (fx.abs() - 2.0).abs() < 1.0 && fy < 1.5 && fy > -4.0
+        || (fx.abs() - 2.0).abs() < 0.6 && fy > 2.0 && fy < 4.0
+    }
+    Tile::MechLaser => fy.abs() < 0.7 && fx > -3.0 || reach < 1.6,
+    Tile::MissileRack => Vec2::new(fx.abs() - 2.0, fy.abs() - 2.0).length() < 1.3,
+    Tile::Sleeper => fx.abs() < 0.9 && fy.abs() < 3.6 || fy.abs() < 0.9 && fx.abs() < 3.6,
+    Tile::RepairDroid => {
+      (reach - 2.4).abs() < 0.7 || (fx + fy).abs() < 0.8 && reach < 4.4
+    }
+    Tile::HeatShield => fy < 3.5 && fy > -4.0 && fx.abs() < (3.5 - fy) * 0.45,
+    Tile::BuildArm => {
+      fx.abs() < 0.8 && fy > -4.0 && fy < 4.0
+        || fy > -4.0 && fy < -2.4 && fx > -0.8 && fx < 4.0
+    }
+    Tile::Dynamo => (fx + fy * 0.6 - fy.signum() * 1.2).abs() < 0.9 && fy.abs() < 4.2,
     Tile::Floodlight => reach < 2.0 || (reach < 4.6 && (fx * fy).abs() < 0.8),
     Tile::Thruster | Tile::Hydrojet => {
       ((fx - fy.abs()) - 1.0).abs() < 0.8 || ((fx - fy.abs()) + 2.5).abs() < 0.8
@@ -2236,7 +2279,12 @@ fn emblem(tile: Tile, x: u32, y: u32) -> Option<f32> {
 fn module(tile: Tile, x: u32, y: u32) -> Texel {
   let precursor = matches!(
     tile,
-    Tile::DeepSonar | Tile::PlasmaDrill | Tile::Hydrojet | Tile::ResonantPlating
+    Tile::DeepSonar
+      | Tile::PlasmaDrill
+      | Tile::Hydrojet
+      | Tile::ResonantPlating
+      | Tile::DiamondDrill
+      | Tile::MechLaser
   );
   let body = match precursor {
     true => ALLOY,
@@ -2245,8 +2293,27 @@ fn module(tile: Tile, x: u32, y: u32) -> Texel {
   let inside = (1..15).contains(&x) && (1..15).contains(&y);
   let rim = x == 1 || y == 1 || x == 14 || y == 14;
   let rivet = (x == 3 || x == 12) && (y == 3 || y == 12);
+  let hazard = matches!(
+    tile,
+    Tile::HydraulicClamp
+      | Tile::MechDrill
+      | Tile::DiamondDrill
+      | Tile::OreBox
+      | Tile::Jumpjets
+      | Tile::MechLaser
+      | Tile::MissileRack
+      | Tile::Sleeper
+      | Tile::RepairDroid
+      | Tile::HeatShield
+      | Tile::BuildArm
+      | Tile::Dynamo
+  );
   match (inside, emblem(tile, x, y)) {
     (false, _) => clear(),
+    (true, None) if rim && hazard => match (x + y) / 2 % 2 == 0 {
+      true => Texel::rgb(0.95, 0.75, 0.12),
+      false => Texel::rgb(0.08, 0.08, 0.09)
+    },
     (true, Some(light)) => match precursor {
       true => Texel::rgb(0.4 + light * 0.4, 0.95, 1.0).glowing(1.2),
       false => Texel::rgb(0.95, 0.72 + light * 0.2, 0.22)
@@ -2340,7 +2407,20 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     | Tile::ResonantPlating
     | Tile::SampleClaw
     | Tile::TorpedoBay
-    | Tile::PowerCell => module(tile, x, y),
+    | Tile::PowerCell
+    | Tile::HydraulicClamp
+    | Tile::MechDrill
+    | Tile::DiamondDrill
+    | Tile::OreBox
+    | Tile::Jumpjets
+    | Tile::MechLaser
+    | Tile::MissileRack
+    | Tile::Sleeper
+    | Tile::RepairDroid
+    | Tile::HeatShield
+    | Tile::BuildArm
+    | Tile::Dynamo => module(tile, x, y),
+    Tile::Mech => mech(x, y),
     Tile::Glass => {
       let frame = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
       let streak = (x + y == 5 || x + y == 7 || x + y == 20) && x > 1 && y > 1;

@@ -126,7 +126,7 @@ const fn goal(
   Goal { title, about, task, after, at, xp, chapter }
 }
 
-pub const GOALS: [Goal; 77] = [
+pub const GOALS: [Goal; 81] = [
   goal(
     "Timber",
     "Punch a tree for its log.",
@@ -819,6 +819,42 @@ pub const GOALS: [Goal; 77] = [
     (12.0, -8.0),
     150,
     Chapter::Depths
+  ),
+  goal(
+    "Walking Machine",
+    "Build a mech: deploy it, climb in and fit upgrades.",
+    Task::Have(Block::Mech, 1),
+    &[47],
+    (8.0, 14.0),
+    100,
+    Chapter::Industry
+  ),
+  goal(
+    "Rig Miner",
+    "Make a mech drill.",
+    Task::Have(Block::MechDrill, 1),
+    &[77],
+    (9.0, 14.0),
+    50,
+    Chapter::Industry
+  ),
+  goal(
+    "Heavy Ordnance",
+    "Make a mech laser.",
+    Task::Have(Block::MechLaser, 1),
+    &[77],
+    (8.0, 15.0),
+    60,
+    Chapter::Industry
+  ),
+  goal(
+    "Fireproof",
+    "Forge heat shielding from basalt to walk through lava.",
+    Task::Have(Block::HeatShield, 1),
+    &[77],
+    (9.0, 15.0),
+    80,
+    Chapter::Industry
   )
 ];
 

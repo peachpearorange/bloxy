@@ -517,7 +517,7 @@ const GASP_EVERY: f32 = 1.0;
 fn breathe(
   time: Res<Time>,
   voxels: Res<Voxels>,
-  subs: Query<&Sub>,
+  (subs, mechs): (Query<&Sub>, Query<&crate::mech::Mech>),
   mut players: Query<
     (
       Entity,
@@ -535,7 +535,8 @@ fn breathe(
   let dt = time.delta_secs();
   for (player, avatar, mut health, mut vigour, air, breath, skills) in players.iter_mut()
   {
-    let aboard = subs.iter().any(|sub| sub.rider == Some(player));
+    let aboard = subs.iter().any(|sub| sub.rider == Some(player))
+      || mechs.iter().any(|mech| mech.rider == Some(player) && mech.sealed());
     let lungs = LUNGS * skills.map_or(1.0, |skills| skills.stats().swim);
     let under = !aboard
       && !crate::opts::opts().creative

@@ -56,6 +56,7 @@ mod legend;
 mod local;
 mod loose;
 mod machine;
+mod mech;
 mod menu;
 mod mesh;
 mod minimap;
@@ -342,6 +343,7 @@ fn main() {
       sea::SeaLife,
       goal::Goals,
       submarine::Submarines,
+      mech::Mechs,
       biology::Biology
     ))
     .add_systems(Startup, serve);

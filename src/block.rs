@@ -281,7 +281,20 @@ pub enum Block {
   SampleClaw,
   TorpedoBay,
   PowerCell,
-  Torpedo
+  Torpedo,
+  Mech,
+  HydraulicClamp,
+  MechDrill,
+  DiamondDrill,
+  OreBox,
+  Jumpjets,
+  MechLaser,
+  MissileRack,
+  Sleeper,
+  RepairDroid,
+  HeatShield,
+  BuildArm,
+  Dynamo
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
@@ -501,7 +514,20 @@ pub enum Tile {
   SampleClaw,
   TorpedoBay,
   PowerCell,
-  Torpedo
+  Torpedo,
+  Mech,
+  HydraulicClamp,
+  MechDrill,
+  DiamondDrill,
+  OreBox,
+  Jumpjets,
+  MechLaser,
+  MissileRack,
+  Sleeper,
+  RepairDroid,
+  HeatShield,
+  BuildArm,
+  Dynamo
 }
 
 impl Tile {
@@ -676,6 +702,8 @@ impl Block {
       || self.salvage()
       || self.module()
       || self == Block::Submarine
+      || self == Block::Mech
+      || self.rig()
       || self.trinket()
       || self.spell()
       || self.forged()
@@ -696,6 +724,8 @@ impl Block {
   }
 
   pub fn module(self) -> bool { (Block::SonarModule..=Block::PowerCell).contains(&self) }
+
+  pub fn rig(self) -> bool { (Block::HydraulicClamp..=Block::Dynamo).contains(&self) }
 
   pub fn organism(self) -> bool { (Block::Kelp..=Block::Clam).contains(&self) }
 
@@ -900,7 +930,8 @@ impl Block {
       Block::RitualKnife | Block::WellspringSigil | Block::Heartstone => 1,
       portable if portable.portable() => 1,
       gear if gear.forged() || gear.worn() => 1,
-      Block::Submarine => 1,
+      Block::Submarine | Block::Mech => 1,
+      rig if rig.rig() => 1,
       module if module.module() => 1,
       Block::Bucket | Block::Torpedo => 16,
       spell if spell.spell() => 16,
@@ -1468,7 +1499,20 @@ impl Block {
       Block::SampleClaw => "Sample Claw",
       Block::TorpedoBay => "Torpedo Bay",
       Block::PowerCell => "Power Cell",
-      Block::Torpedo => "Torpedo"
+      Block::Torpedo => "Torpedo",
+      Block::Mech => "Mech",
+      Block::HydraulicClamp => "Hydraulic Clamp",
+      Block::MechDrill => "Mech Drill",
+      Block::DiamondDrill => "Diamond Mech Drill",
+      Block::OreBox => "Ore Box",
+      Block::Jumpjets => "Jump Jets",
+      Block::MechLaser => "Mech Laser",
+      Block::MissileRack => "Missile Rack",
+      Block::Sleeper => "Mech Sleeper",
+      Block::RepairDroid => "Repair Droid",
+      Block::HeatShield => "Heat Shielding",
+      Block::BuildArm => "Build Arm",
+      Block::Dynamo => "Dynamo"
     }
   }
 
@@ -1723,6 +1767,19 @@ impl Block {
       Block::TorpedoBay => all(Tile::TorpedoBay),
       Block::PowerCell => all(Tile::PowerCell),
       Block::Torpedo => all(Tile::Torpedo),
+      Block::Mech => all(Tile::Mech),
+      Block::HydraulicClamp => all(Tile::HydraulicClamp),
+      Block::MechDrill => all(Tile::MechDrill),
+      Block::DiamondDrill => all(Tile::DiamondDrill),
+      Block::OreBox => all(Tile::OreBox),
+      Block::Jumpjets => all(Tile::Jumpjets),
+      Block::MechLaser => all(Tile::MechLaser),
+      Block::MissileRack => all(Tile::MissileRack),
+      Block::Sleeper => all(Tile::Sleeper),
+      Block::RepairDroid => all(Tile::RepairDroid),
+      Block::HeatShield => all(Tile::HeatShield),
+      Block::BuildArm => all(Tile::BuildArm),
+      Block::Dynamo => all(Tile::Dynamo),
       Block::ElectricPump
       | Block::Refinery
       | Block::BiofuelGenerator

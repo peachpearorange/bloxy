@@ -39,7 +39,7 @@ fn starter(creative: bool) -> Inventory {
     Block::Log,
     Block::Greywacke,
     Block::Reefstone,
-    Block::Abyssite,
+    Block::Mech,
     Block::GreywackeBricks,
     Block::Dirt,
     Block::Sand,
@@ -191,7 +191,8 @@ fn found_world(mut commands: Commands) {
     works,
     packs,
     pockets,
-    subs
+    subs,
+    mechs
   } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
@@ -207,7 +208,8 @@ fn found_world(mut commands: Commands) {
     works: default(),
     packs: default(),
     pockets: default(),
-    subs: default()
+    subs: default(),
+    mechs: default()
   });
   let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
   if migrating {
@@ -230,6 +232,9 @@ fn found_world(mut commands: Commands) {
   }
   for sub in subs.into_iter() {
     crate::submarine::spawn(&mut commands, sub)
+  }
+  for mech in mechs.into_iter() {
+    crate::mech::spawn(&mut commands, mech)
   }
   for (at, yaw, fuel, pattern) in balloons.into_iter() {
     crate::balloon::spawn(
@@ -511,7 +516,7 @@ fn dig(
   (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>,
   mut earned: MessageWriter<Earned>,
-  subs: Query<&crate::submarine::Sub>,
+  (subs, mechs): (Query<&crate::submarine::Sub>, Query<&crate::mech::Mech>),
   mut commands: Commands
 ) {
   for &FromClient { client_id, message: Dig { at } } in digs.read() {
@@ -533,7 +538,15 @@ fn dig(
     let allowed = account
       .is_some_and(|account| guarded(&claims, &mut notices, client_id, account, at));
     let drilling = |player: Entity| {
-      subs.iter().find(|sub| sub.rider == Some(player)).and_then(|sub| sub.drill())
+      subs.iter().find(|sub| sub.rider == Some(player)).and_then(|sub| sub.drill()).or(
+        mechs
+          .iter()
+          .find(|mech| mech.rider == Some(player))
+          .and_then(|mech| mech.drill())
+      )
+    };
+    let boxed = |player: Entity| {
+      mechs.iter().any(|mech| mech.rider == Some(player) && mech.has(Block::OreBox))
     };
     let digger = player_of(players.iter_mut(), client_id)
       .filter(|(player, avatar, ..)| {
@@ -545,6 +558,7 @@ fn dig(
       .map(|(player, avatar, inventory, skills)| {
         (player, avatar.at, skills.geared(Some(&inventory), avatar.hand).fortune)
       });
+    let hoarded = digger.is_some_and(|(player, ..)| boxed(player));
     match digger {
       Some((player, from, fortune)) => {
         let along = (at.as_vec3() + 0.5 - from - Vec3::Y * EYE).abs();
@@ -600,7 +614,12 @@ fn dig(
           .chain(found)
           .filter(|&dropped| dropped != Block::Air)
         {
-          crate::loose::fall(&mut commands, dropped, at)
+          let kept = hoarded
+            && player_of(players.iter_mut(), client_id)
+              .is_some_and(|(_, _, mut inventory, _)| inventory.add(dropped));
+          if !kept {
+            crate::loose::fall(&mut commands, dropped, at)
+          }
         }
         if ore(block) > 0 {
           earned.write(Earned { player, xp: ore(block) });
@@ -643,8 +662,9 @@ fn put(
   time: Res<Time>,
   mut flows: ResMut<Flows>,
   mut voxels: ResMut<Voxels>,
-  mut players: Query<(&Controller, (&Avatar, &mut Inventory))>,
+  mut players: Query<(&Controller, (Entity, &Avatar, &mut Inventory))>,
   everyone: Query<&Avatar>,
+  mechs: Query<&crate::mech::Mech>,
   (claims, mut notices): (Claims, MessageWriter<ToClients<Notice>>),
   mut changes: MessageWriter<ToClients<Altered>>,
   mut commands: Commands
@@ -680,8 +700,16 @@ fn put(
       && !(crowded && block.solid())
       && footed
       && !present.solid()
-      && let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
-      && within_reach(avatar, at)
+      && let Some((player, avatar, mut inventory)) =
+        player_of(players.iter_mut(), client_id)
+      && (within_reach(avatar, at)
+        || mechs
+          .iter()
+          .find(|mech| mech.rider == Some(player))
+          .and_then(crate::mech::Mech::reach)
+          .is_some_and(|reach| {
+            (avatar.at + Vec3::Y * EYE).distance(at.as_vec3() + 0.5) <= reach + 1.0
+          }))
       && inventory.take(block.held())
     {
       voxels.set(at, block);

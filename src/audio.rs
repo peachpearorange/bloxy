@@ -74,7 +74,9 @@ fn loudness(cue: Cue) -> (f32, f32) {
     Cue::Chime => (0.25, 8.0),
     Cue::Warp => (0.28, 8.0),
     Cue::Thunder => (0.45, 160.0),
-    Cue::Craft => (0.25, 6.0)
+    Cue::Craft => (0.25, 6.0),
+    Cue::Stomp => (0.45, 28.0),
+    Cue::Zap => (0.3, 24.0)
   }
 }
 

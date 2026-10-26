@@ -285,6 +285,62 @@ const DEPTHS: &[Recipe] = &[
   ),
   table(&[(Block::IronOre, 1), (Block::CoalOre, 2)], (Block::Torpedo, 4)),
   table(&[(Block::Battery, 2), (Block::CopperCable, 2)], (Block::PowerCell, 1)),
+  table(
+    &[
+      (Block::IronOre, 16),
+      (Block::Glass, 4),
+      (Block::CopperPipe, 4),
+      (Block::CopperCable, 4),
+      (Block::Battery, 2)
+    ],
+    (Block::Mech, 1)
+  ),
+  table(&[(Block::IronOre, 6), (Block::CopperPipe, 2)], (Block::HydraulicClamp, 1)),
+  furnace(&[(Block::IronOre, 8), (Block::CoalOre, 2)], (Block::MechDrill, 1)),
+  table(&[(Block::MechDrill, 1), (Block::DiamondOre, 3)], (Block::DiamondDrill, 1)),
+  table(&[(Block::Planks, 8), (Block::IronOre, 4)], (Block::OreBox, 1)),
+  table(
+    &[(Block::CopperPipe, 4), (Block::IronOre, 4), (Block::Battery, 2)],
+    (Block::Jumpjets, 1)
+  ),
+  table(
+    &[
+      (Block::Glass, 2),
+      (Block::DiamondOre, 1),
+      (Block::CopperCable, 4),
+      (Block::Battery, 1)
+    ],
+    (Block::MechLaser, 1)
+  ),
+  table(
+    &[(Block::IronOre, 6), (Block::CopperPipe, 3), (Block::CopperCable, 2)],
+    (Block::MissileRack, 1)
+  ),
+  table(
+    &[(Block::Bed, 1), (Block::Glass, 2), (Block::CopperCable, 2), (Block::Battery, 1)],
+    (Block::Sleeper, 1)
+  ),
+  table(
+    &[
+      (Block::IronOre, 4),
+      (Block::CopperCable, 4),
+      (Block::Battery, 1),
+      (Block::Glass, 1)
+    ],
+    (Block::RepairDroid, 1)
+  ),
+  furnace(
+    &[(Block::Basalt, 8), (Block::IronOre, 4), (Block::CoalOre, 2)],
+    (Block::HeatShield, 1)
+  ),
+  table(
+    &[(Block::IronOre, 4), (Block::CopperPipe, 2), (Block::CraftingTable, 1)],
+    (Block::BuildArm, 1)
+  ),
+  table(
+    &[(Block::CopperCable, 6), (Block::IronOre, 4), (Block::Battery, 1)],
+    (Block::Dynamo, 1)
+  ),
   table(&[(Block::AlloyScrap, 4)], (Block::PrecursorAlloy, 4)),
   table(&[(Block::AlloyScrap, 2), (Block::Glass, 4)], (Block::PrecursorGlass, 4)),
   table(

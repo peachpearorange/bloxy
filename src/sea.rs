@@ -268,7 +268,10 @@ fn swim(
   )>,
   mut swimmers: Query<(&mut Beast, &mut Swimmer), Without<Dying>>,
   mut knocks: MessageWriter<ToClients<Knock>>,
-  mut subs: Query<&mut crate::submarine::Sub>
+  (mut subs, mut mechs): (
+    Query<&mut crate::submarine::Sub>,
+    Query<&mut crate::mech::Mech>
+  )
 ) {
   let dt = time.delta_secs().min(0.1);
   let seed = voxels.seed;
@@ -390,7 +393,8 @@ fn swim(
     beast.set_if_neq(Beast { breed, at, yaw: yaw.rem_euclid(TAU), pose });
   }
   for (victim, away, damage, breed) in wounds {
-    if !crate::submarine::shield(&mut subs, victim, damage)
+    if !(crate::submarine::shield(&mut subs, victim, damage)
+      || crate::mech::shield(&mut mechs, victim, damage))
       && let Ok((_, controller, _, mut health, mut vigour, mut conditions)) =
         players.get_mut(victim)
     {

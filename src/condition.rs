@@ -231,15 +231,21 @@ const SCORCHED_FOR: f32 = 4.0;
 
 fn scorch(
   voxels: Res<crate::voxels::Voxels>,
-  mut players: Query<(&Avatar, &mut Conditions), With<crate::authority::Controller>>
+  mut players: Query<
+    (Entity, &Avatar, &mut Conditions),
+    With<crate::authority::Controller>
+  >,
+  mechs: Query<&crate::mech::Mech>
 ) {
-  for (avatar, mut conditions) in players.iter_mut() {
-    let lava = [0.1, 1.0].into_iter().any(|above| {
-      voxels
-        .block((avatar.at + Vec3::Y * above).floor().as_ivec3())
-        .and_then(Block::liquid)
-        .is_some_and(|(fluid, _)| fluid == Fluid::Lava)
-    });
+  for (player, avatar, mut conditions) in players.iter_mut() {
+    let sealed = mechs.iter().any(|mech| mech.rider == Some(player) && mech.sealed());
+    let lava = !sealed
+      && [0.1, 1.0].into_iter().any(|above| {
+        voxels
+          .block((avatar.at + Vec3::Y * above).floor().as_ivec3())
+          .and_then(Block::liquid)
+          .is_some_and(|(fluid, _)| fluid == Fluid::Lava)
+      });
     let burning = conditions.0.iter().any(|condition| {
       condition.kind == Kind::Burning && condition.left > SCORCHED_FOR - 1.0
     });

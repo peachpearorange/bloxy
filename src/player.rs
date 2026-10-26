@@ -59,7 +59,8 @@ pub struct Pilot {
 pub enum Craft {
   Boat,
   Balloon,
-  Submarine
+  Submarine,
+  Mech
 }
 
 #[derive(Clone, Copy)]
@@ -732,13 +733,14 @@ fn work(
     MessageWriter<Pour>,
     MessageWriter<Shuffle>
   ),
-  (boats, folk, balloons, units, keys, subs): (
+  (boats, folk, balloons, units, keys, subs, mechs): (
     Query<&Vessel>,
     Query<&Folk>,
     Query<&crate::balloon::Aerostat>,
     Query<&crate::machine::Unit>,
     Res<ButtonInput<KeyCode>>,
-    Query<(Entity, &crate::submarine::Sub)>
+    Query<(Entity, &crate::submarine::Sub)>,
+    Query<(Entity, &crate::mech::Mech)>
   ),
   (mut inscription, signs, mut rests, mut pokes, mut swings, mut sounds): (
     ResMut<Inscription>,
@@ -752,12 +754,21 @@ fn work(
 ) {
   if let Some(voxels) = voxels.as_deref_mut() {
     let (eye, toward) = (pilot.eye(), pilot.facing() * Vec3::NEG_Z);
+    let rigged = pilot
+      .riding
+      .filter(|riding| riding.kind == Craft::Mech)
+      .and_then(|riding| mechs.get(riding.craft).ok())
+      .map(|(_, mech)| mech);
     let piloting = pilot
       .riding
-      .filter(|riding| riding.kind == crate::player::Craft::Submarine)
+      .filter(|riding| riding.kind == Craft::Submarine)
       .and_then(|riding| subs.get(riding.craft).ok())
-      .map(|(_, sub)| sub.drill());
-    let reach = piloting.flatten().map_or(REACH, |drill| drill.reach);
+      .map(|(_, sub)| sub.drill())
+      .or(rigged.map(crate::mech::Mech::drill));
+    let reach = piloting
+      .flatten()
+      .map_or(REACH, |drill| drill.reach)
+      .max(rigged.and_then(crate::mech::Mech::reach).unwrap_or(REACH));
     let cubic = voxels.cast(eye, toward, reach);
     let sighted = match hulls.ready(chunk_of(eye.floor().as_ivec3())) {
       true => {
@@ -801,7 +812,11 @@ fn work(
           && crate::submarine::struck(sub, eye, toward)
             .is_some_and(|near| near < distance)
       });
-      !boat && !person && !balloon && !sub
+      let mech = mechs.iter().any(|(entity, mech)| {
+        pilot.riding.is_none_or(|riding| riding.craft != entity)
+          && crate::mech::struck(mech, eye, toward).is_some_and(|near| near < distance)
+      });
+      !boat && !person && !balloon && !sub && !mech
     });
     let active = captured(&cursor, &menu);
     let target = aim.hit.as_ref().map(|hit| (hit.at, hit.block));

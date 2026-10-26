@@ -604,7 +604,15 @@ impl Plugin for Protocol {
       .add_mapped_client_message::<crate::submarine::Fit>(Channel::Ordered)
       .add_mapped_client_message::<crate::submarine::Strip>(Channel::Ordered)
       .add_client_message::<crate::submarine::Dive>(Channel::Unreliable)
-      .add_client_message::<crate::submarine::Fire>(Channel::Ordered);
+      .add_client_message::<crate::submarine::Fire>(Channel::Ordered)
+      .replicate::<crate::mech::Mech>()
+      .add_client_message::<crate::mech::Deploy>(Channel::Ordered)
+      .add_mapped_client_message::<crate::mech::Board>(Channel::Ordered)
+      .add_mapped_client_message::<crate::mech::Pack>(Channel::Ordered)
+      .add_mapped_client_message::<crate::mech::Refit>(Channel::Ordered)
+      .add_mapped_client_message::<crate::mech::Unfit>(Channel::Ordered)
+      .add_client_message::<crate::mech::Stride>(Channel::Unreliable)
+      .add_client_message::<crate::mech::Shoot>(Channel::Ordered);
   }
 }
 
