@@ -680,7 +680,8 @@ struct Kit {
   screen: Handle<StandardMaterial>,
   beam: Handle<StandardMaterial>,
   flame: Handle<StandardMaterial>,
-  green: Handle<StandardMaterial>
+  green: Handle<StandardMaterial>,
+  hazard: Handle<StandardMaterial>
 }
 
 fn build(
@@ -734,7 +735,8 @@ fn build(
       alpha_mode: AlphaMode::Add,
       ..shining([1.0, 0.55, 0.15], 10.0)
     }),
-    green: materials.add(shining([0.3, 1.0, 0.4], 3.0))
+    green: materials.add(shining([0.3, 1.0, 0.4], 3.0)),
+    hazard: materials.add(colour(0.95, 0.74, 0.1, 0.55, 0.1))
   })
 }
 
@@ -746,6 +748,9 @@ struct Torso(Entity);
 
 #[derive(Component)]
 struct Fittings;
+
+#[derive(Component)]
+struct Canopy(Entity);
 
 #[derive(Component)]
 struct Beam(Entity);
@@ -812,11 +817,14 @@ fn bar(
 fn cockpit(kit: &Kit, mech: Entity, torso: &mut ChildSpawnerCommands) {
   let middle = (FLOOR + ROOF) / 2.0;
   let tall = ROOF - FLOOR;
-  torso.spawn(piece(
-    &kit.slab,
-    &kit.glass,
-    Vec3::new(0.0, middle, (FRONT + MID) / 2.0),
-    Vec3::new(HALF * 2.0, tall, MID - FRONT)
+  torso.spawn((
+    Canopy(mech),
+    piece(
+      &kit.slab,
+      &kit.glass,
+      Vec3::new(0.0, middle, (FRONT + MID) / 2.0),
+      Vec3::new(HALF * 2.0, tall, MID - FRONT)
+    )
   ));
   for (x, z) in [(-HALF, FRONT), (HALF, FRONT), (-HALF, MID), (HALF, MID)] {
     torso.spawn(piece(
@@ -979,15 +987,19 @@ fn arm(
   }
 }
 
-fn outfit(kit: &Kit, mech: Entity, rig: &Mech, fitted: &mut ChildSpawnerCommands) {
-  let body = match (
+fn body<'a>(kit: &'a Kit, rig: &Mech) -> &'a Handle<StandardMaterial> {
+  match (
     rig.has(Block::HullPlating) || rig.has(Block::ResonantPlating),
     rig.has(Block::HeatShield)
   ) {
     (true, _) => &kit.plated,
     (_, true) => &kit.scorched,
     _ => &kit.paint
-  };
+  }
+}
+
+fn outfit(kit: &Kit, mech: Entity, rig: &Mech, fitted: &mut ChildSpawnerCommands) {
+  let body = body(kit, rig);
   let middle = (FLOOR + ROOF) / 2.0;
   fitted.spawn(piece(
     &kit.slab,
@@ -1009,10 +1021,55 @@ fn outfit(kit: &Kit, mech: Entity, rig: &Mech, fitted: &mut ChildSpawnerCommands
   ));
   fitted.spawn(piece(
     &kit.slab,
-    &kit.dark,
-    Vec3::new(0.0, 1.2, 0.1),
-    Vec3::new(0.85, 0.8, 0.8)
+    body,
+    Vec3::new(0.0, 1.32, 0.1),
+    Vec3::new(0.82, 0.42, 0.72)
   ));
+  fitted.spawn(piece(
+    &kit.slab,
+    &kit.dark,
+    Vec3::new(0.0, 1.0, 0.1),
+    Vec3::new(0.5, 0.36, 0.5)
+  ));
+  fitted.spawn(piece(
+    &kit.slab,
+    &kit.dark,
+    Vec3::new(0.0, 1.32, -0.27),
+    Vec3::new(0.56, 0.14, 0.02)
+  ));
+  for stripe in 0..8 {
+    let width = HALF * 2.0 / 8.0;
+    let x = -HALF + width * (stripe as f32 + 0.5);
+    let shade = if stripe % 2 == 0 { &kit.hazard } else { &kit.dark };
+    fitted.spawn(piece(
+      &kit.slab,
+      shade,
+      Vec3::new(x, FLOOR - 0.12, FRONT - 0.03),
+      Vec3::new(width, 0.16, 0.02)
+    ));
+  }
+  for side in [-1.0f32, 1.0] {
+    fitted.spawn(piece(
+      &kit.slab,
+      body,
+      Vec3::new(side * (HALF + 0.06), 2.3, 0.45),
+      Vec3::new(0.06, 0.9, 0.62)
+    ));
+    fitted.spawn(piece(
+      &kit.slab,
+      &kit.dark,
+      Vec3::new(side * (HALF + 0.095), 2.3, 0.45),
+      Vec3::new(0.01, 0.5, 0.36)
+    ));
+  }
+  for slat in 0..4 {
+    fitted.spawn(piece(
+      &kit.slab,
+      &kit.dark,
+      Vec3::new(0.0, 2.35 + slat as f32 * 0.12, BACK + 0.035),
+      Vec3::new(0.8, 0.05, 0.02)
+    ));
+  }
   for side in [-1.0f32, 1.0] {
     fitted.spawn(piece(
       &kit.ball,
@@ -1156,10 +1213,10 @@ fn assemble(kit: &Kit, commands: &mut Commands, entity: Entity, placed: Transfor
       .with_children(|torso| cockpit(kit, entity, torso));
     for side in 0..2 {
       for (segment, mesh, material, size) in [
-        (Segment::Thigh, &kit.slab, &kit.dark, Vec3::new(0.24, 1.0, 0.28)),
-        (Segment::Knee, &kit.ball, &kit.steel, Vec3::splat(0.24)),
-        (Segment::Shin, &kit.slab, &kit.paint, Vec3::new(0.22, 1.0, 0.26)),
-        (Segment::Foot, &kit.slab, &kit.dark, Vec3::new(0.4, 0.14, 0.7))
+        (Segment::Thigh, &kit.slab, &kit.steel, Vec3::new(0.3, 1.0, 0.34)),
+        (Segment::Knee, &kit.ball, &kit.dark, Vec3::splat(0.3)),
+        (Segment::Shin, &kit.slab, &kit.paint, Vec3::new(0.32, 1.0, 0.38)),
+        (Segment::Foot, &kit.slab, &kit.dark, Vec3::new(0.48, 0.16, 0.8))
       ] {
         root.spawn((
           Limb { mech: entity, side, segment },
@@ -1200,7 +1257,10 @@ fn moor(
   torsos: Query<(Entity, &Torso, Option<&Children>)>,
   fittings: Query<(), With<Fittings>>,
   mut beams: Query<(&Beam, &mut SpotLight)>,
-  mut flames: Query<(&Flame, &mut Visibility)>
+  mut flames: Query<(&Flame, &mut Visibility), Without<Canopy>>,
+  mut canopies: Query<(&Canopy, &mut Visibility), Without<Flame>>,
+  mut limbs: Query<(&Limb, &mut MeshMaterial3d<StandardMaterial>)>,
+  view: Res<crate::player::View>
 ) {
   let blend = (time.delta_secs() * 12.0).min(1.0);
   for (entity, mech, transform, shown) in mechs.iter_mut() {
@@ -1226,12 +1286,27 @@ fn moor(
         commands.entity(*child).despawn()
       }
       commands.entity(entity).insert(Shown(mech.modules.clone()));
+      for (_, mut material) in limbs
+        .iter_mut()
+        .filter(|(limb, _)| limb.mech == entity && limb.segment == Segment::Shin)
+      {
+        material.0 = body(&kit, mech).clone()
+      }
       commands.entity(torso).with_children(|torso| {
         torso
           .spawn((Fittings, Transform::default(), Visibility::default()))
           .with_children(|fitted| outfit(&kit, entity, mech, fitted));
       });
     }
+  }
+  for (canopy, mut visibility) in canopies.iter_mut() {
+    let inside =
+      *view == crate::player::View::First && ridden(&pilot, canopy.0).is_some();
+    visibility.set_if_neq(if inside {
+      Visibility::Hidden
+    } else {
+      Visibility::Inherited
+    });
   }
   for (beam, mut light) in beams.iter_mut() {
     let lit = mechs.get(beam.0).is_ok_and(|(_, mech, ..)| mech.lit);
