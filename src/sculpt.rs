@@ -110,6 +110,27 @@ pub fn sculpt(
     .with_inserted_indices(Indices::U32((0..count as u32).collect()))
 }
 
+pub fn rigid(mut mesh: Mesh) -> Mesh {
+  mesh.remove_attribute(Mesh::ATTRIBUTE_JOINT_INDEX);
+  mesh.remove_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT);
+  mesh
+}
+
+pub fn plain(cage: &Cage, colour: [f32; 3]) -> Mesh {
+  sculpt(cage, |_, _| colour, &[], |_| 0)
+}
+
+pub fn lump(middle: Vec3, size: Vec3, round: f32) -> Cage {
+  Cage::rounded(middle, size, UVec3::splat(2), round)
+}
+
+pub fn rod(path: &[(Vec3, f32)], sides: u32) -> Cage {
+  Cage::tube(
+    &path.iter().map(|&(at, girth)| (at, Vec2::splat(girth))).collect::<Vec<_>>(),
+    sides
+  )
+}
+
 pub fn merged(meshes: impl IntoIterator<Item = Mesh>) -> Mesh {
   meshes
     .into_iter()

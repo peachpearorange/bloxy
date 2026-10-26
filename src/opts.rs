@@ -30,7 +30,7 @@ pub struct Opts {
   pub parade: bool,
   pub dive: bool,
   pub mech: bool,
-  pub cubes: bool
+  pub rounded: bool
 }
 
 impl Default for Opts {
@@ -61,7 +61,7 @@ impl Default for Opts {
       parade: false,
       dive: false,
       mech: false,
-      cubes: false
+      rounded: false
     }
   }
 }

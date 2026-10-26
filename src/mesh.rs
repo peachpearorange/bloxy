@@ -195,7 +195,7 @@ fn owner(local: IVec3) -> f32 {
 }
 
 fn rounds(block: Block) -> bool {
-  block.look() == Look::Opaque && !crate::opts::opts().cubes
+  block.look() == Look::Opaque && crate::opts::opts().rounded
 }
 
 type Section = [[bool; 2]; 2];

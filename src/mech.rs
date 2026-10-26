@@ -1,6 +1,7 @@
 use {crate::{audio::{Cue, Sound},
              authority::{Controller, player_of, within_reach},
              block::{Block, Fluid},
+             cage::Cage,
              death::Dying,
              haunt::Blamed,
              island::SEA,
@@ -8,6 +9,7 @@ use {crate::{audio::{Cue, Sound},
              player::{Bulk, Craft, Pilot, Riding, Selected, captured, cells, march,
                       slide},
              protocol::*,
+             sculpt::{lump, merged, plain, rigid, rod, sculpt},
              spell::{Bolt, Flourish},
              stream::ready_around,
              submarine::Drill,
@@ -666,22 +668,21 @@ struct Kit {
   rod: Handle<Mesh>,
   ball: Handle<Mesh>,
   cone: Handle<Mesh>,
-  paint: Handle<StandardMaterial>,
-  plated: Handle<StandardMaterial>,
-  scorched: Handle<StandardMaterial>,
+  thigh: Handle<Mesh>,
+  shins: [Handle<Mesh>; 3],
+  foot: Handle<Mesh>,
+  drone: Handle<Mesh>,
+  hull: Handle<StandardMaterial>,
   dark: Handle<StandardMaterial>,
   steel: Handle<StandardMaterial>,
   cabin: Handle<StandardMaterial>,
-  crate_: Handle<StandardMaterial>,
   glass: Handle<StandardMaterial>,
   glow: Handle<StandardMaterial>,
   amber: Handle<StandardMaterial>,
   ember: Handle<StandardMaterial>,
   screen: Handle<StandardMaterial>,
   beam: Handle<StandardMaterial>,
-  flame: Handle<StandardMaterial>,
-  green: Handle<StandardMaterial>,
-  hazard: Handle<StandardMaterial>
+  flame: Handle<StandardMaterial>
 }
 
 fn build(
@@ -706,9 +707,11 @@ fn build(
     rod: meshes.add(Cylinder::new(0.5, 1.0).mesh().resolution(12)),
     ball: meshes.add(Sphere::new(0.5).mesh().uv(14, 8)),
     cone: meshes.add(Cone { radius: 0.5, height: 1.0 }),
-    paint: materials.add(colour(0.9, 0.55, 0.12, 0.5, 0.25)),
-    plated: materials.add(colour(0.45, 0.48, 0.52, 0.35, 0.8)),
-    scorched: materials.add(colour(0.42, 0.16, 0.08, 0.6, 0.5)),
+    thigh: meshes.add(thigh()),
+    shins: Coat::ALL.map(|coat| meshes.add(shin(coat.colour()))),
+    foot: meshes.add(foot()),
+    drone: meshes.add(rigid(plain(&lump(Vec3::ZERO, Vec3::splat(0.24), 1.0), STEEL))),
+    hull: materials.add(colour(1.0, 1.0, 1.0, 0.5, 0.35)),
     dark: materials.add(colour(0.13, 0.13, 0.15, 0.6, 0.5)),
     steel: materials.add(colour(0.32, 0.34, 0.37, 0.4, 0.85)),
     cabin: materials.add(StandardMaterial {
@@ -716,7 +719,6 @@ fn build(
       cull_mode: None,
       ..colour(0.5, 0.52, 0.5, 0.7, 0.2)
     }),
-    crate_: materials.add(colour(0.5, 0.36, 0.2, 0.85, 0.05)),
     glass: materials.add(StandardMaterial {
       base_color: Color::srgba(0.72, 0.9, 1.0, 0.05),
       alpha_mode: AlphaMode::Blend,
@@ -734,9 +736,7 @@ fn build(
     flame: materials.add(StandardMaterial {
       alpha_mode: AlphaMode::Add,
       ..shining([1.0, 0.55, 0.15], 10.0)
-    }),
-    green: materials.add(shining([0.3, 1.0, 0.4], 3.0)),
-    hazard: materials.add(colour(0.95, 0.74, 0.1, 0.55, 0.1))
+    })
   })
 }
 
@@ -764,7 +764,6 @@ struct Drone(Entity);
 #[derive(Clone, Copy, PartialEq)]
 enum Segment {
   Thigh,
-  Knee,
   Shin,
   Foot
 }
@@ -796,22 +795,6 @@ fn piece(
     MeshMaterial3d(material.clone()),
     Transform::from_translation(at).with_scale(size)
   )
-}
-
-fn spanning(from: Vec3, to: Vec3, thick: f32) -> Transform {
-  Transform::from_translation((from + to) / 2.0)
-    .with_rotation(Quat::from_rotation_arc(Vec3::Y, (to - from).normalize_or(Vec3::Y)))
-    .with_scale(Vec3::new(thick, from.distance(to), thick))
-}
-
-fn bar(
-  kit: &Kit,
-  material: &Handle<StandardMaterial>,
-  from: Vec3,
-  to: Vec3,
-  thick: f32
-) -> impl Bundle {
-  (Mesh3d(kit.slab.clone()), MeshMaterial3d(material.clone()), spanning(from, to, thick))
 }
 
 fn cockpit(kit: &Kit, mech: Entity, torso: &mut ChildSpawnerCommands) {
@@ -911,6 +894,148 @@ fn cockpit(kit: &Kit, mech: Entity, torso: &mut ChildSpawnerCommands) {
   ));
 }
 
+const PAINT: [f32; 3] = [0.9, 0.55, 0.12];
+const PLATING: [f32; 3] = [0.5, 0.53, 0.57];
+const SCORCH: [f32; 3] = [0.45, 0.18, 0.09];
+const HAZARD: [f32; 3] = [0.95, 0.74, 0.1];
+const DARK: [f32; 3] = [0.13, 0.13, 0.15];
+const STEEL: [f32; 3] = [0.38, 0.4, 0.43];
+const TIMBER: [f32; 3] = [0.5, 0.36, 0.2];
+const ICE: [f32; 3] = [0.55, 0.95, 1.0];
+const MEDIC: [f32; 3] = [0.3, 0.85, 0.4];
+
+#[derive(Clone, Copy, PartialEq)]
+enum Coat {
+  Paint,
+  Plated,
+  Scorched
+}
+
+impl Coat {
+  const ALL: [Coat; 3] = [Coat::Paint, Coat::Plated, Coat::Scorched];
+
+  fn of(rig: &Mech) -> Coat {
+    match (
+      rig.has(Block::HullPlating) || rig.has(Block::ResonantPlating),
+      rig.has(Block::HeatShield)
+    ) {
+      (true, _) => Coat::Plated,
+      (_, true) => Coat::Scorched,
+      _ => Coat::Paint
+    }
+  }
+
+  fn colour(self) -> [f32; 3] {
+    match self {
+      Coat::Paint => PAINT,
+      Coat::Plated => PLATING,
+      Coat::Scorched => SCORCH
+    }
+  }
+}
+
+fn shell(coat: [f32; 3]) -> Vec<Mesh> {
+  let middle = (FLOOR + ROOF) / 2.0;
+  let tall = ROOF - FLOOR;
+  let back = Cage::rounded(
+    Vec3::new(0.0, middle, (MID + BACK) / 2.0 + 0.02),
+    Vec3::new(HALF * 2.0 + 0.06, tall + 0.06, BACK - MID),
+    UVec3::new(3, 3, 2),
+    0.2
+  )
+  .shaped(|at| {
+    let rise = ((at.y - FLOOR) / tall).clamp(0.0, 1.0);
+    Vec3::new(at.x * (0.86 + rise * 0.14), at.y, at.z)
+  });
+  let roof = Cage::rounded(
+    Vec3::new(0.0, ROOF + 0.06, (FRONT + BACK) / 2.0 - 0.02),
+    Vec3::new(HALF * 2.0 + 0.14, 0.12, BACK - FRONT + 0.12),
+    UVec3::new(3, 1, 3),
+    0.35
+  );
+  let chin =
+    Cage::block(Vec3::new(HALF * 2.0, 0.28, MID - FRONT + 0.08), UVec3::new(8, 1, 1))
+      .shaped(|at| {
+        let low = (0.14 - at.y) / 0.28;
+        Vec3::new(
+          at.x * (1.0 - low * 0.12),
+          at.y + FLOOR - 0.12,
+          at.z * (1.0 - low * 0.15) + (FRONT + MID) / 2.0 - 0.02
+        )
+      });
+  let striped = |centre: Vec3, normal: Vec3| match normal.z < -0.5 {
+    true if ((centre.x + HALF) / (HALF / 4.0)).floor().rem_euclid(2.0) < 1.0 => HAZARD,
+    true => DARK,
+    false => coat
+  };
+  let posts = [(-HALF, FRONT), (HALF, FRONT), (-HALF, MID), (HALF, MID)].map(|(x, z)| {
+    plain(
+      &rod(&[(Vec3::new(x, FLOOR, z), 0.04), (Vec3::new(x, ROOF, z), 0.04)], 4),
+      STEEL
+    )
+  });
+  let bars = [FLOOR + 0.03, ROOF - 0.03].map(|y| {
+    plain(
+      &rod(&[(Vec3::new(-HALF, y, FRONT), 0.04), (Vec3::new(HALF, y, FRONT), 0.04)], 4),
+      STEEL
+    )
+  });
+  let sides = [-1.0f32, 1.0].into_iter().flat_map(|side| {
+    [
+      plain(
+        &Cage::rounded(
+          Vec3::new(side * (HALF + 0.07), 2.3, 0.45),
+          Vec3::new(0.1, 0.9, 0.62),
+          UVec3::new(1, 2, 2),
+          0.3
+        ),
+        coat
+      ),
+      plain(
+        &lump(
+          Vec3::new(side * (HALF + 0.12), 2.3, 0.45),
+          Vec3::new(0.02, 0.5, 0.36),
+          0.0
+        ),
+        DARK
+      ),
+      plain(&lump(HIP * Vec3::new(side, 1.0, 1.0), Vec3::splat(0.36), 1.0), DARK),
+      plain(
+        &lump(
+          Vec3::new(side * (HALF + 0.17), 2.42, 0.35),
+          Vec3::new(0.4, 0.46, 0.54),
+          0.45
+        ),
+        coat
+      )
+    ]
+  });
+  let vents = (0..4).map(|slat| {
+    plain(
+      &lump(
+        Vec3::new(0.0, 2.35 + slat as f32 * 0.12, BACK + 0.06),
+        Vec3::new(0.8, 0.05, 0.04),
+        0.0
+      ),
+      DARK
+    )
+  });
+  [
+    plain(&back, coat),
+    plain(&roof, coat),
+    sculpt(&chin, striped, &[], |_| 0),
+    plain(&lump(Vec3::new(0.0, 1.32, 0.1), Vec3::new(0.82, 0.42, 0.72), 0.3), coat),
+    plain(&lump(Vec3::new(0.0, 1.0, 0.1), Vec3::new(0.5, 0.36, 0.5), 0.3), DARK),
+    plain(&lump(Vec3::new(0.0, 1.32, -0.27), Vec3::new(0.56, 0.14, 0.04), 0.1), DARK)
+  ]
+  .into_iter()
+  .chain(posts)
+  .chain(bars)
+  .chain(sides)
+  .chain(vents)
+  .collect()
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tool {
   Fist,
@@ -920,170 +1045,7 @@ enum Tool {
   Laser
 }
 
-fn arm(
-  kit: &Kit,
-  body: &Handle<StandardMaterial>,
-  side: f32,
-  tool: Tool,
-  fitted: &mut ChildSpawnerCommands
-) {
-  let shoulder = Vec3::new(side * (HALF + 0.17), 2.4, 0.35);
-  let elbow = Vec3::new(side * 0.95, 1.85, 0.15);
-  let wrist = Vec3::new(side * 0.95, 1.8, -0.55);
-  fitted.spawn(piece(&kit.slab, body, shoulder, Vec3::new(0.34, 0.42, 0.5)));
-  fitted.spawn(bar(kit, &kit.steel, shoulder, elbow, 0.16));
-  fitted.spawn(piece(&kit.ball, &kit.dark, elbow, Vec3::splat(0.22)));
-  fitted.spawn(bar(kit, body, elbow, wrist, 0.22));
-  let ahead = Quat::from_rotation_arc(Vec3::Y, Vec3::NEG_Z);
-  match tool {
-    Tool::Fist => {
-      fitted.spawn(piece(
-        &kit.slab,
-        &kit.dark,
-        wrist + Vec3::Z * -0.1,
-        Vec3::splat(0.26)
-      ));
-    }
-    Tool::Drill | Tool::Diamond => {
-      let bit = if tool == Tool::Diamond { &kit.glow } else { &kit.steel };
-      fitted.spawn(piece(&kit.rod, &kit.dark, wrist, Vec3::new(0.3, 0.12, 0.3)));
-      fitted.spawn((
-        Mesh3d(kit.cone.clone()),
-        MeshMaterial3d(bit.clone()),
-        Transform::from_translation(wrist + Vec3::Z * -0.36)
-          .with_rotation(ahead)
-          .with_scale(Vec3::new(0.3, 0.62, 0.3))
-      ));
-    }
-    Tool::Clamp => {
-      for finger in [-1.0f32, 1.0] {
-        let root = wrist + Vec3::new(finger * 0.09, 0.0, -0.08);
-        let knuckle = root + Vec3::new(finger * 0.12, 0.0, -0.22);
-        fitted.spawn(bar(kit, &kit.steel, root, knuckle, 0.08));
-        fitted.spawn(bar(
-          kit,
-          &kit.steel,
-          knuckle,
-          knuckle + Vec3::new(-finger * 0.1, 0.0, -0.18),
-          0.07
-        ));
-      }
-    }
-    Tool::Laser => {
-      fitted.spawn(bar(kit, &kit.dark, wrist, wrist + Vec3::Z * -0.75, 0.13));
-      fitted.spawn(piece(
-        &kit.slab,
-        &kit.steel,
-        wrist + Vec3::Z * -0.25,
-        Vec3::new(0.2, 0.2, 0.3)
-      ));
-      fitted.spawn(piece(
-        &kit.ball,
-        &kit.ember,
-        wrist + Vec3::Z * -0.78,
-        Vec3::splat(0.1)
-      ));
-    }
-  }
-}
-
-fn body<'a>(kit: &'a Kit, rig: &Mech) -> &'a Handle<StandardMaterial> {
-  match (
-    rig.has(Block::HullPlating) || rig.has(Block::ResonantPlating),
-    rig.has(Block::HeatShield)
-  ) {
-    (true, _) => &kit.plated,
-    (_, true) => &kit.scorched,
-    _ => &kit.paint
-  }
-}
-
-fn outfit(kit: &Kit, mech: Entity, rig: &Mech, fitted: &mut ChildSpawnerCommands) {
-  let body = body(kit, rig);
-  let middle = (FLOOR + ROOF) / 2.0;
-  fitted.spawn(piece(
-    &kit.slab,
-    body,
-    Vec3::new(0.0, middle, (MID + BACK) / 2.0 + 0.02),
-    Vec3::new(HALF * 2.0 + 0.06, ROOF - FLOOR + 0.06, BACK - MID)
-  ));
-  fitted.spawn(piece(
-    &kit.slab,
-    body,
-    Vec3::new(0.0, ROOF + 0.04, (FRONT + BACK) / 2.0),
-    Vec3::new(HALF * 2.0 + 0.1, 0.08, BACK - FRONT + 0.1)
-  ));
-  fitted.spawn(piece(
-    &kit.slab,
-    body,
-    Vec3::new(0.0, FLOOR - 0.12, (FRONT + MID) / 2.0 - 0.02),
-    Vec3::new(HALF * 2.0, 0.22, MID - FRONT + 0.04)
-  ));
-  fitted.spawn(piece(
-    &kit.slab,
-    body,
-    Vec3::new(0.0, 1.32, 0.1),
-    Vec3::new(0.82, 0.42, 0.72)
-  ));
-  fitted.spawn(piece(
-    &kit.slab,
-    &kit.dark,
-    Vec3::new(0.0, 1.0, 0.1),
-    Vec3::new(0.5, 0.36, 0.5)
-  ));
-  fitted.spawn(piece(
-    &kit.slab,
-    &kit.dark,
-    Vec3::new(0.0, 1.32, -0.27),
-    Vec3::new(0.56, 0.14, 0.02)
-  ));
-  for stripe in 0..8 {
-    let width = HALF * 2.0 / 8.0;
-    let x = -HALF + width * (stripe as f32 + 0.5);
-    let shade = if stripe % 2 == 0 { &kit.hazard } else { &kit.dark };
-    fitted.spawn(piece(
-      &kit.slab,
-      shade,
-      Vec3::new(x, FLOOR - 0.12, FRONT - 0.03),
-      Vec3::new(width, 0.16, 0.02)
-    ));
-  }
-  for side in [-1.0f32, 1.0] {
-    fitted.spawn(piece(
-      &kit.slab,
-      body,
-      Vec3::new(side * (HALF + 0.06), 2.3, 0.45),
-      Vec3::new(0.06, 0.9, 0.62)
-    ));
-    fitted.spawn(piece(
-      &kit.slab,
-      &kit.dark,
-      Vec3::new(side * (HALF + 0.095), 2.3, 0.45),
-      Vec3::new(0.01, 0.5, 0.36)
-    ));
-  }
-  for slat in 0..4 {
-    fitted.spawn(piece(
-      &kit.slab,
-      &kit.dark,
-      Vec3::new(0.0, 2.35 + slat as f32 * 0.12, BACK + 0.035),
-      Vec3::new(0.8, 0.05, 0.02)
-    ));
-  }
-  for side in [-1.0f32, 1.0] {
-    fitted.spawn(piece(
-      &kit.ball,
-      &kit.dark,
-      HIP * Vec3::new(side, 1.0, 1.0),
-      Vec3::splat(0.32)
-    ));
-    fitted.spawn(piece(
-      &kit.slab,
-      &kit.steel,
-      Vec3::new(side * 0.25, 1.75, BACK + 0.02),
-      Vec3::new(0.12, 0.2, 0.04)
-    ));
-  }
+fn tools(rig: &Mech) -> [Tool; 2] {
   let drill = match (rig.has(Block::DiamondDrill), rig.has(Block::MechDrill)) {
     (true, _) => Some(Tool::Diamond),
     (_, true) => Some(Tool::Drill),
@@ -1092,16 +1054,289 @@ fn outfit(kit: &Kit, mech: Entity, rig: &Mech, fitted: &mut ChildSpawnerCommands
   let clamp = rig.has(Block::HydraulicClamp).then_some(Tool::Clamp);
   let laser = rig.has(Block::MechLaser).then_some(Tool::Laser);
   let left = drill.or(clamp).unwrap_or(Tool::Fist);
-  let right = laser.or(clamp.filter(|_| left != Tool::Clamp)).unwrap_or(Tool::Fist);
-  arm(kit, body, -1.0, left, fitted);
-  arm(kit, body, 1.0, right, fitted);
+  [left, laser.or(clamp.filter(|_| left != Tool::Clamp)).unwrap_or(Tool::Fist)]
+}
+
+fn wrist(side: f32) -> Vec3 { Vec3::new(side * 0.95, 1.8, -0.55) }
+
+fn arm(side: f32, tool: Tool, coat: [f32; 3]) -> Vec<Mesh> {
+  let shoulder = Vec3::new(side * (HALF + 0.17), 2.4, 0.35);
+  let elbow = Vec3::new(side * 0.95, 1.85, 0.15);
+  let wrist = wrist(side);
+  let ahead = |reach: f32| wrist + Vec3::Z * -reach;
+  let limb = [
+    plain(
+      &rod(&[(shoulder, 0.08), (shoulder.lerp(elbow, 0.5), 0.065), (elbow, 0.075)], 6),
+      STEEL
+    ),
+    plain(&lump(elbow, Vec3::splat(0.24), 1.0), DARK),
+    plain(&rod(&[(elbow, 0.12), (elbow.lerp(wrist, 0.6), 0.13), (wrist, 0.1)], 6), coat)
+  ];
+  let held = match tool {
+    Tool::Fist => vec![
+      plain(&lump(ahead(0.12), Vec3::new(0.26, 0.24, 0.24), 0.3), DARK),
+      plain(&lump(ahead(0.27), Vec3::new(0.24, 0.1, 0.1), 0.4), STEEL),
+    ],
+    Tool::Drill | Tool::Diamond => {
+      let bit = if tool == Tool::Diamond { ICE } else { STEEL };
+      let spiral = move |centre: Vec3, _: Vec3| {
+        let turn = (centre.y - wrist.y).atan2(centre.x - wrist.x);
+        match (turn * 2.0 + centre.z * 22.0).sin() > 0.0 {
+          true => bit,
+          false => DARK
+        }
+      };
+      vec![
+        plain(&rod(&[(wrist, 0.16), (ahead(0.12), 0.16)], 8), DARK),
+        sculpt(
+          &rod(
+            &[
+              (ahead(0.1), 0.14),
+              (ahead(0.3), 0.11),
+              (ahead(0.5), 0.075),
+              (ahead(0.68), 0.04),
+              (ahead(0.82), 0.008)
+            ],
+            8
+          ),
+          spiral,
+          &[],
+          |_| 0
+        ),
+      ]
+    }
+    Tool::Clamp => [-1.0f32, 1.0]
+      .map(|finger| {
+        plain(
+          &rod(
+            &[
+              (wrist + Vec3::new(finger * 0.08, 0.0, -0.05), 0.05),
+              (wrist + Vec3::new(finger * 0.2, 0.0, -0.28), 0.045),
+              (wrist + Vec3::new(finger * 0.07, 0.0, -0.5), 0.025)
+            ],
+            4
+          ),
+          STEEL
+        )
+      })
+      .into_iter()
+      .chain([plain(&lump(ahead(0.06), Vec3::new(0.3, 0.2, 0.16), 0.3), DARK)])
+      .collect(),
+    Tool::Laser => vec![
+      plain(&lump(ahead(0.18), Vec3::new(0.24, 0.24, 0.38), 0.25), STEEL),
+      plain(&rod(&[(ahead(0.3), 0.065), (ahead(0.8), 0.055)], 6), DARK),
+      plain(&rod(&[(ahead(0.44), 0.085), (ahead(0.5), 0.085)], 6), DARK),
+      plain(&rod(&[(ahead(0.58), 0.08), (ahead(0.64), 0.08)], 6), DARK),
+    ]
+  };
+  limb.into_iter().chain(held).collect()
+}
+
+fn gear(rig: &Mech) -> Vec<Mesh> {
+  rig
+    .modules
+    .iter()
+    .flat_map(|&module| match module {
+      Block::Floodlight => [-1.0f32, 1.0]
+        .map(|side| {
+          plain(
+            &rod(
+              &[
+                (Vec3::new(side * 0.45, ROOF + 0.17, FRONT + 0.32), 0.1),
+                (Vec3::new(side * 0.45, ROOF + 0.17, FRONT + 0.1), 0.13)
+              ],
+              8
+            ),
+            DARK
+          )
+        })
+        .into(),
+      Block::MissileRack => vec![
+        plain(
+          &lump(Vec3::new(0.48, ROOF + 0.28, 0.42), Vec3::new(0.46, 0.34, 0.6), 0.2),
+          DARK
+        ),
+        plain(
+          &lump(Vec3::new(0.48, ROOF + 0.1, 0.42), Vec3::new(0.2, 0.12, 0.2), 0.0),
+          STEEL
+        ),
+      ],
+      Block::Jumpjets => [-1.0f32, 1.0]
+        .map(|side| {
+          let x = side * 0.42;
+          plain(
+            &rod(
+              &[
+                (Vec3::new(x, 2.0, BACK + 0.14), 0.09),
+                (Vec3::new(x, 1.8, BACK + 0.14), 0.11),
+                (Vec3::new(x, 1.62, BACK + 0.14), 0.15)
+              ],
+              8
+            ),
+            DARK
+          )
+        })
+        .into(),
+      Block::OreBox => vec![
+        plain(
+          &lump(Vec3::new(0.0, 2.25, BACK + 0.25), Vec3::new(1.0, 0.7, 0.42), 0.08),
+          TIMBER
+        ),
+        plain(
+          &lump(Vec3::new(0.0, 2.25, BACK + 0.47), Vec3::new(1.04, 0.08, 0.04), 0.0),
+          STEEL
+        ),
+        plain(
+          &lump(Vec3::new(0.0, 2.25, BACK + 0.47), Vec3::new(0.08, 0.74, 0.04), 0.0),
+          STEEL
+        ),
+      ],
+      Block::Dynamo => vec![plain(
+        &rod(
+          &[
+            (Vec3::new(-0.42, ROOF + 0.06, 0.45), 0.16),
+            (Vec3::new(-0.42, ROOF + 0.4, 0.45), 0.16)
+          ],
+          8
+        ),
+        STEEL
+      )],
+      Block::Sleeper => [-1.0f32, 1.0]
+        .into_iter()
+        .flat_map(|side| {
+          let at = Vec3::new(side * (HALF + 0.13), 2.3, 0.45);
+          [
+            plain(&lump(at, Vec3::new(0.02, 0.3, 0.1), 0.0), MEDIC),
+            plain(&lump(at, Vec3::new(0.02, 0.1, 0.3), 0.0), MEDIC)
+          ]
+        })
+        .collect(),
+      Block::HeatShield => [-1.0f32, 1.0]
+        .map(|side| {
+          plain(
+            &Cage::rounded(
+              Vec3::new(side * (HALF + 0.08), 1.42, 0.0),
+              Vec3::new(0.08, 0.52, 1.5),
+              UVec3::new(1, 2, 3),
+              0.2
+            ),
+            SCORCH
+          )
+        })
+        .into(),
+      Block::BuildArm => vec![
+        plain(
+          &lump(Vec3::new(-0.5, ROOF + 0.1, 0.5), Vec3::new(0.22, 0.12, 0.22), 0.3),
+          STEEL
+        ),
+        plain(
+          &rod(
+            &[
+              (Vec3::new(-0.5, ROOF + 0.1, 0.5), 0.06),
+              (Vec3::new(-0.95, ROOF + 0.6, -0.35), 0.045)
+            ],
+            4
+          ),
+          PAINT
+        ),
+      ],
+      _ => vec![]
+    })
+    .collect()
+}
+
+fn frame(rig: &Mech) -> Mesh {
+  let coat = Coat::of(rig).colour();
+  let [left, right] = tools(rig);
+  rigid(merged(
+    shell(coat)
+      .into_iter()
+      .chain(arm(-1.0, left, coat))
+      .chain(arm(1.0, right, coat))
+      .chain(gear(rig))
+  ))
+}
+
+fn thigh() -> Mesh {
+  rigid(merged([
+    plain(
+      &rod(&[(Vec3::ZERO, 0.17), (Vec3::Y * -0.3, 0.15), (Vec3::Y * -THIGH, 0.12)], 6),
+      STEEL
+    ),
+    plain(
+      &rod(
+        &[(Vec3::new(0.0, -0.08, -0.16), 0.035), (Vec3::new(0.0, -0.5, -0.12), 0.03)],
+        4
+      ),
+      DARK
+    )
+  ]))
+}
+
+fn shin(coat: [f32; 3]) -> Mesh {
+  rigid(merged([
+    plain(&lump(Vec3::ZERO, Vec3::splat(0.3), 1.0), DARK),
+    plain(
+      &rod(
+        &[(Vec3::Y * -0.05, 0.13), (Vec3::Y * -0.25, 0.16), (Vec3::Y * -SHIN, 0.11)],
+        6
+      ),
+      STEEL
+    ),
+    plain(
+      &Cage::rounded(
+        Vec3::new(0.0, -0.26, -0.14),
+        Vec3::new(0.32, 0.46, 0.1),
+        UVec3::new(2, 2, 1),
+        0.4
+      ),
+      coat
+    )
+  ]))
+}
+
+fn foot() -> Mesh {
+  let sole =
+    |middle: Vec3, size: Vec3| Cage::rounded(middle, size, UVec3::new(2, 1, 2), 0.35);
+  rigid(merged([
+    plain(&lump(Vec3::ZERO, Vec3::splat(0.22), 1.0), STEEL),
+    plain(&sole(Vec3::new(0.0, -ANKLE + 0.08, -0.04), Vec3::new(0.46, 0.16, 0.62)), DARK),
+    plain(
+      &sole(Vec3::new(-0.13, -ANKLE + 0.06, -0.42), Vec3::new(0.16, 0.12, 0.24)),
+      DARK
+    ),
+    plain(
+      &sole(Vec3::new(0.13, -ANKLE + 0.06, -0.42), Vec3::new(0.16, 0.12, 0.24)),
+      DARK
+    ),
+    plain(&sole(Vec3::new(0.0, -ANKLE + 0.06, 0.34), Vec3::new(0.22, 0.1, 0.18)), STEEL)
+  ]))
+}
+
+fn outfit(
+  kit: &Kit,
+  mech: Entity,
+  rig: &Mech,
+  frame: Handle<Mesh>,
+  fitted: &mut ChildSpawnerCommands
+) {
+  fitted.spawn((Mesh3d(frame), MeshMaterial3d(kit.hull.clone()), Transform::default()));
   let cells = rig.modules.iter().filter(|&&module| module == Block::PowerCell).count();
   for cell in 0..cells {
     fitted.spawn(piece(
       &kit.slab,
       &kit.glow,
-      Vec3::new(-0.45 + cell as f32 * 0.18, 2.75, BACK + 0.02),
+      Vec3::new(-0.45 + cell as f32 * 0.18, 2.78, BACK + 0.04),
       Vec3::new(0.1, 0.2, 0.03)
+    ));
+  }
+  let [_, right] = tools(rig);
+  if right == Tool::Laser {
+    fitted.spawn(piece(
+      &kit.ball,
+      &kit.ember,
+      wrist(1.0) + Vec3::Z * -0.8,
+      Vec3::splat(0.09)
     ));
   }
   for &module in rig.modules.iter() {
@@ -1111,95 +1346,58 @@ fn outfit(kit: &Kit, mech: Entity, rig: &Mech, fitted: &mut ChildSpawnerCommands
           fitted.spawn((
             Mesh3d(kit.rod.clone()),
             MeshMaterial3d(kit.beam.clone()),
-            Transform::from_xyz(side * 0.45, ROOF + 0.15, FRONT + 0.12)
+            Transform::from_xyz(side * 0.45, ROOF + 0.17, FRONT + 0.08)
               .with_rotation(Quat::from_rotation_arc(Vec3::Y, Vec3::NEG_Z))
-              .with_scale(Vec3::new(0.2, 0.18, 0.2))
+              .with_scale(Vec3::new(0.2, 0.02, 0.2))
           ));
         }
       }
       Block::MissileRack => {
-        let pod = Vec3::new(0.48, ROOF + 0.24, 0.42);
-        fitted.spawn(piece(&kit.slab, &kit.dark, pod, Vec3::new(0.46, 0.34, 0.6)));
         for (x, y) in [(-0.1, -0.08), (0.1, -0.08), (-0.1, 0.08), (0.1, 0.08)] {
           fitted.spawn(piece(
             &kit.ball,
             &kit.amber,
-            pod + Vec3::new(x, y, -0.3),
-            Vec3::splat(0.09)
+            Vec3::new(0.48 + x, ROOF + 0.28 + y, 0.11),
+            Vec3::splat(0.08)
           ));
         }
       }
       Block::Jumpjets => {
         for side in [-1.0f32, 1.0] {
-          let nozzle = Vec3::new(side * 0.42, 1.8, BACK + 0.14);
-          fitted.spawn((
-            Mesh3d(kit.cone.clone()),
-            MeshMaterial3d(kit.dark.clone()),
-            Transform::from_translation(nozzle).with_scale(Vec3::new(0.26, 0.32, 0.26))
-          ));
           fitted.spawn((
             Flame(mech),
             Mesh3d(kit.cone.clone()),
             MeshMaterial3d(kit.flame.clone()),
-            Transform::from_translation(nozzle - Vec3::Y * 0.45)
+            Transform::from_xyz(side * 0.42, 1.25, BACK + 0.14)
               .with_rotation(Quat::from_rotation_x(PI))
-              .with_scale(Vec3::new(0.2, 0.6, 0.2)),
+              .with_scale(Vec3::new(0.22, 0.6, 0.22)),
             Visibility::Hidden
           ));
         }
-      }
-      Block::OreBox => {
-        fitted.spawn(piece(
-          &kit.slab,
-          &kit.crate_,
-          Vec3::new(0.0, 2.25, BACK + 0.24),
-          Vec3::new(1.0, 0.7, 0.42)
-        ));
-        fitted.spawn(piece(
-          &kit.slab,
-          &kit.steel,
-          Vec3::new(0.0, 2.25, BACK + 0.46),
-          Vec3::new(1.04, 0.08, 0.03)
-        ));
       }
       Block::Dynamo => {
         fitted.spawn(piece(
           &kit.rod,
           &kit.amber,
-          Vec3::new(-0.42, ROOF + 0.2, 0.45),
-          Vec3::new(0.26, 0.3, 0.26)
+          Vec3::new(-0.42, ROOF + 0.23, 0.45),
+          Vec3::new(0.34, 0.1, 0.34)
         ));
-      }
-      Block::Sleeper => {
-        for side in [-1.0f32, 1.0] {
-          let at = Vec3::new(side * (HALF + 0.04), 2.5, 0.45);
-          fitted.spawn(piece(&kit.slab, &kit.green, at, Vec3::new(0.02, 0.32, 0.1)));
-          fitted.spawn(piece(&kit.slab, &kit.green, at, Vec3::new(0.02, 0.1, 0.32)));
-        }
       }
       Block::RepairDroid => {
         fitted
           .spawn((Drone(mech), Transform::default(), Visibility::default()))
           .with_children(|drone| {
-            drone.spawn(piece(&kit.ball, &kit.steel, Vec3::ZERO, Vec3::splat(0.24)));
+            drone.spawn((Mesh3d(kit.drone.clone()), MeshMaterial3d(kit.hull.clone())));
             drone.spawn(piece(&kit.ball, &kit.glow, Vec3::Z * -0.1, Vec3::splat(0.08)));
           });
       }
-      Block::HeatShield => {
-        for side in [-1.0f32, 1.0] {
-          fitted.spawn(piece(
-            &kit.slab,
-            &kit.scorched,
-            Vec3::new(side * (HALF + 0.06), 1.45, 0.0),
-            Vec3::new(0.06, 0.5, 1.5)
-          ));
-        }
-      }
       Block::BuildArm => {
-        let base = Vec3::new(-0.5, ROOF + 0.08, 0.5);
-        let tip = Vec3::new(-0.95, ROOF + 0.6, -0.35);
-        fitted.spawn(bar(kit, &kit.paint, base, tip, 0.1));
-        fitted.spawn(piece(&kit.ball, &kit.amber, tip, Vec3::splat(0.14)));
+        fitted.spawn(piece(
+          &kit.ball,
+          &kit.amber,
+          Vec3::new(-0.95, ROOF + 0.6, -0.35),
+          Vec3::splat(0.12)
+        ));
       }
       _ => ()
     }
@@ -1212,17 +1410,16 @@ fn assemble(kit: &Kit, commands: &mut Commands, entity: Entity, placed: Transfor
       .spawn((Torso(entity), Transform::default(), Visibility::default()))
       .with_children(|torso| cockpit(kit, entity, torso));
     for side in 0..2 {
-      for (segment, mesh, material, size) in [
-        (Segment::Thigh, &kit.slab, &kit.steel, Vec3::new(0.3, 1.0, 0.34)),
-        (Segment::Knee, &kit.ball, &kit.dark, Vec3::splat(0.3)),
-        (Segment::Shin, &kit.slab, &kit.paint, Vec3::new(0.32, 1.0, 0.38)),
-        (Segment::Foot, &kit.slab, &kit.dark, Vec3::new(0.48, 0.16, 0.8))
+      for (segment, mesh) in [
+        (Segment::Thigh, &kit.thigh),
+        (Segment::Shin, &kit.shins[0]),
+        (Segment::Foot, &kit.foot)
       ] {
         root.spawn((
           Limb { mech: entity, side, segment },
           Mesh3d(mesh.clone()),
-          MeshMaterial3d(material.clone()),
-          Transform::from_scale(size)
+          MeshMaterial3d(kit.hull.clone()),
+          Transform::default()
         ));
       }
     }
@@ -1248,6 +1445,7 @@ fn ridden(pilot: &Option<Res<Pilot>>, entity: Entity) -> Option<(Vec3, f32)> {
 fn moor(
   time: Res<Time>,
   kit: Res<Kit>,
+  mut meshes: ResMut<Assets<Mesh>>,
   pilot: Option<Res<Pilot>>,
   mut commands: Commands,
   mut mechs: Query<
@@ -1259,7 +1457,7 @@ fn moor(
   mut beams: Query<(&Beam, &mut SpotLight)>,
   mut flames: Query<(&Flame, &mut Visibility), Without<Canopy>>,
   mut canopies: Query<(&Canopy, &mut Visibility), Without<Flame>>,
-  mut limbs: Query<(&Limb, &mut MeshMaterial3d<StandardMaterial>)>,
+  mut limbs: Query<(&Limb, &mut Mesh3d)>,
   view: Res<crate::player::View>
 ) {
   let blend = (time.delta_secs() * 12.0).min(1.0);
@@ -1286,16 +1484,18 @@ fn moor(
         commands.entity(*child).despawn()
       }
       commands.entity(entity).insert(Shown(mech.modules.clone()));
-      for (_, mut material) in limbs
+      let coat = Coat::ALL.iter().position(|&coat| coat == Coat::of(mech)).unwrap_or(0);
+      for (_, mut mesh) in limbs
         .iter_mut()
         .filter(|(limb, _)| limb.mech == entity && limb.segment == Segment::Shin)
       {
-        material.0 = body(&kit, mech).clone()
+        mesh.0 = kit.shins[coat].clone()
       }
+      let frame = meshes.add(self::frame(mech));
       commands.entity(torso).with_children(|torso| {
         torso
           .spawn((Fittings, Transform::default(), Visibility::default()))
-          .with_children(|fitted| outfit(&kit, entity, mech, fitted));
+          .with_children(|fitted| outfit(&kit, entity, mech, frame, fitted));
       });
     }
   }
@@ -1393,14 +1593,17 @@ fn pose(
       let side = if limb.side == 0 { -1.0 } else { 1.0 };
       let hip = HIP * Vec3::new(side, 1.0, 1.0) + Vec3::Y * bob(strut);
       let bend = knee(hip, foot, Vec3::NEG_Z);
-      let scale = transform.scale;
+      let hung = |from: Vec3, to: Vec3| {
+        Transform::from_translation(from).with_rotation(Quat::from_rotation_arc(
+          Vec3::NEG_Y,
+          (to - from).normalize_or(Vec3::NEG_Y)
+        ))
+      };
       *transform = match limb.segment {
-        Segment::Thigh => spanning(hip, bend, 1.0).with_scale(scale.with_y(THIGH)),
-        Segment::Knee => Transform::from_translation(bend).with_scale(scale),
-        Segment::Shin => spanning(bend, foot, 1.0).with_scale(scale.with_y(SHIN)),
-        Segment::Foot => Transform::from_translation(foot - Vec3::Y * (ANKLE - 0.07))
+        Segment::Thigh => hung(hip, bend),
+        Segment::Shin => hung(bend, foot),
+        Segment::Foot => Transform::from_translation(foot)
           .with_rotation(Quat::from_rotation_x(lifted * 0.35))
-          .with_scale(scale)
       }
     }
   }
@@ -1804,5 +2007,66 @@ impl Plugin for Mechs {
           .run_if(plays)
           .run_if(resource_exists::<Pilot>)
       );
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use {super::*, crate::sculpt::sheet};
+
+  fn standing(rig: &Mech) -> Mesh {
+    let strut =
+      Strut { last: Vec3::ZERO, phase: 0.6, amp: 0.8, heading: Vec3::NEG_Z, speed: 0.0 };
+    let legs = [0usize, 1].into_iter().flat_map(|side| {
+      let (foot, lifted) = feet(&strut)[side];
+      let x = if side == 0 { -1.0 } else { 1.0 };
+      let hip = HIP * Vec3::new(x, 1.0, 1.0);
+      let bend = knee(hip, foot, Vec3::NEG_Z);
+      let hung = |from: Vec3, to: Vec3| {
+        Transform::from_translation(from)
+          .with_rotation(Quat::from_rotation_arc(Vec3::NEG_Y, (to - from).normalize()))
+      };
+      [
+        thigh().transformed_by(hung(hip, bend)),
+        shin(Coat::of(rig).colour()).transformed_by(hung(bend, foot)),
+        foot_mesh().transformed_by(
+          Transform::from_translation(foot)
+            .with_rotation(Quat::from_rotation_x(lifted * 0.35))
+        )
+      ]
+    });
+    merged([frame(rig)].into_iter().chain(legs))
+  }
+
+  fn foot_mesh() -> Mesh { foot() }
+
+  #[test]
+  #[ignore]
+  fn mechs() {
+    let bare = Mech::deployed(Vec3::ZERO, 0.0);
+    let fitted = Mech {
+      modules: vec![
+        Block::DiamondDrill,
+        Block::MechLaser,
+        Block::Jumpjets,
+        Block::Floodlight,
+        Block::MissileRack,
+        Block::OreBox,
+      ],
+      ..bare.clone()
+    };
+    let armoured = Mech {
+      modules: vec![
+        Block::HydraulicClamp,
+        Block::HullPlating,
+        Block::Sleeper,
+        Block::BuildArm,
+      ],
+      ..bare.clone()
+    };
+    sheet(
+      &[standing(&bare), standing(&fitted), standing(&armoured)],
+      "screenshots/mechs.ppm"
+    )
   }
 }
