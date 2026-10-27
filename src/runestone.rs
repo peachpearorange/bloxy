@@ -94,11 +94,12 @@ fn smooth(pieces: &[(Cage, Finish)]) -> Mesh {
     Finish::Capped => 2.0,
     _ => 0.0
   };
-  let (positions, normals, uvs, indices) = pieces.iter().fold(
-    (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
-    |(mut positions, mut normals, mut uvs, mut indices): (
+  let (positions, normals, uvs, across, indices) = pieces.iter().fold(
+    (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+    |(mut positions, mut normals, mut uvs, mut across, mut indices): (
       Vec<[f32; 3]>,
       Vec<[f32; 3]>,
+      Vec<[f32; 2]>,
       Vec<[f32; 2]>,
       Vec<u32>
     ),
@@ -107,16 +108,18 @@ fn smooth(pieces: &[(Cage, Finish)]) -> Mesh {
       for (point, normal) in cage.points.iter().zip(cage.vertex_normals()) {
         positions.push(point.to_array());
         normals.push(normal.to_array());
-        uvs.push([point.y, code(*finish, normal)])
+        uvs.push([point.y, code(*finish, normal)]);
+        across.push([point.x, point.z])
       }
       indices.extend(triangles(cage).into_iter().flatten().map(|corner| first + corner));
-      (positions, normals, uvs, indices)
+      (positions, normals, uvs, across, indices)
     }
   );
   Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, across)
     .with_inserted_indices(Indices::U32(indices))
 }
 
