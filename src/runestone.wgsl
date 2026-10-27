@@ -66,11 +66,54 @@ fn rune(at: vec2<f32>, seed: vec3<i32>) -> f32 {
     return near;
 }
 
+const OCTAVES: i32 = 10;
+const LOWEST: f32 = 7.0;
+const LACUNARITY: f32 = 2.13;
+const PERSISTENCE: f32 = 0.56;
+const RELIEF: f32 = 0.0035;
+
+struct Relief {
+    gradient: vec3<f32>,
+    height: f32,
+}
+
+fn heading(index: i32) -> vec3<f32> {
+    let k = f32(index) + 0.5;
+    let rise = 1.0 - 2.0 * fract(k * 0.618034);
+    let turn = k * 2.399963;
+    let out = sqrt(1.0 - rise * rise);
+    return vec3<f32>(cos(turn) * out, rise, sin(turn) * out);
+}
+
+fn weierstrass(at: vec3<f32>, footprint: f32) -> Relief {
+    let warp = vec3<f32>(noise3(at * 3.0), noise3(at * 3.0 + 17.0), noise3(at * 3.0 + 31.0)) - 0.5;
+    let p = at + warp * 0.12;
+    var relief = Relief(vec3<f32>(0.0), 0.0);
+    var amplitude = 1.0;
+    var frequency = LOWEST;
+    for (var octave = 0; octave < OCTAVES; octave++) {
+        let seen = 1.0 - smoothstep(0.2, 0.45, frequency * footprint);
+        for (var wave = 0; wave < 3; wave++) {
+            let toward = heading(octave * 3 + wave);
+            let phase = dot(toward, p) * frequency + f32(octave * 3 + wave) * 2.1;
+            relief.height += amplitude * seen * cos(phase) / 3.0;
+            relief.gradient -= toward * (amplitude * frequency * seen * sin(phase) / 3.0);
+        }
+        amplitude *= PERSISTENCE;
+        frequency *= LACUNARITY;
+    }
+    return relief;
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     let at = in.world_position.xyz;
-    let normal = normalize(in.world_normal);
+    let smooth_normal = normalize(in.world_normal);
+    let footprint = length(fwidth(at));
+    let micro = weierstrass(at, footprint);
+    let slope = micro.gradient * RELIEF;
+    let normal = normalize(smooth_normal - (slope - smooth_normal * dot(slope, smooth_normal)));
     let height = in.uv.x;
     let finish = in.uv.y;
     let cell = vec3<i32>(floor(at - normal * 0.01));
@@ -80,14 +123,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var stone = mix(vec3<f32>(0.08, 0.085, 0.1), vec3<f32>(0.24, 0.24, 0.26), grain);
     let moss = smoothstep(0.52, 0.7, noise3(at * 3.1 + 7.0)) * (1.0 - smoothstep(0.1, 0.7, height)) * smoothstep(-0.2, 0.6, normal.y + 0.3);
     stone = mix(stone, vec3<f32>(0.05, 0.11, 0.025) * (0.8 + grain * 0.4), moss);
+    stone = stone * (0.88 + 0.12 * clamp(micro.height * 0.8 + 0.5, 0.0, 1.0));
     var glow = 0.0;
     if finish > 0.5 && finish < 1.5 {
-        let across_axis = vec2<f32>(-normal.z, normal.x);
+        let across_axis = normalize(vec2<f32>(-smooth_normal.z, smooth_normal.x));
         let across = dot(at.xz - (floor(at.xz) + 0.5), across_axis);
         let slot = floor((height - RUNES_FROM) / RUNE_STEP);
         let within = vec2<f32>(across + RUNE_SIZE.x * 0.5, height - RUNES_FROM - slot * RUNE_STEP) / RUNE_SIZE;
         if slot >= 0.0 && slot < 3.0 && all(within > vec2<f32>(0.0)) && all(within < vec2<f32>(1.0)) {
-            let face = i32(round(normal.x * 2.0 + normal.z * 3.0));
+            let face = i32(round(smooth_normal.x * 2.0 + smooth_normal.z * 3.0));
             let near = rune(within * 2.0, home + vec3<i32>(face * 7, i32(slot), face));
             let groove = 1.0 - smoothstep(0.14, 0.24, near);
             stone = stone * (1.0 - groove * 0.55);
@@ -99,7 +143,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         glow = smoothstep(1.86, 2.08, height) * (0.5 + 0.5 * pulse);
     }
     pbr_input.material.base_color = vec4<f32>(stone, 1.0);
-    pbr_input.material.perceptual_roughness = 0.9 - glow * 0.4;
+    pbr_input.N = normal;
+    pbr_input.material.perceptual_roughness = clamp(0.82 - micro.height * 0.06, 0.6, 0.95) - glow * 0.4;
     pbr_input.material.emissive = vec4<f32>(carving.glow.rgb * glow * 2.5, 0.0);
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);

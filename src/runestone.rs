@@ -1,5 +1,10 @@
-use {crate::{cage::Cage, generate::Waystone, noise::unit, player::Pilot,
-             protocol::Role, sculpt::triangles, voxels::Voxels},
+use {crate::{cage::Cage,
+             generate::Waystone,
+             noise::{perlin3, unit},
+             player::Pilot,
+             protocol::Role,
+             sculpt::triangles,
+             voxels::Voxels},
      bevy::{asset::{RenderAssetUsages, embedded_asset},
             light::NotShadowCaster,
             mesh::{Indices, PrimitiveTopology},
@@ -32,76 +37,76 @@ enum Finish {
   Capped
 }
 
-fn hewn(point: Vec3) -> Vec3 {
-  let roll = |salt: i32| {
-    unit(
-      0x57,
-      (point.x * 97.0) as i32,
-      (point.y * 97.0) as i32 + salt,
-      (point.z * 97.0) as i32
-    ) - 0.5
-  };
-  point + Vec3::new(roll(0), roll(1) * 0.5, roll(2)) * 0.018
+fn weathered(cage: Cage, seed: u32) -> Cage {
+  cage.displaced(|point, _| {
+    perlin3(seed, point.x * 4.0, point.y * 4.0, point.z * 4.0) * 0.012
+  })
 }
 
-fn slab(width: f32, height: f32, floor: f32) -> Cage {
-  Cage::cuboid(Vec3::new(width, height, width))
-    .shaped(|point| point + Vec3::Y * (floor + height / 2.0))
+fn smoothed(cage: Cage, bevel: f32, crisp: f32) -> Cage {
+  cage.beveled(bevel).sharpened(40.0, crisp).subdivided(2)
+}
+
+fn twisted(cage: Cage, turns: f32) -> Cage {
+  cage.shaped(|point| Quat::from_rotation_y(point.y * turns) * point)
 }
 
 fn pillar() -> Vec<(Cage, Finish)> {
   let square =
     |at: f32, half: f32| (Vec3::Y * at, Vec2::splat(half * std::f32::consts::SQRT_2));
+  let footing =
+    Cage::rounded(Vec3::Y * 0.12, Vec3::new(0.92, 0.26, 0.92), UVec3::new(4, 1, 4), 0.35);
+  let shaft = Cage::tube(
+    &[
+      square(0.2, 0.21),
+      square(0.6, 0.2),
+      square(1.0, 0.185),
+      square(1.4, 0.17),
+      square(1.78, 0.155)
+    ],
+    4
+  );
+  let capital =
+    Cage::cuboid(Vec3::new(0.44, 0.08, 0.44)).shaped(|point| point + Vec3::Y * 1.82);
+  let cap = Cage::tube(&[square(1.86, 0.17), square(2.14, 0.012)], 4);
   vec![
-    (slab(0.94, 0.16, 0.0), Finish::Hewn),
-    (slab(0.78, 0.13, 0.16), Finish::Hewn),
-    (slab(0.6, 0.08, 0.29), Finish::Hewn),
-    (Cage::tube(&[square(0.37, 0.2), square(1.74, 0.16)], 4), Finish::Carved),
-    (slab(0.5, 0.08, 1.74), Finish::Hewn),
-    (Cage::tube(&[square(1.82, 0.19), square(2.1, 0.0)], 4), Finish::Capped),
+    (weathered(smoothed(footing, 0.04, 0.5), 3), Finish::Hewn),
+    (weathered(twisted(smoothed(shaft, 0.025, 1.0), 0.12), 5), Finish::Carved),
+    (weathered(twisted(smoothed(capital, 0.015, 1.5), 0.12), 7), Finish::Hewn),
+    (twisted(smoothed(cap, 0.01, 2.0), 0.12), Finish::Capped),
   ]
 }
 
-fn faceted(pieces: &[(Cage, Finish)]) -> Mesh {
-  let corners: Vec<([Vec3; 3], Finish)> = pieces
-    .iter()
-    .flat_map(|(cage, finish)| {
-      triangles(cage).into_iter().map(|triangle| {
-        (triangle.map(|corner| hewn(cage.points[corner as usize])), *finish)
-      })
-    })
-    .collect();
-  let normal = |[a, b, c]: [Vec3; 3]| (b - a).cross(c - a).normalize_or(Vec3::Y);
+fn smooth(pieces: &[(Cage, Finish)]) -> Mesh {
   let code = |finish: Finish, normal: Vec3| match finish {
     Finish::Carved if normal.y.abs() < 0.5 => 1.0,
     Finish::Capped => 2.0,
     _ => 0.0
   };
+  let (positions, normals, uvs, indices) = pieces.iter().fold(
+    (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+    |(mut positions, mut normals, mut uvs, mut indices): (
+      Vec<[f32; 3]>,
+      Vec<[f32; 3]>,
+      Vec<[f32; 2]>,
+      Vec<u32>
+    ),
+     (cage, finish)| {
+      let first = positions.len() as u32;
+      for (point, normal) in cage.points.iter().zip(cage.vertex_normals()) {
+        positions.push(point.to_array());
+        normals.push(normal.to_array());
+        uvs.push([point.y, code(*finish, normal)])
+      }
+      indices.extend(triangles(cage).into_iter().flatten().map(|corner| first + corner));
+      (positions, normals, uvs, indices)
+    }
+  );
   Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-    .with_inserted_attribute(
-      Mesh::ATTRIBUTE_POSITION,
-      corners
-        .iter()
-        .flat_map(|(points, _)| points.map(|point| point.to_array()))
-        .collect::<Vec<_>>()
-    )
-    .with_inserted_attribute(
-      Mesh::ATTRIBUTE_NORMAL,
-      corners
-        .iter()
-        .flat_map(|&(points, _)| [normal(points).to_array(); 3])
-        .collect::<Vec<_>>()
-    )
-    .with_inserted_attribute(
-      Mesh::ATTRIBUTE_UV_0,
-      corners
-        .iter()
-        .flat_map(|&(points, finish)| {
-          points.map(|point| [point.y, code(finish, normal(points))])
-        })
-        .collect::<Vec<_>>()
-    )
-    .with_inserted_indices(Indices::U32((0..corners.len() as u32 * 3).collect()))
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 fn crystal() -> Mesh {
@@ -152,7 +157,7 @@ fn quarry(
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
   commands.insert_resource(Masonry {
-    stone: meshes.add(faceted(&pillar())),
+    stone: meshes.add(smooth(&pillar())),
     material: runestones.add(ExtendedMaterial {
       base: StandardMaterial { perceptual_roughness: 0.85, ..default() },
       extension: Carving { glow: RUNE_GLOW }
