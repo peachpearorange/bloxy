@@ -1029,6 +1029,8 @@ impl Block {
       || self == Block::Glowkelp
   }
 
+  pub fn climbs(self) -> bool { self == Block::Kelp }
+
   pub fn plant(self) -> bool {
     (Block::Poppy..=Block::BrownMushroom).contains(&self)
       || self == Block::Moonlace

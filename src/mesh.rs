@@ -623,7 +623,8 @@ fn builders(
           }
         }
       }
-      let shift = model::shift(block, seed, origin + local);
+      let rooted = model::rooted(block, origin + local);
+      let shift = model::shift(block, seed, rooted);
       let pose = model::pose(block);
       let modelled = match block.torch() {
         true => &mut unshadowed,
@@ -646,11 +647,15 @@ fn builders(
           normal,
           hue,
           owned,
-          |index| corners[index].y / 16.0
+          |index| match block.climbs() {
+            true => corners[index].xz().distance(Vec2::splat(8.0)) / 4.0,
+            false => corners[index].y / 16.0
+          }
         )
       }
-      for &Bit { low, high, color: [r, g, b], tile } in
-        model::shape(block, links).iter().filter(|_| shards.is_none())
+      for &Bit { low, high, color: [r, g, b], tile } in model::shape(block, links)
+        .iter()
+        .filter(|_| shards.is_none() && !block.waystone())
       {
         let (low, high) =
           (Vec3::from(low.map(f32::from)), Vec3::from(high.map(f32::from)));

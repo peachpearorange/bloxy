@@ -1166,17 +1166,12 @@ pub fn shards(block: Block, turn: f32) -> Option<Vec<Shard>> {
         }))
         .collect()
     }),
-    Block::Kelp => Some(
-      [ribbon(2.0, KELP_DARK), vec![
-        frond(1.0, 0.3, 4.5, KELP_GREEN),
-        frond(5.0, 2.4, 4.0, KELP_GREEN),
-        frond(9.0, 4.4, 4.5, KELP_GREEN),
-        frond(12.0, 1.4, 3.5, KELP_GREEN),
-      ]]
-      .into_iter()
-      .flatten()
-      .collect()
-    ),
+    Block::Kelp => Some(vec![
+      frond(1.0, 0.3, 4.5, KELP_GREEN),
+      frond(5.0, 2.4, 4.0, KELP_GREEN),
+      frond(9.0, 4.4, 4.5, KELP_GREEN),
+      frond(12.0, 1.4, 3.5, KELP_GREEN),
+    ]),
     Block::Seagrass => Some(vec![
       blade(Vec3::new(3.5, 0.0, 4.5), 0.2, 10.0),
       blade(Vec3::new(6.5, 0.0, 9.5), 1.9, 13.0),
@@ -1196,8 +1191,16 @@ pub fn shards(block: Block, turn: f32) -> Option<Vec<Shard>> {
         corners: corners.map(|corner| pivot + spin * (corner - pivot)),
         color
       })
+      .chain(block.climbs().then(|| ribbon(2.0, KELP_DARK)).into_iter().flatten())
       .collect()
   })
+}
+
+pub fn rooted(block: Block, at: IVec3) -> IVec3 {
+  match block.climbs() {
+    true => at.with_y(0),
+    false => at
+  }
 }
 
 pub fn turn(seed: u32, at: IVec3) -> f32 {

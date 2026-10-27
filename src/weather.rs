@@ -1,18 +1,21 @@
-use {crate::{ground::Elements,
+use {crate::{cage::Cage,
+             ground::Elements,
              noise::{hash, unit},
              opts::opts,
              player::{Eye, Pilot},
              protocol::{Role, authority, plays},
              sky::daylight,
              voxels::Voxels},
-     bevy::{asset::embedded_asset,
+     bevy::{asset::RenderAssetUsages,
+            asset::embedded_asset,
             light::{NotShadowCaster, NotShadowReceiver,
                     light_consts::lux::RAW_SUNLIGHT},
-            mesh::MeshVertexBufferLayoutRef,
+            mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology},
             pbr::{DistanceFog, Material, MaterialPipeline, MaterialPipelineKey,
                   MaterialPlugin},
+            platform::collections::HashMap,
             prelude::*,
-            render::render_resource::{AsBindGroup, Face, RenderPipelineDescriptor,
+            render::render_resource::{AsBindGroup, RenderPipelineDescriptor,
                                       SpecializedMeshPipelineError},
             render::view::ColorGrading,
             shader::ShaderRef},
@@ -20,8 +23,10 @@ use {crate::{ground::Elements,
      serde::{Deserialize, Serialize}};
 
 const CLOUD_HEIGHT: f32 = 170.0;
-const CLOUD_THICK: f32 = 80.0;
-const CLOUD_SPAN: f32 = 5200.0;
+const CLOUD_CELL: f32 = 320.0;
+const CLOUD_REACH: f32 = crate::far::FAR as f32 + 700.0;
+const CLOUD_SHAPES: u32 = 8;
+const CLOUD_SEED: u32 = 0xC70D;
 const DRIFT: f32 = 2.5;
 const DROPS: usize = 700;
 const SHOWER: f32 = 22.0;
@@ -157,8 +162,8 @@ impl Climate {
   }
 }
 
-#[derive(Component)]
-struct Clouds;
+#[derive(Resource, Default)]
+struct Clouds(HashMap<IVec2, Entity>);
 
 #[derive(Component)]
 struct Drop {
@@ -254,29 +259,141 @@ impl Material for Cloud {
     _: &MeshVertexBufferLayoutRef,
     _: MaterialPipelineKey<Self>
   ) -> Result<(), SpecializedMeshPipelineError> {
-    descriptor.primitive.cull_mode = Some(Face::Front);
+    if let Some(depth) = descriptor.depth_stencil.as_mut() {
+      depth.depth_write_enabled = Some(true)
+    }
     Ok(())
   }
 }
 
 #[derive(Resource)]
-struct Canopy(Handle<Cloud>);
+struct Canopy {
+  material: Handle<Cloud>,
+  shapes: Vec<Handle<Mesh>>
+}
+
+fn billow(shape: u32) -> Mesh {
+  let roll = |salt: i32| unit(CLOUD_SEED, shape as i32, salt, 0);
+  let puffs: Vec<(Vec3, f32, f32)> = (0..14)
+    .map(|index| {
+      let turn = roll(index * 3) * std::f32::consts::TAU;
+      let lift = roll(index * 3 + 1) * 0.95;
+      let out = (1.0 - lift * lift).sqrt();
+      (
+        Vec3::new(turn.cos() * out, lift, turn.sin() * out),
+        0.08 + roll(index * 3 + 2) * 0.22,
+        0.18 + roll(index + 40) * 0.2
+      )
+    })
+    .collect();
+  let cage =
+    Cage::rounded(Vec3::ZERO, Vec3::new(1.0, 0.5, 0.75), UVec3::new(8, 3, 6), 0.85)
+      .subdivided(1)
+      .shaped(|point| {
+        let toward = point.normalize_or_zero();
+        let swell = puffs.iter().fold(1.0, |swell, &(centre, height, width)| {
+          swell + height * (-(toward - centre).length_squared() / (width * width)).exp()
+        });
+        let swollen = point * swell;
+        swollen.with_y(match swollen.y < -0.1 {
+          true => -0.1 + (swollen.y + 0.1) * 0.15,
+          false => swollen.y
+        })
+      })
+      .relaxed(1, 0.3);
+  let triangles = crate::sculpt::triangles(&cage);
+  Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+    .with_inserted_attribute(
+      Mesh::ATTRIBUTE_POSITION,
+      cage.points.iter().map(|point| point.to_array()).collect::<Vec<_>>()
+    )
+    .with_inserted_attribute(
+      Mesh::ATTRIBUTE_NORMAL,
+      cage.vertex_normals().iter().map(|normal| normal.to_array()).collect::<Vec<_>>()
+    )
+    .with_inserted_indices(Indices::U32(triangles.into_iter().flatten().collect()))
+}
 
 fn spread(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
   mut clouds: ResMut<Assets<Cloud>>
 ) {
-  let cloud = clouds.add(Cloud::default());
-  commands.insert_resource(Canopy(cloud.clone()));
-  commands.spawn((
-    Clouds,
-    Mesh3d(meshes.add(Cuboid::new(CLOUD_SPAN, CLOUD_THICK, CLOUD_SPAN))),
-    MeshMaterial3d(cloud),
-    Transform::from_xyz(0.0, CLOUD_HEIGHT + CLOUD_THICK / 2.0, 0.0),
-    NotShadowCaster,
-    NotShadowReceiver
-  ));
+  commands.insert_resource(Canopy {
+    material: clouds.add(Cloud::default()),
+    shapes: (0..CLOUD_SHAPES).map(|shape| meshes.add(billow(shape))).collect()
+  });
+}
+
+struct Billow {
+  at: Vec3,
+  size: Vec3,
+  yaw: f32,
+  shape: usize
+}
+
+fn billowing(cell: IVec2, cover: f32, offset: Vec2) -> Option<Billow> {
+  let roll = |salt: i32| unit(CLOUD_SEED, cell.x, salt, cell.y);
+  let presence = ((cover * 1.25 - roll(1)) / 0.15).clamp(0.0, 1.0);
+  let width = CLOUD_CELL * (0.35 + 0.45 * roll(2)) * (0.6 + cover) * presence.sqrt();
+  (presence > 0.0).then(|| Billow {
+    at: ((cell.as_vec2() + Vec2::new(roll(3), roll(4))) * CLOUD_CELL + offset)
+      .extend(CLOUD_HEIGHT + roll(5) * 30.0)
+      .xzy(),
+    size: Vec3::new(width, width * (0.55 + 0.35 * roll(6)) * (0.7 + cover * 0.6), width),
+    yaw: roll(7) * std::f32::consts::TAU,
+    shape: (hash(CLOUD_SEED, cell.x, 8, cell.y) % CLOUD_SHAPES) as usize
+  })
+}
+
+fn gather_clouds(
+  time: Res<Time>,
+  pilot: Res<Pilot>,
+  climate: Res<Climate>,
+  canopy: Res<Canopy>,
+  mut clouds: ResMut<Clouds>,
+  mut placed: Query<&mut Transform>,
+  mut commands: Commands
+) {
+  let offset = Vec2::new(1.0, 0.3) * time.elapsed_secs() * DRIFT;
+  let middle = ((pilot.at.xz() - offset) / CLOUD_CELL).floor().as_ivec2();
+  let span = (CLOUD_REACH / CLOUD_CELL).ceil() as i32 + 1;
+  let wanted: HashMap<IVec2, Billow> = (-span..=span)
+    .flat_map(|x| (-span..=span).map(move |z| middle + IVec2::new(x, z)))
+    .filter_map(|cell| {
+      billowing(cell, climate.cover, offset).map(|billow| (cell, billow))
+    })
+    .filter(|(_, billow)| billow.at.xz().distance(pilot.at.xz()) < CLOUD_REACH)
+    .collect();
+  clouds.0.retain(|cell, &mut entity| {
+    let kept = wanted.contains_key(cell);
+    if !kept {
+      commands.entity(entity).despawn()
+    }
+    kept
+  });
+  for (cell, Billow { at, size, yaw, shape }) in wanted {
+    let transform = Transform::from_translation(at)
+      .with_rotation(Quat::from_rotation_y(yaw))
+      .with_scale(size);
+    match clouds.0.get(&cell).and_then(|&entity| placed.get_mut(entity).ok()) {
+      Some(mut placed) => *placed = transform,
+      None => {
+        clouds.0.insert(
+          cell,
+          commands
+            .spawn((
+              Mesh3d(canopy.shapes[shape].clone()),
+              MeshMaterial3d(canopy.material.clone()),
+              transform,
+              NotShadowCaster,
+              NotShadowReceiver
+            ))
+            .id()
+        );
+      }
+    }
+  }
 }
 
 const HAZE: f32 = 1.3;
@@ -289,13 +406,11 @@ fn glow(day: &crate::sky::Daylight, climate: &Climate) -> Vec3 {
 
 fn drift(
   time: Res<Time>,
-  pilot: Res<Pilot>,
   weathers: Query<&Weather>,
   canopy: Res<Canopy>,
   mut climate: ResMut<Climate>,
   mut elements: ResMut<Elements>,
-  mut clouds: ResMut<Assets<Cloud>>,
-  mut skies: Query<&mut Transform, With<Clouds>>
+  mut clouds: ResMut<Assets<Cloud>>
 ) {
   let dt = time.delta_secs().min(0.1);
   let sky = weathers.iter().next().map_or(Sky::Clear, |weather| weather.sky);
@@ -313,13 +428,10 @@ fn drift(
     wet: (climate.wet * 50.0).round() / 50.0,
     ..*elements
   });
-  for mut transform in skies.iter_mut() {
-    transform.translation = pilot.at.with_y(CLOUD_HEIGHT + CLOUD_THICK / 2.0).floor()
-  }
   let day = daylight(opts().hour);
   let [r, g, b, _] = day.tint.to_linear().to_f32_array();
   let sky_glow = glow(&day, &climate);
-  if let Some(mut cloud) = clouds.get_mut(&canopy.0) {
+  if let Some(mut cloud) = clouds.get_mut(&canopy.material) {
     *cloud = Cloud {
       toward_light: day.toward.extend(0.0),
       light: (Vec3::new(r, g, b) * day.lux * climate.sun).extend(0.0),
@@ -327,10 +439,10 @@ fn drift(
       drift: Vec4::new(
         time.elapsed_secs() * DRIFT,
         time.elapsed_secs() * DRIFT * 0.3,
-        climate.cover - 0.3,
+        climate.cover,
         climate.wet
       ),
-      haze: (sky_glow * HAZE).extend(1.0)
+      haze: (sky_glow * HAZE).extend(CLOUD_REACH)
     }
   }
 }
@@ -513,10 +625,14 @@ impl Plugin for Weathering {
       })
       .add_systems(Startup, forecast.run_if(authority))
       .add_systems(Update, turn.run_if(authority))
+      .init_resource::<Clouds>()
       .add_systems(Startup, (gather, spread).run_if(plays))
       .add_systems(
         Update,
-        (drift, fall, darken).chain().run_if(plays).run_if(resource_exists::<Pilot>)
+        (drift, gather_clouds, fall, darken)
+          .chain()
+          .run_if(plays)
+          .run_if(resource_exists::<Pilot>)
       );
   }
 }

@@ -69,6 +69,7 @@ mod player;
 mod precursor;
 mod protocol;
 mod recipe;
+mod runestone;
 mod save;
 mod sculpt;
 mod sea;
@@ -383,7 +384,8 @@ fn main() {
         far::Distance,
         lawn::Sowing,
         apparatus::Apparatus,
-        shine::Shining
+        shine::Shining,
+        runestone::Runestones
       ))
       .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
       .add_systems(Last, snapshot)
