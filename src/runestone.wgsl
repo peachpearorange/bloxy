@@ -11,9 +11,11 @@ struct Carving {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> carving: Carving;
 
-const RUNES_FROM: f32 = 0.5;
-const RUNE_STEP: f32 = 0.38;
-const RUNE_SIZE: vec2<f32> = vec2<f32>(0.2, 0.28);
+const RUNES_FROM: f32 = 0.42;
+const RUNE_STEP: f32 = 0.4;
+const RUNE_SIZE: vec2<f32> = vec2<f32>(0.15, 0.24);
+const POST: f32 = 0.34;
+const LEAN: f32 = 0.025;
 
 fn scramble(cell: vec3<i32>, salt: u32) -> u32 {
     var v = bitcast<vec3<u32>>(cell) * 1664525u + vec3<u32>(1013904223u + salt);
@@ -70,7 +72,8 @@ const OCTAVES: i32 = 10;
 const LOWEST: f32 = 7.0;
 const LACUNARITY: f32 = 2.13;
 const PERSISTENCE: f32 = 0.56;
-const RELIEF: f32 = 0.0035;
+const RELIEF: f32 = 0.012;
+const GRAINS: f32 = 55.0;
 
 struct Relief {
     gradient: vec3<f32>,
@@ -105,6 +108,54 @@ fn weierstrass(at: vec3<f32>, footprint: f32) -> Relief {
     return relief;
 }
 
+struct Grain {
+    tone: vec3<f32>,
+    pit: f32,
+    seam: f32,
+}
+
+fn crystals(at: vec3<f32>, footprint: f32) -> Grain {
+    let p = at * GRAINS;
+    let base = floor(p);
+    var nearest = 9.0;
+    var second = 9.0;
+    var id = vec3<i32>(0);
+    var offset = vec3<f32>(0.0);
+    for (var x = -1; x <= 1; x++) {
+        for (var y = -1; y <= 1; y++) {
+            for (var z = -1; z <= 1; z++) {
+                let cell = vec3<i32>(base) + vec3<i32>(x, y, z);
+                let point = vec3<f32>(cell) + vec3<f32>(chance(cell, 11u), chance(cell, 12u), chance(cell, 13u));
+                let distance = length(p - point);
+                if distance < nearest {
+                    second = nearest;
+                    nearest = distance;
+                    id = cell;
+                    offset = p - point;
+                } else if distance < second {
+                    second = distance;
+                }
+            }
+        }
+    }
+    let mineral = chance(id, 14u);
+    let shade = chance(id, 15u) - 0.5;
+    var tone = vec3<f32>(0.15, 0.15, 0.16);
+    if mineral < 0.18 {
+        tone = vec3<f32>(0.035, 0.035, 0.04);
+    } else if mineral < 0.45 {
+        tone = vec3<f32>(0.32, 0.29, 0.26);
+    } else if mineral < 0.6 {
+        tone = vec3<f32>(0.24, 0.26, 0.29);
+    }
+    tone = tone * (1.0 + shade * 0.35);
+    let pixel = max(footprint * GRAINS, 0.02);
+    let fade = smoothstep(0.35, 0.9, pixel);
+    let seam = (1.0 - smoothstep(0.0, pixel * 1.5 + 0.04, second - nearest)) * (1.0 - fade);
+    let pit = select(0.0, 1.0 - smoothstep(0.18, 0.18 + pixel, length(offset)), chance(id, 16u) < 0.07) * (1.0 - fade);
+    return Grain(mix(tone, vec3<f32>(0.17, 0.165, 0.165), fade), pit, seam);
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
@@ -120,14 +171,18 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let home = vec3<i32>(i32(floor(at.x)), 0, i32(floor(at.z)));
     let pulse = 0.55 + 0.45 * sin(globals.time * 1.6 - height * 4.0 + chance(home, 9u) * 6.28);
     let grain = noise3(at * 7.0) * 0.5 + noise3(at * 21.0) * 0.3 + noise3(at * 2.3) * 0.2;
-    var stone = mix(vec3<f32>(0.08, 0.085, 0.1), vec3<f32>(0.24, 0.24, 0.26), grain);
+    let crystal = crystals(at, footprint);
+    var stone = crystal.tone * mix(0.65, 1.25, grain);
+    stone = stone * (1.0 - crystal.seam * 0.35) * (1.0 - crystal.pit * 0.6);
     let moss = smoothstep(0.52, 0.7, noise3(at * 3.1 + 7.0)) * (1.0 - smoothstep(0.1, 0.7, height)) * smoothstep(-0.2, 0.6, normal.y + 0.3);
     stone = mix(stone, vec3<f32>(0.05, 0.11, 0.025) * (0.8 + grain * 0.4), moss);
-    stone = stone * (0.88 + 0.12 * clamp(micro.height * 0.8 + 0.5, 0.0, 1.0));
+    stone = stone * (0.75 + 0.25 * clamp(micro.height * 0.8 + 0.5, 0.0, 1.0));
     var glow = 0.0;
     if finish > 0.5 && finish < 1.5 {
         let across_axis = normalize(vec2<f32>(-smooth_normal.z, smooth_normal.x));
-        let across = dot(at.xz - (floor(at.xz) + 0.5), across_axis);
+        let local = at.xz - (floor(at.xz) + 0.5);
+        let side = select(-1.0, 1.0, local.x > 0.0);
+        let across = dot(local - vec2<f32>(side * (POST - LEAN * height), 0.0), across_axis);
         let slot = floor((height - RUNES_FROM) / RUNE_STEP);
         let within = vec2<f32>(across + RUNE_SIZE.x * 0.5, height - RUNES_FROM - slot * RUNE_STEP) / RUNE_SIZE;
         if slot >= 0.0 && slot < 3.0 && all(within > vec2<f32>(0.0)) && all(within < vec2<f32>(1.0)) {
@@ -140,11 +195,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let band = smoothstep(0.475, 0.49, abs(fract((height - RUNES_FROM + 0.05) / RUNE_STEP) - 0.5));
         glow = max(glow, band * 0.35 * pulse);
     } else if finish > 1.5 {
-        glow = smoothstep(1.86, 2.08, height) * (0.5 + 0.5 * pulse);
+        glow = (0.15 + 0.35 * pulse) * smoothstep(0.1, 0.4, abs(dot(smooth_normal, vec3<f32>(0.0, 0.0, 1.0))));
     }
     pbr_input.material.base_color = vec4<f32>(stone, 1.0);
     pbr_input.N = normal;
-    pbr_input.material.perceptual_roughness = clamp(0.82 - micro.height * 0.06, 0.6, 0.95) - glow * 0.4;
+    pbr_input.material.perceptual_roughness = clamp(0.78 - micro.height * 0.1 + crystal.pit * 0.15 - crystal.seam * 0.05, 0.5, 0.97) - glow * 0.4;
     pbr_input.material.emissive = vec4<f32>(carving.glow.rgb * glow * 2.5, 0.0);
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);

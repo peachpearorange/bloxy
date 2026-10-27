@@ -15,7 +15,9 @@ use {crate::{cage::Cage,
             shader::ShaderRef}};
 
 const NEAR: f32 = 256.0;
-const HOVER: f32 = 2.45;
+const HOVER: f32 = 1.05;
+const POST: f32 = 0.34;
+const LEAN: f32 = 0.025;
 const RUNE_GLOW: Vec4 = Vec4::new(0.35, 0.95, 1.0, 0.0);
 
 #[derive(Asset, AsBindGroup, TypePath, Clone, Copy)]
@@ -47,33 +49,41 @@ fn smoothed(cage: Cage, bevel: f32, crisp: f32) -> Cage {
   cage.beveled(bevel).sharpened(40.0, crisp).subdivided(2)
 }
 
-fn twisted(cage: Cage, turns: f32) -> Cage {
-  cage.shaped(|point| Quat::from_rotation_y(point.y * turns) * point)
+fn leaning(cage: Cage, side: f32) -> Cage {
+  cage.shaped(|point| point - Vec3::X * side * LEAN * point.y)
 }
 
-fn pillar() -> Vec<(Cage, Finish)> {
-  let square =
-    |at: f32, half: f32| (Vec3::Y * at, Vec2::splat(half * std::f32::consts::SQRT_2));
+fn gate() -> Vec<(Cage, Finish)> {
+  let post = |side: f32| {
+    let ring = |at: f32, half: Vec2| {
+      (Vec3::new(side * POST, at, 0.0), half * std::f32::consts::SQRT_2)
+    };
+    leaning(
+      Cage::tube(
+        &[
+          ring(0.16, Vec2::new(0.13, 0.15)),
+          ring(0.7, Vec2::new(0.12, 0.14)),
+          ring(1.25, Vec2::new(0.11, 0.135)),
+          ring(1.74, Vec2::new(0.105, 0.13))
+        ],
+        4
+      ),
+      side
+    )
+  };
   let footing =
-    Cage::rounded(Vec3::Y * 0.12, Vec3::new(0.92, 0.26, 0.92), UVec3::new(4, 1, 4), 0.35);
-  let shaft = Cage::tube(
-    &[
-      square(0.2, 0.21),
-      square(0.6, 0.2),
-      square(1.0, 0.185),
-      square(1.4, 0.17),
-      square(1.78, 0.155)
-    ],
-    4
-  );
-  let capital =
-    Cage::cuboid(Vec3::new(0.44, 0.08, 0.44)).shaped(|point| point + Vec3::Y * 1.82);
-  let cap = Cage::tube(&[square(1.86, 0.17), square(2.14, 0.012)], 4);
+    Cage::rounded(Vec3::Y * 0.08, Vec3::new(1.0, 0.18, 0.62), UVec3::new(4, 1, 2), 0.3);
+  let lintel = Cage::block(Vec3::new(1.04, 0.2, 0.36), UVec3::new(4, 1, 1))
+    .shaped(|point| point + Vec3::Y * (1.84 + (point.x * 2.2).powi(2) * 0.035));
+  let keystone = Cage::cuboid(Vec3::new(0.16, 0.24, 0.4)).shaped(|point| {
+    Vec3::new(point.x * (1.0 - point.y * 1.2), point.y, point.z) + Vec3::Y * 1.82
+  });
   vec![
     (weathered(smoothed(footing, 0.04, 0.5), 3), Finish::Hewn),
-    (weathered(twisted(smoothed(shaft, 0.025, 1.0), 0.12), 5), Finish::Carved),
-    (weathered(twisted(smoothed(capital, 0.015, 1.5), 0.12), 7), Finish::Hewn),
-    (twisted(smoothed(cap, 0.01, 2.0), 0.12), Finish::Capped),
+    (weathered(smoothed(post(-1.0), 0.025, 1.0), 5), Finish::Carved),
+    (weathered(smoothed(post(1.0), 0.025, 1.0), 6), Finish::Carved),
+    (weathered(smoothed(lintel, 0.03, 1.0), 7), Finish::Hewn),
+    (smoothed(keystone, 0.015, 2.0), Finish::Capped),
   ]
 }
 
@@ -157,7 +167,7 @@ fn quarry(
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
   commands.insert_resource(Masonry {
-    stone: meshes.add(smooth(&pillar())),
+    stone: meshes.add(smooth(&gate())),
     material: runestones.add(ExtendedMaterial {
       base: StandardMaterial { perceptual_roughness: 0.85, ..default() },
       extension: Carving { glow: RUNE_GLOW }
