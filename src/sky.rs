@@ -7,8 +7,8 @@ use {crate::{block::Block,
      bevy::{camera::Exposure,
             core_pipeline::tonemapping::Tonemapping,
             light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder,
-                    GlobalAmbientLight, SunDisk, atmosphere::ScatteringMedium,
-                    light_consts::lux},
+                    DirectionalLightShadowMap, GlobalAmbientLight, SunDisk,
+                    atmosphere::ScatteringMedium, light_consts::lux},
             pbr::{AtmosphereSettings, DistanceFog},
             platform::collections::HashMap,
             post_process::bloom::Bloom,
@@ -16,6 +16,8 @@ use {crate::{block::Block,
             render::view::ColorGrading},
      std::f32::consts::PI};
 
+const SHADOWED: f32 = 60.0;
+const SHADOW_MAP: usize = 1024;
 const DAY_EXPOSURE: f32 = 13.6;
 const NIGHT_EXPOSURE: f32 = 7.2;
 const EXPOSURE_BY_ELEVATION: [(f32, f32); 6] = [
@@ -144,9 +146,8 @@ fn light(
     },
     disk,
     CascadeShadowConfigBuilder {
-      num_cascades: 2,
-      first_cascade_far_bound: 20.0,
-      maximum_distance: 90.0,
+      num_cascades: 1,
+      maximum_distance: SHADOWED,
       ..default()
     }
     .build(),
@@ -226,6 +227,7 @@ impl Plugin for Sky {
   fn build(&self, app: &mut App) {
     app
       .init_resource::<Flames>()
+      .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
       .add_systems(Startup, light.run_if(plays))
       .add_systems(Update, kindle.run_if(plays).run_if(resource_exists::<Pilot>));
   }

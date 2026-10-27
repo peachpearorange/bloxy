@@ -20,6 +20,7 @@ const fn skin(low: [u8; 3], high: [u8; 3], tile: Tile) -> Bit {
 
 const STALK: [f32; 3] = [0.24, 0.46, 0.16];
 const LEAF: [f32; 3] = [0.18, 0.38, 0.12];
+const MIDDLE: Vec3 = Vec3::new(8.0, 0.0, 8.0);
 const POPPY: [f32; 3] = [0.85, 0.13, 0.1];
 const SOOT: [f32; 3] = [0.1, 0.08, 0.08];
 const YELLOW: [f32; 3] = [0.98, 0.82, 0.18];
@@ -1077,8 +1078,39 @@ fn rays(
     .collect()
 }
 
+fn ribbon(width: f32, color: [f32; 3]) -> Vec<Shard> {
+  [Vec3::X, Vec3::Z]
+    .into_iter()
+    .flat_map(|across| {
+      let (low, high, side) = (MIDDLE, MIDDLE + Vec3::Y * 16.0, across * width / 2.0);
+      [Shard { corners: [low - side, low + side, high + side], color }, Shard {
+        corners: [low - side, high + side, high - side],
+        color
+      }]
+    })
+    .collect()
+}
+
+fn frond(rise: f32, turn: f32, reach: f32, color: [f32; 3]) -> Shard {
+  let out = Vec3::new(turn.cos(), 0.0, turn.sin());
+  let root = MIDDLE + Vec3::Y * rise;
+  Shard {
+    corners: [root, root + Vec3::Y * 3.0, root + out * reach + Vec3::Y * 4.5],
+    color
+  }
+}
+
+fn blade(at: Vec3, turn: f32, height: f32) -> Shard {
+  let side = Vec3::new(turn.cos(), 0.0, turn.sin()) * 0.6;
+  let lean = Vec3::new(-turn.sin(), 0.0, turn.cos()) * 1.5;
+  Shard {
+    corners: [at - side, at + side, at + lean + Vec3::Y * height],
+    color: SEAGRASS_GREEN
+  }
+}
+
 pub fn shards(block: Block, turn: f32) -> Option<Vec<Shard>> {
-  let flower: Option<Vec<Shard>> = match block {
+  let drawn: Option<Vec<Shard>> = match block {
     Block::Poppy => Some(
       [stem(7.5), vec![leaf(2.0, 0.4, 3.0), leaf(4.0, 3.4, 2.6)]]
         .into_iter()
@@ -1134,9 +1166,28 @@ pub fn shards(block: Block, turn: f32) -> Option<Vec<Shard>> {
         }))
         .collect()
     }),
+    Block::Kelp => Some(
+      [ribbon(2.0, KELP_DARK), vec![
+        frond(1.0, 0.3, 4.5, KELP_GREEN),
+        frond(5.0, 2.4, 4.0, KELP_GREEN),
+        frond(9.0, 4.4, 4.5, KELP_GREEN),
+        frond(12.0, 1.4, 3.5, KELP_GREEN),
+      ]]
+      .into_iter()
+      .flatten()
+      .collect()
+    ),
+    Block::Seagrass => Some(vec![
+      blade(Vec3::new(3.5, 0.0, 4.5), 0.2, 10.0),
+      blade(Vec3::new(6.5, 0.0, 9.5), 1.9, 13.0),
+      blade(Vec3::new(9.5, 0.0, 5.5), 3.1, 8.0),
+      blade(Vec3::new(12.5, 0.0, 10.5), 4.4, 11.0),
+      blade(Vec3::new(4.5, 0.0, 12.5), 5.3, 7.0),
+      blade(Vec3::new(11.5, 0.0, 2.5), 2.6, 9.0),
+    ]),
     _ => None
   };
-  flower.map(|shards| {
+  drawn.map(|shards| {
     let spin = Quat::from_rotation_y(turn);
     let pivot = Vec3::new(8.0, 0.0, 8.0);
     shards
@@ -1164,7 +1215,6 @@ pub fn shift(block: Block, seed: u32, at: IVec3) -> Vec3 {
 const WALL_TORCH_LEAN: f32 = 0.4;
 const WALL_TORCH_FOOT: Vec3 = Vec3::new(8.0, 3.0, 8.0);
 const WALL_TORCH_SETBACK: f32 = 7.5;
-const MIDDLE: Vec3 = Vec3::new(8.0, 0.0, 8.0);
 
 pub fn pose(block: Block) -> Affine3A {
   block.torch().then(|| block.wall()).flatten().map_or(Affine3A::IDENTITY, |wall| {
