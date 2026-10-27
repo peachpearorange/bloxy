@@ -41,12 +41,13 @@ enum Finish {
 
 fn weathered(cage: Cage, seed: u32) -> Cage {
   cage.displaced(|point, _| {
-    perlin3(seed, point.x * 4.0, point.y * 4.0, point.z * 4.0) * 0.012
+    perlin3(seed, point.x * 2.5, point.y * 2.5, point.z * 2.5) * 0.028
+      + perlin3(seed + 1, point.x * 7.0, point.y * 7.0, point.z * 7.0) * 0.01
   })
 }
 
 fn smoothed(cage: Cage, bevel: f32, crisp: f32) -> Cage {
-  cage.beveled(bevel).sharpened(40.0, crisp).subdivided(2)
+  cage.beveled(bevel).sharpened(40.0, crisp).subdivided(3)
 }
 
 fn leaning(cage: Cage, side: f32) -> Cage {

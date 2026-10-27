@@ -68,51 +68,28 @@ fn rune(at: vec2<f32>, seed: vec3<i32>) -> f32 {
     return near;
 }
 
-const OCTAVES: i32 = 10;
-const LOWEST: f32 = 4.0;
-const LACUNARITY: f32 = 2.13;
-const PERSISTENCE: f32 = 0.56;
-const RELIEF: f32 = 0.018;
 const VESICLES: f32 = 16.0;
 const JOINTS: f32 = 3.5;
+const SCALLOPS: f32 = 6.0;
+const GRAINS: f32 = 110.0;
+const RELIEF: f32 = 2.0;
 
-struct Relief {
-    gradient: vec3<f32>,
-    height: f32,
-}
-
-fn heading(index: i32) -> vec3<f32> {
-    let k = f32(index) + 0.5;
-    let rise = 1.0 - 2.0 * fract(k * 0.618034);
-    let turn = k * 2.399963;
-    let out = sqrt(1.0 - rise * rise);
-    return vec3<f32>(cos(turn) * out, rise, sin(turn) * out);
-}
-
-fn weierstrass(at: vec3<f32>, footprint: f32) -> Relief {
-    let warp = vec3<f32>(noise3(at * 3.0), noise3(at * 3.0 + 17.0), noise3(at * 3.0 + 31.0)) - 0.5;
-    let p = at + warp * 0.12;
-    var relief = Relief(vec3<f32>(0.0), 0.0);
-    var amplitude = 1.0;
-    var frequency = LOWEST;
-    for (var octave = 0; octave < OCTAVES; octave++) {
-        let seen = 1.0 - smoothstep(0.2, 0.45, frequency * footprint);
-        for (var wave = 0; wave < 3; wave++) {
-            let toward = heading(octave * 3 + wave);
-            let phase = dot(toward, p) * frequency + f32(octave * 3 + wave) * 2.1;
-            relief.height += amplitude * seen * cos(phase) / 3.0;
-            relief.gradient -= toward * (amplitude * frequency * seen * sin(phase) / 3.0);
-        }
-        amplitude *= PERSISTENCE;
-        frequency *= LACUNARITY;
-    }
-    return relief;
+fn bumped(normal: vec3<f32>, at: vec3<f32>, height: f32) -> vec3<f32> {
+    let dx = dpdx(at);
+    let dy = dpdy(at);
+    let r1 = cross(dy, normal);
+    let r2 = cross(normal, dx);
+    let det = dot(dx, r1);
+    let grad = sign(det) * (dpdx(height) * r1 + dpdy(height) * r2);
+    return normalize(abs(det) * normal - grad);
 }
 
 struct Rock {
     tone: vec3<f32>,
+    height: f32,
     hole: f32,
     crack: f32,
+    hollow: f32,
 }
 
 struct Cells {
@@ -147,9 +124,19 @@ fn cells(p: vec3<f32>, salt: u32) -> Cells {
 
 fn basalt(at: vec3<f32>, normal: vec3<f32>, footprint: f32) -> Rock {
     let mottle = noise3(at * 1.4) * 0.6 + noise3(at * 5.0 + 3.0) * 0.4;
-    var tone = vec3<f32>(0.055, 0.056, 0.062) * (0.8 + mottle * 0.45);
+    var tone = vec3<f32>(0.07, 0.07, 0.076) * (0.75 + mottle * 0.5);
     let crust = smoothstep(0.55, 0.75, noise3(at * 2.2 + 11.0) + normal.y * 0.15);
-    tone = mix(tone, vec3<f32>(0.115, 0.11, 0.105) * (0.85 + mottle * 0.3), crust * 0.55);
+    tone = mix(tone, vec3<f32>(0.15, 0.142, 0.13) * (0.85 + mottle * 0.3), crust * 0.6);
+    let warp = vec3<f32>(noise3(at * 2.0), noise3(at * 2.0 + 9.0), noise3(at * 2.0 + 19.0)) - 0.5;
+    let scallop = cells(at * SCALLOPS + warp * 0.9, 41u);
+    let flakes = cells(at * SCALLOPS * 2.7 + warp * 1.7, 47u);
+    let chips = -scallop.nearest * scallop.nearest * (0.012 + chance(scallop.id, 44u) * 0.03)
+        - flakes.nearest * flakes.nearest * (0.002 + chance(flakes.id, 48u) * 0.006);
+    let fine = 1.0 - smoothstep(0.25, 0.7, footprint * GRAINS);
+    let grain = ((noise3(at * GRAINS) - 0.5) * 0.0024 + (noise3(at * GRAINS * 2.3 + 5.0) - 0.5) * 0.0012) * fine;
+    let pale = smoothstep(0.66, 0.74, noise3(at * GRAINS * 0.8 + 13.0));
+    let dark = smoothstep(0.64, 0.72, noise3(at * GRAINS * 0.6 + 29.0));
+    let speck = mix(1.0, 1.0 + pale * 1.3 - dark * 0.45, fine);
     let bubbles = cells(at * VESICLES, 21u);
     let pixel = max(footprint * VESICLES, 0.01);
     let sharp = 1.0 - smoothstep(0.3, 0.8, pixel);
@@ -158,7 +145,10 @@ fn basalt(at: vec3<f32>, normal: vec3<f32>, footprint: f32) -> Rock {
     let joints = cells(at * JOINTS + vec3<f32>(noise3(at * 3.0), noise3(at * 3.0 + 7.0), 0.0) * 0.6, 31u);
     let width = max(footprint * JOINTS * 1.2, 0.012);
     let crack = select(0.0, 1.0 - smoothstep(0.0, width, joints.gap), chance(joints.id, 34u) < 0.35) * (1.0 - smoothstep(0.3, 0.8, footprint * JOINTS * 6.0));
-    return Rock(tone, hole, crack);
+    let lumps = (noise3(at * 13.0 + 5.0) - 0.5) * 0.004;
+    let height = chips + lumps + grain - hole * 0.004 - crack * 0.003;
+    let hollow = 1.0 - smoothstep(-0.024, -0.002, chips);
+    return Rock(tone * speck, height, hole, crack, hollow);
 }
 
 @fragment
@@ -167,20 +157,18 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let at = in.world_position.xyz;
     let smooth_normal = normalize(in.world_normal);
     let footprint = length(fwidth(at));
-    let micro = weierstrass(at, footprint);
-    let slope = micro.gradient * RELIEF;
-    let normal = normalize(smooth_normal - (slope - smooth_normal * dot(slope, smooth_normal)));
+    let rock = basalt(at, smooth_normal, footprint);
+    let normal = bumped(smooth_normal, at, rock.height * RELIEF);
     let height = in.uv.x;
     let finish = in.uv.y;
     let cell = vec3<i32>(floor(at - normal * 0.01));
     let home = vec3<i32>(i32(floor(at.x)), 0, i32(floor(at.z)));
     let pulse = 0.55 + 0.45 * sin(globals.time * 1.6 - height * 4.0 + chance(home, 9u) * 6.28);
     let grain = noise3(at * 7.0) * 0.5 + noise3(at * 21.0) * 0.3 + noise3(at * 2.3) * 0.2;
-    let rock = basalt(at, smooth_normal, footprint);
     var stone = rock.tone * (1.0 - rock.hole * 0.7) * (1.0 - rock.crack * 0.65);
     let moss = smoothstep(0.52, 0.7, noise3(at * 3.1 + 7.0)) * (1.0 - smoothstep(0.1, 0.7, height)) * smoothstep(-0.2, 0.6, normal.y + 0.3);
     stone = mix(stone, vec3<f32>(0.05, 0.11, 0.025) * (0.8 + grain * 0.4), moss);
-    stone = stone * (0.75 + 0.25 * clamp(micro.height * 0.8 + 0.5, 0.0, 1.0));
+    stone = stone * (1.0 - rock.hollow * 0.5);
     var glow = 0.0;
     if finish > 0.5 && finish < 1.5 {
         let across_axis = normalize(vec2<f32>(-smooth_normal.z, smooth_normal.x));
@@ -203,7 +191,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
     pbr_input.material.base_color = vec4<f32>(stone, 1.0);
     pbr_input.N = normal;
-    pbr_input.material.perceptual_roughness = clamp(0.78 - micro.height * 0.1 + rock.hole * 0.15 + rock.crack * 0.1, 0.5, 0.97) - glow * 0.4;
+    pbr_input.material.perceptual_roughness = clamp(0.82 + rock.hollow * 0.1 + rock.hole * 0.15 + rock.crack * 0.1, 0.5, 0.97) - glow * 0.4;
     pbr_input.material.emissive = vec4<f32>(carving.glow.rgb * glow * 2.5, 0.0);
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
