@@ -1,10 +1,10 @@
 use {crate::{block::Block,
-             figure::{Clad, Kit, clothe},
+             person::{Flesh, arm, flesh, surface},
              loose::{FLAT, Looks, SIZE, cubic},
              menu::Menu,
              player::{Aim, Eye, Gait, Pilot, Poke, Selected, Swing, View},
              protocol::{Inventory, plays},
-             skin::{PX, Skin},
+             skin::{PX, Part, Skin},
              spell::Charging,
              stream::Palette},
      bevy::{light::NotShadowCaster, prelude::*},
@@ -167,14 +167,17 @@ fn carve(
   }
 }
 
+#[derive(Component)]
+struct Dressed(Handle<Image>);
+
 fn raise(
   pilot: Option<Res<Pilot>>,
-  kit: Res<Kit>,
   skins: Query<&Skin>,
   eyes: Query<Entity, With<Eye>>,
   hands: Query<(), With<Hand>>,
+  mut meshes: ResMut<Assets<Mesh>>,
   mut images: ResMut<Assets<Image>>,
-  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut fleshes: ResMut<Assets<Flesh>>,
   mut commands: Commands
 ) {
   if hands.is_empty()
@@ -182,13 +185,13 @@ fn raise(
     && let Ok(skin) = skins.get(pilot.me)
     && let Ok(eye) = eyes.single()
   {
-    let clad = clothe(skin, &mut images, &mut materials);
+    let image = images.add(surface(skin));
     commands
       .spawn((
         Hand { swung: SWING, poked: POKE, raised: 0.0 },
-        Mesh3d(kit.arm.clone()),
-        MeshMaterial3d(clad.material.clone()),
-        clad,
+        Mesh3d(meshes.add(arm(Part::Arm))),
+        MeshMaterial3d(fleshes.add(flesh(image.clone()))),
+        Dressed(image),
         NotShadowCaster,
         Transform::from_translation(REST),
         ChildOf(eye)
@@ -200,18 +203,18 @@ fn raise(
 fn reskin(
   pilot: Option<Res<Pilot>>,
   skins: Query<&Skin, Changed<Skin>>,
-  hands: Query<&Clad, With<Hand>>,
+  hands: Query<(&Dressed, &MeshMaterial3d<Flesh>), With<Hand>>,
   mut images: ResMut<Assets<Image>>,
-  mut materials: ResMut<Assets<StandardMaterial>>
+  mut fleshes: ResMut<Assets<Flesh>>
 ) {
   if let Some(pilot) = pilot
     && let Ok(skin) = skins.get(pilot.me)
   {
-    for clad in hands.iter() {
-      if let Some(mut image) = images.get_mut(&clad.image) {
-        image.data = Some(skin.pixels(false))
+    for (Dressed(image), material) in hands.iter() {
+      if let Some(mut image) = images.get_mut(image) {
+        *image = surface(skin)
       }
-      materials.get_mut(&clad.material);
+      fleshes.get_mut(&material.0);
     }
   }
 }
@@ -257,7 +260,7 @@ fn swing(
   let aboard = pilot.riding.is_some_and(|riding| {
     matches!(riding.kind, crate::player::Craft::Submarine | crate::player::Craft::Mech)
   });
-  let first = *view == View::First && !aboard;
+  let first = *view == View::First && !aboard && crate::opts::opts().eye.is_none();
   for (mut hand, mut transform, mut visibility) in hands.iter_mut() {
     visibility.set_if_neq(match first {
       true => Visibility::Inherited,

@@ -1,7 +1,9 @@
 use {crate::{hand::{Charge, Grip, grip},
+             opts::opts,
+             person::{Flesh, flesh, likeness, surface},
              plate::{Plate, plate},
              player::{Me, Pilot, View},
-             protocol::{Avatar, Inventory, Player, hue, plays},
+             protocol::{Avatar, Inventory, Player, Role, hue, plays},
              skin::{PX, Part, Skin}},
      bevy::{camera::visibility::RenderLayers, prelude::*},
      std::f32::consts::PI};
@@ -82,43 +84,67 @@ pub fn clothe(
   Clad { material, image }
 }
 
-pub fn assemble(
-  figure: &mut EntityCommands,
-  kit: &Kit,
-  clad: &Clad,
-  layers: RenderLayers
-) {
-  let material = MeshMaterial3d(clad.material.clone());
+#[derive(Component)]
+pub struct Sculpted {
+  meshes: [Handle<Mesh>; 6],
+  material: Handle<Flesh>,
+  image: Handle<Image>
+}
+
+fn shaped(skin: &Skin) -> [Mesh; 6] {
+  let made = likeness(skin);
+  Part::ALL.map(|part| match part {
+    Part::Head => made.head.clone(),
+    Part::Body => made.body.clone(),
+    Part::Arm => made.arm.clone(),
+    Part::LeftArm => made.left_arm.clone(),
+    Part::Leg => made.leg.clone(),
+    Part::LeftLeg => made.left_leg.clone()
+  })
+}
+
+pub fn sculpted(
+  skin: &Skin,
+  meshes: &mut Assets<Mesh>,
+  images: &mut Assets<Image>,
+  fleshes: &mut Assets<Flesh>
+) -> Sculpted {
+  let image = images.add(surface(skin));
+  Sculpted {
+    meshes: shaped(skin).map(|mesh| meshes.add(mesh)),
+    material: fleshes.add(flesh(image.clone())),
+    image
+  }
+}
+
+pub fn assemble(figure: &mut EntityCommands, sculpted: &Sculpted, layers: RenderLayers) {
+  let material = MeshMaterial3d(sculpted.material.clone());
+  let mesh = |part: Part| Mesh3d(sculpted.meshes[part as usize].clone());
   figure.with_children(|figure| {
     figure.spawn((
-      Mesh3d(kit.body.clone()),
+      mesh(Part::Body),
       material.clone(),
       layers.clone(),
-      Transform::from_xyz(0.0, 18.0 * PX, 0.0)
+      Transform::from_translation(Part::Body.pivot())
     ));
     figure.spawn((
       Head,
-      Mesh3d(kit.head.clone()),
+      mesh(Part::Head),
       material.clone(),
       layers.clone(),
-      Transform::from_xyz(0.0, 24.0 * PX, 0.0)
+      Transform::from_translation(Part::Head.pivot())
     ));
-    for (x, phase, mesh, pivot) in [
-      (6.0, 0.0, kit.arm.clone(), 24.0),
-      (-6.0, PI, kit.left_arm.clone(), 24.0),
-      (2.0, PI, kit.leg.clone(), 12.0),
-      (-2.0, 0.0, kit.left_leg.clone(), 12.0)
-    ]
-    .into_iter()
+    for (part, phase) in
+      [(Part::Arm, 0.0), (Part::LeftArm, PI), (Part::Leg, PI), (Part::LeftLeg, 0.0)]
     {
       let mut limb = figure.spawn((
         Limb { phase },
-        Mesh3d(mesh),
+        mesh(part),
         material.clone(),
         layers.clone(),
-        Transform::from_xyz(x * PX, pivot * PX, 0.0)
+        Transform::from_translation(part.pivot())
       ));
-      if x == 6.0 && pivot == 24.0 {
+      if part == Part::Arm {
         limb.with_child((grip(), layers.clone()));
       }
     }
@@ -127,73 +153,79 @@ pub fn assemble(
 
 fn dress(
   pilot: Option<Res<Pilot>>,
-  kit: Res<Kit>,
   mut commands: Commands,
   arrivals: Query<(Entity, &Player, &Avatar, &Skin), (Without<Figure>, Without<Me>)>,
+  mut meshes: ResMut<Assets<Mesh>>,
   mut images: ResMut<Assets<Image>>,
-  mut materials: ResMut<Assets<StandardMaterial>>
+  mut fleshes: ResMut<Assets<Flesh>>
 ) {
   for (entity, player, avatar, skin) in arrivals
     .iter()
     .filter(|(entity, ..)| pilot.as_ref().is_some_and(|pilot| pilot.me != *entity))
   {
-    let clad = clothe(skin, &mut images, &mut materials);
+    let sculpted = sculpted(skin, &mut meshes, &mut images, &mut fleshes);
     let mut figure = commands.entity(entity);
     figure.insert((
       Figure { shown: avatar.at, stride: 0.0 },
       Transform::from_translation(avatar.at),
       Visibility::default()
     ));
-    assemble(&mut figure, &kit, &clad, RenderLayers::default());
-    figure.insert(clad);
+    assemble(&mut figure, &sculpted, RenderLayers::default());
+    figure.insert(sculpted);
     let tag = commands.spawn(plate(player.name.clone(), Color::WHITE, avatar.at)).id();
     commands.entity(entity).insert(Tag(tag));
   }
 }
 
 fn reskin(
-  figures: Query<(&Skin, &Clad), Changed<Skin>>,
+  figures: Query<(&Skin, &Sculpted), Changed<Skin>>,
+  mut meshes: ResMut<Assets<Mesh>>,
   mut images: ResMut<Assets<Image>>,
-  mut materials: ResMut<Assets<StandardMaterial>>
+  mut fleshes: ResMut<Assets<Flesh>>
 ) {
-  for (skin, clad) in figures.iter() {
-    if let Some(mut image) = images.get_mut(&clad.image) {
-      image.data = Some(skin.pixels(false))
+  for (skin, sculpted) in figures.iter() {
+    if let Some(mut image) = images.get_mut(&sculpted.image) {
+      *image = surface(skin)
     }
-    materials.get_mut(&clad.material);
+    for (handle, mesh) in sculpted.meshes.iter().zip(shaped(skin)) {
+      if let Some(mut old) = meshes.get_mut(handle) {
+        *old = mesh
+      }
+    }
+    fleshes.get_mut(&sculpted.material);
   }
 }
 
 fn mirror(
   pilot: Option<Res<Pilot>>,
   view: Res<View>,
-  kit: Res<Kit>,
   skins: Query<Ref<Skin>>,
   mut mirrors: Query<(Entity, &mut Visibility), With<Mirror>>,
+  mut meshes: ResMut<Assets<Mesh>>,
   mut images: ResMut<Assets<Image>>,
-  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut fleshes: ResMut<Assets<Flesh>>,
   mut commands: Commands
 ) {
   if let Some(pilot) = pilot
     && let Ok(skin) = skins.get(pilot.me)
   {
-    let shown = match *view {
-      View::Behind => Visibility::Inherited,
-      View::First => Visibility::Hidden
+    let shown = match (*view, opts().eye) {
+      (View::Behind, _) | (_, Some(_)) => Visibility::Inherited,
+      (View::First, None) => Visibility::Hidden
     };
     if skin.is_changed() || mirrors.is_empty() {
       for (old, _) in mirrors.iter() {
         commands.entity(old).despawn()
       }
-      let clad = clothe(&skin, &mut images, &mut materials);
+      let sculpted = sculpted(&skin, &mut meshes, &mut images, &mut fleshes);
       let mut figure = commands.spawn((
         Mirror,
         Figure { shown: pilot.at, stride: 0.0 },
         Transform::from_translation(pilot.at),
         shown
       ));
-      assemble(&mut figure, &kit, &clad, RenderLayers::default());
-      figure.insert(clad);
+      assemble(&mut figure, &sculpted, RenderLayers::default());
+      figure.insert(sculpted);
     }
     for (_, mut visibility) in mirrors.iter_mut() {
       visibility.set_if_neq(shown);
@@ -228,9 +260,13 @@ fn animate(
     figures.iter_mut()
   {
     let avatar = match mirrored {
-      true => pilot.as_ref().map_or_else(Avatar::default, |pilot| Avatar {
-        at: pilot.at + Vec3::Y * pilot.lift,
-        ..pilot.avatar()
+      true => pilot.as_ref().map_or_else(Avatar::default, |pilot| {
+        let avatar = pilot.avatar();
+        Avatar {
+          at: pilot.at + Vec3::Y * pilot.lift,
+          yaw: avatar.yaw + opts().turn.to_radians(),
+          ..avatar
+        }
       }),
       false => avatar.copied().unwrap_or_default()
     };
@@ -304,7 +340,7 @@ fn untag(gone: On<Remove, Tag>, tags: Query<&Tag>, mut commands: Commands) {
 fn undress(possessed: On<Add, Me>, mut commands: Commands) {
   commands
     .entity(possessed.entity)
-    .remove::<(Figure, Tag, Clad)>()
+    .remove::<(Figure, Tag, Sculpted)>()
     .despawn_related::<Children>();
 }
 
@@ -312,6 +348,9 @@ pub struct Figures;
 
 impl Plugin for Figures {
   fn build(&self, app: &mut App) {
+    if app.world().resource::<Role>().plays() {
+      crate::person::register(app)
+    }
     app
       .add_observer(untag)
       .add_observer(undress)

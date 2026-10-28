@@ -64,6 +64,7 @@ mod model;
 mod net;
 mod noise;
 mod opts;
+mod person;
 mod plate;
 mod player;
 mod precursor;
