@@ -16,8 +16,7 @@ pub enum Kind {
   Flesh,
   Hair,
   Cloth,
-  Leather,
-  Lip
+  Leather
 }
 
 impl Kind {
@@ -158,8 +157,11 @@ fn kind(skin: &Skin, features: &Features, part: Part, face: Face, texel: UVec2) 
   let UVec2 { x: col, y: row } = texel - rect.min;
   let dark = PALETTE[index as usize].iter().map(|&c| c as u32).sum::<u32>() < 330;
   match (part.limb(), face) {
-    (Part::Head, Face::Front) if eyed(col, row) && index != features.flesh => Kind::Flesh,
-    (Part::Head, Face::Front) if mouthed(col, row) && index != features.flesh => Kind::Lip,
+    (Part::Head, Face::Front)
+      if (eyed(col, row) || mouthed(col, row)) && index != features.flesh =>
+    {
+      Kind::Flesh
+    }
     (Part::Head, _) if toned => Kind::Flesh,
     (Part::Head, _) => Kind::Hair,
     _ if index == features.flesh => Kind::Flesh,
@@ -209,7 +211,7 @@ pub fn surface(skin: &Skin) -> Image {
 #[derive(Asset, AsBindGroup, TypePath, Clone)]
 pub struct Living {
   #[uniform(100)]
-  parts: [Vec4; 18],
+  parts: [Vec4; 19],
   #[texture(101)]
   skin: Handle<Image>
 }
@@ -220,8 +222,16 @@ impl MaterialExtension for Living {
 
 pub type Flesh = ExtendedMaterial<StandardMaterial, Living>;
 
-pub fn flesh(skin: Handle<Image>) -> Flesh {
-  let parts = Part::ALL.iter().fold([Vec4::ZERO; 18], |mut parts, &part| {
+fn mouth(features: &Features) -> Vec2 {
+  features.mouth.map_or(Vec2::new(0.0, 0.1), |texel| {
+    let at = on_face(texel);
+    Vec2::new(at.x * 0.3, at.y.clamp(0.07, 0.13))
+  })
+}
+
+pub fn flesh(worn: &Skin, skin: Handle<Image>) -> Flesh {
+  let lips = mouth(&features(worn));
+  let parts = Part::ALL.iter().fold([Vec4::ZERO; 19], |mut parts, &part| {
     let Bounds { centre, half } = part.bounds();
     let size = part.size().as_vec3();
     let origin = part.origin().as_vec2();
@@ -229,6 +239,7 @@ pub fn flesh(skin: Handle<Image>) -> Flesh {
     parts[index * 3] = centre.extend(size.x);
     parts[index * 3 + 1] = half.extend(size.y);
     parts[index * 3 + 2] = Vec4::new(origin.x, origin.y, size.z, part.side());
+    parts[18] = Vec4::new(lips.x, lips.y, 0.0, 0.0);
     parts
   });
   ExtendedMaterial {
@@ -321,14 +332,11 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
       (Vec2::new(at.x.signum() * at.x.abs().clamp(0.05, 0.072), at.y.clamp(0.18, 0.27)), iris)
     })
     .collect();
-  let mouth = features.mouth.map_or(Vec2::new(0.0, 0.1), |texel| {
-    let at = on_face(texel);
-    Vec2::new(at.x * 0.3, at.y.clamp(0.07, 0.13))
-  });
+  let mouth = mouth(features);
   let eye_y = eyes.iter().map(|(at, _)| at.y).sum::<f32>() / eyes.len() as f32;
   let skull = Cage::rounded(
-    Vec3::new(0.0, 0.25, 0.015),
-    Vec3::new(0.32, 0.4, 0.36),
+    Vec3::new(0.0, 0.24, 0.015),
+    Vec3::new(0.32, 0.43, 0.36),
     UVec3::new(4, 4, 4),
     0.7
   )
@@ -406,9 +414,9 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
   });
   let neck = Cage::tube(
     &[
-      (Vec3::new(0.0, -0.08, 0.02), Vec2::new(0.09, 0.085)),
-      (Vec3::new(0.0, 0.03, 0.03), Vec2::new(0.078, 0.072)),
-      (Vec3::new(0.0, 0.14, 0.035), Vec2::new(0.08, 0.08))
+      (Vec3::new(0.0, -0.08, 0.02), Vec2::new(0.1, 0.095)),
+      (Vec3::new(0.0, 0.03, 0.03), Vec2::new(0.088, 0.08)),
+      (Vec3::new(0.0, 0.14, 0.035), Vec2::new(0.09, 0.09))
     ],
     8
   )

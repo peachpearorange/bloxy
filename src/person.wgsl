@@ -5,7 +5,7 @@
 }
 
 struct Living {
-    parts: array<vec4<f32>, 18>,
+    parts: array<vec4<f32>, 19>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> living: Living;
@@ -15,7 +15,6 @@ const FLESH: i32 = 0;
 const HAIR: i32 = 1;
 const CLOTH: i32 = 2;
 const LEATHER: i32 = 3;
-const LIP: i32 = 4;
 
 const PORES: f32 = 650.0;
 const FURROWS: f32 = 380.0;
@@ -264,14 +263,31 @@ fn flesh(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, n: vec3<f32>)
     return look;
 }
 
-fn lip(p: vec3<f32>, base: vec3<f32>, footprint: f32) -> Look {
-    var look = Look(base * vec3<f32>(1.08, 0.78, 0.78), vec3<f32>(0.0), 0.32, 0.0);
-    let lines = wave(vec3<f32>(p.x * 520.0, p.y * 60.0, p.z * 520.0), 61u);
-    let fade = seen(520.0, footprint);
-    look.color *= 1.0 - smoothstep(-0.1, 0.4, -lines.x) * 0.15 * fade;
-    look.slope = vec3<f32>(lines.y, 0.0, lines.w) * 0.004 * fade;
-    look.color *= 0.92 + noise3(p * 200.0) * 0.16;
-    return look;
+fn lips(p: vec3<f32>, look: Look, footprint: f32) -> Look {
+    var out = look;
+    let mouth = living.parts[18].xy;
+    let d = p.xy - mouth;
+    let half_width = 0.038;
+    let across = clamp(d.x / half_width, -1.0, 1.0);
+    let bow = 1.0 - across * across;
+    let pixel = max(footprint, 0.0003);
+    let parting = -0.001 + 0.0015 * across * across;
+    let upper = parting + (0.0105 - 0.004 * exp(-pow(d.x / 0.007, 2.0))) * pow(bow, 0.6);
+    let lower = parting - 0.013 * pow(bow, 0.75);
+    let front = smoothstep(-0.12, -0.17, p.z);
+    let inside = (1.0 - smoothstep(-pixel, pixel, d.y - upper)) * (1.0 - smoothstep(-pixel, pixel, lower - d.y)) * step(abs(d.x), half_width * 1.2) * front;
+    let line = (1.0 - smoothstep(0.0004, 0.0012 + pixel, abs(d.y - parting))) * smoothstep(1.05, 0.7, abs(across)) * front;
+    let furrows = wave(vec3<f32>(d.x * 700.0, d.y * 50.0, 3.0), 61u);
+    let fade = seen(700.0, footprint);
+    let lower_lip = step(d.y, parting);
+    let tint = mix(vec3<f32>(1.1, 0.68, 0.68), vec3<f32>(1.15, 0.72, 0.72), lower_lip);
+    let lip_color = look.color * tint * (1.0 - smoothstep(-0.1, 0.5, -furrows.x) * 0.18 * fade)
+        * (1.0 + lower_lip * smoothstep(0.0, -0.008, d.y - parting) * 0.15);
+    out.color = mix(look.color, lip_color, inside);
+    out.color = mix(out.color, look.color * vec3<f32>(0.25, 0.12, 0.12), line);
+    out.rough = mix(look.rough, 0.3, inside);
+    out.slope = mix(look.slope, vec3<f32>(furrows.y, 0.0, 0.0) * 0.004 * fade, inside);
+    return out;
 }
 
 struct Strands {
@@ -534,10 +550,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             look = cloth(p, base, footprint, part, side, local_normal);
         } else if kind == LEATHER {
             look = leather(p, base, footprint, part);
-        } else if kind == LIP {
-            look = lip(p, base, footprint);
         } else {
             look = flesh(p, base, footprint, part, local_normal);
+            if part == 0u {
+                look = lips(p, look, footprint);
+            }
         }
     }
     let normal = turn * tilted(local_normal, look.slope);

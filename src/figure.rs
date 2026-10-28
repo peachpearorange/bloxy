@@ -112,7 +112,7 @@ pub fn sculpted(
   let image = images.add(surface(skin));
   Sculpted {
     meshes: shaped(skin).map(|mesh| meshes.add(mesh)),
-    material: fleshes.add(flesh(image.clone())),
+    material: fleshes.add(flesh(skin, image.clone())),
     image
   }
 }

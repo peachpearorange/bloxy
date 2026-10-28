@@ -190,7 +190,7 @@ fn raise(
       .spawn((
         Hand { swung: SWING, poked: POKE, raised: 0.0 },
         Mesh3d(meshes.add(arm(Part::Arm))),
-        MeshMaterial3d(fleshes.add(flesh(image.clone()))),
+        MeshMaterial3d(fleshes.add(flesh(skin, image.clone()))),
         Dressed(image),
         NotShadowCaster,
         Transform::from_translation(REST),
