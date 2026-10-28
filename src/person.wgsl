@@ -118,6 +118,10 @@ fn cells(p: vec3<f32>, salt: u32) -> Cells {
     return found;
 }
 
+fn fall(low: f32, high: f32, x: f32) -> f32 {
+    return 1.0 - smoothstep(low, high, x);
+}
+
 fn seen(frequency: f32, footprint: f32) -> f32 {
     return 1.0 - smoothstep(0.12, 0.45, frequency * footprint);
 }
@@ -207,15 +211,15 @@ fn flesh(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, n: vec3<f32>)
     var shadow = 0.0;
     if part == 0u {
         let cheek = vec2<f32>(abs(p.x) - 0.085, p.y - 0.17);
-        flush += exp(-dot(cheek, cheek) / 0.0015) * smoothstep(0.0, -0.1, p.z) * 0.7;
+        flush += exp(-dot(cheek, cheek) / 0.0015) * fall(-0.1, 0.0, p.z) * 0.7;
         let nose = vec2<f32>(p.x, p.y - 0.18);
-        flush += exp(-dot(nose, nose) / 0.0006) * smoothstep(-0.17, -0.22, p.z) * 0.6;
+        flush += exp(-dot(nose, nose) / 0.0006) * fall(-0.22, -0.17, p.z) * 0.6;
         flush += smoothstep(0.14, 0.17, abs(p.x)) * 0.5;
         let socket = vec2<f32>(abs(p.x) - 0.06, p.y - 0.205);
         shadow = exp(-dot(socket * vec2<f32>(0.8, 1.4), socket * vec2<f32>(0.8, 1.4)) / 0.0012) * 0.3;
     }
     if part >= 2u && p.y < -0.6 {
-        flush += smoothstep(-0.66, -0.74, p.y) * 0.5;
+        flush += fall(-0.74, -0.66, p.y) * 0.5;
     }
     color = mix(color, color * vec3<f32>(1.15, 0.78, 0.76), clamp(flush, 0.0, 1.0));
     color = mix(color, color * vec3<f32>(0.72, 0.62, 0.66), shadow);
@@ -256,7 +260,7 @@ fn flesh(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, n: vec3<f32>)
     look.slope = slope;
     var oil = 0.0;
     if part == 0u {
-        oil = smoothstep(0.24, 0.3, p.y) * smoothstep(-0.12, -0.18, p.z) + exp(-(p.x * p.x) / 0.001) * smoothstep(-0.16, -0.21, p.z);
+        oil = smoothstep(0.24, 0.3, p.y) * fall(-0.18, -0.12, p.z) + exp(-(p.x * p.x) / 0.001) * fall(-0.21, -0.16, p.z);
     }
     look.rough = clamp(0.5 - oil * 0.16 + (mottle - 0.5) * 0.12 + (1.0 - shade) * 0.4 + relief.lost * 0.2, 0.3, 0.8);
     look.sheen = 0.12;
@@ -274,15 +278,15 @@ fn lips(p: vec3<f32>, look: Look, footprint: f32) -> Look {
     let parting = -0.001 + 0.0015 * across * across;
     let upper = parting + (0.0105 - 0.004 * exp(-pow(d.x / 0.007, 2.0))) * pow(bow, 0.6);
     let lower = parting - 0.013 * pow(bow, 0.75);
-    let front = smoothstep(-0.12, -0.17, p.z);
+    let front = fall(-0.17, -0.12, p.z);
     let inside = (1.0 - smoothstep(-pixel, pixel, d.y - upper)) * (1.0 - smoothstep(-pixel, pixel, lower - d.y)) * step(abs(d.x), half_width * 1.2) * front;
-    let line = (1.0 - smoothstep(0.0004, 0.0012 + pixel, abs(d.y - parting))) * smoothstep(1.05, 0.7, abs(across)) * front;
+    let line = (1.0 - smoothstep(0.0004, 0.0012 + pixel, abs(d.y - parting))) * fall(0.7, 1.05, abs(across)) * front;
     let furrows = wave(vec3<f32>(d.x * 700.0, d.y * 50.0, 3.0), 61u);
     let fade = seen(700.0, footprint);
     let lower_lip = step(d.y, parting);
     let tint = mix(vec3<f32>(1.1, 0.68, 0.68), vec3<f32>(1.15, 0.72, 0.72), lower_lip);
     let lip_color = look.color * tint * (1.0 - smoothstep(-0.1, 0.5, -furrows.x) * 0.18 * fade)
-        * (1.0 + lower_lip * smoothstep(0.0, -0.008, d.y - parting) * 0.15);
+        * (1.0 + lower_lip * fall(-0.008, 0.0, d.y - parting) * 0.15);
     out.color = mix(look.color, lip_color, inside);
     out.color = mix(out.color, look.color * vec3<f32>(0.25, 0.12, 0.12), line);
     out.rough = mix(look.rough, 0.3, inside);
@@ -321,27 +325,27 @@ fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
     var slope = across * (-clump_round / max(clump_profile, 0.3)) * 0.12 * clump_fade;
 
     let mid_coord = phi * 170.0 + wander * 5.0 + clump_round * 1.2;
-    let mid_fade = 1.0 - smoothstep(0.3, 0.7, fwidth(mid_coord));
+    let mid_fade = 1.0 - smoothstep(0.15, 0.4, fwidth(mid_coord));
     if mid_fade > 0.0 {
         let lane = floor(mid_coord);
         let round = (mid_coord - lane) * 2.0 - 1.0;
         let profile = sqrt(max(1.0 - round * round, 0.0));
         let tone = 0.7 + chance(vec3<i32>(i32(lane), i32(floor(theta * 5.0 + chance(vec3<i32>(i32(lane), 0, 2), 77u) * 4.0)), 2), 78u) * 0.6;
         shade *= mix(1.0, (0.5 + 0.5 * profile) * tone, mid_fade);
-        slope += across * (-round / max(profile, 0.3)) * 0.35 * mid_fade;
+        slope += across * (-round / max(profile, 0.3)) * 0.18 * mid_fade;
     }
     let lock_coord = phi * 320.0 + wander * 8.0 + clump_round * 1.5;
-    let lock_fade = 1.0 - smoothstep(0.2, 0.5, fwidth(lock_coord));
+    let lock_fade = 1.0 - smoothstep(0.15, 0.4, fwidth(lock_coord));
     if lock_fade > 0.0 {
         let lane = floor(lock_coord);
         let round = (lock_coord - lane) * 2.0 - 1.0;
         let profile = sqrt(max(1.0 - round * round, 0.0));
         let tone = 0.8 + chance(vec3<i32>(i32(lane), i32(floor(theta * 7.0)), 1), 76u) * 0.4;
         shade *= mix(1.0, (0.6 + 0.4 * profile) * tone, lock_fade);
-        slope += across * (-round / max(profile, 0.3)) * 0.35 * lock_fade;
+        slope += across * (-round / max(profile, 0.3)) * 0.15 * lock_fade;
     }
     let strand_coord = phi * 1400.0 + wander * 30.0 + clump_round * 3.0;
-    let strand_fade = 1.0 - smoothstep(0.2, 0.5, fwidth(strand_coord));
+    let strand_fade = 1.0 - smoothstep(0.15, 0.4, fwidth(strand_coord));
     if strand_fade > 0.0 {
         let lane = floor(strand_coord);
         let within = strand_coord - lane;
@@ -351,7 +355,7 @@ fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
         let round = within * 2.0 - 1.0;
         let profile = sqrt(max(1.0 - round * round, 0.0));
         shade *= mix(1.0, (0.5 + 0.5 * profile) * tone, strand_fade);
-        slope += across * (-round / max(profile, 0.3)) * 0.3 * strand_fade;
+        slope += across * (-round / max(profile, 0.3)) * 0.12 * strand_fade;
         let scales = fract(theta * 4000.0 + chance(id, 74u));
         shade *= mix(1.0, 0.93 + 0.07 * smoothstep(0.0, 0.2, scales), strand_fade * (1.0 - smoothstep(0.2, 0.5, fwidth(theta * 4000.0))));
     }
@@ -444,7 +448,7 @@ fn leather(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32) -> Look {
     var color = mix(base * shade, base * 1.35 + 0.02, scuff * 0.4);
     var rough = 0.5 + scuff * 0.3 + noise3(p * 80.0) * 0.1;
     if part >= 4u {
-        let sole = smoothstep(-0.698, -0.702, p.y);
+        let sole = fall(-0.702, -0.698, p.y);
         color = mix(color, vec3<f32>(0.02, 0.018, 0.016), sole);
         rough = mix(rough, 0.85, sole);
         let welt = 1.0 - smoothstep(0.0008, 0.0016, abs(p.y + 0.693));
@@ -495,7 +499,7 @@ fn eyeball(n: vec3<f32>, p: vec3<f32>, iris: vec3<f32>, lid: vec3<f32>, footprin
     let lash_line = 1.0 - smoothstep(0.0, 0.05 + pixel, abs(above - 0.02));
     let lashes = lash_line * (0.7 + 0.3 * step(0.5, fract(turn * 60.0)));
     let lower_lash = (1.0 - smoothstep(0.0, 0.03 + pixel, abs(below - 0.015))) * 0.5;
-    let skin_tone = lid * 0.9 * vec3<f32>(1.05, 0.9, 0.88) * (0.9 + noise3(n * 40.0) * 0.15) * mix(1.0, 0.8, smoothstep(0.1, 0.0, above) * step(0.0, above));
+    let skin_tone = lid * 0.9 * vec3<f32>(1.05, 0.9, 0.88) * (0.9 + noise3(n * 40.0) * 0.15) * mix(1.0, 0.8, fall(0.0, 0.1, above) * step(0.0, above));
     let crease = (1.0 - smoothstep(0.0, 0.04, abs(above - 0.22))) * 0.3;
     var lid_color = skin_tone * (1.0 - crease);
     lid_color = mix(lid_color, vec3<f32>(0.02, 0.015, 0.012), max(lashes, lower_lash));
@@ -544,7 +548,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             let strands = hair(p, base, local_normal);
             look = strands.look;
             flow = strands.flow;
-            anisotropy = 0.75;
+            anisotropy = 0.6;
         } else if kind == CLOTH {
             look = cloth(p, base, footprint, part, side, local_normal);
         } else if kind == LEATHER {
