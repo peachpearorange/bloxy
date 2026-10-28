@@ -54,7 +54,9 @@ impl Part {
         Bounds { centre: Vec3::new(0.0, 0.24, 0.01), half: Vec3::new(0.17, 0.21, 0.19) }
       }
       Part::Body => Bounds { centre: Vec3::ZERO, half: Vec3::new(0.23, 0.36, 0.12) },
-      _ => Bounds { centre: Vec3::new(0.0, -0.36, 0.0), half: Vec3::new(0.12, 0.36, 0.12) }
+      _ => {
+        Bounds { centre: Vec3::new(0.0, -0.36, 0.0), half: Vec3::new(0.12, 0.36, 0.12) }
+      }
     }
   }
 
@@ -110,7 +112,9 @@ fn mode(indices: impl Iterator<Item = u8>) -> u8 {
 
 fn eyed(col: u32, row: u32) -> bool { (3..=5).contains(&row) && (1..=6).contains(&col) }
 
-fn mouthed(col: u32, row: u32) -> bool { (6..=7).contains(&row) && (2..=5).contains(&col) }
+fn mouthed(col: u32, row: u32) -> bool {
+  (6..=7).contains(&row) && (2..=5).contains(&col)
+}
 
 pub fn features(skin: &Skin) -> Features {
   let rect = front();
@@ -191,8 +195,12 @@ pub fn surface(skin: &Skin) -> Image {
             }
             _ => PALETTE[skin.get(texel) as usize]
           };
-          pixels[index..index + 4]
-            .copy_from_slice(&[shown[0], shown[1], shown[2], kind.code()]);
+          pixels[index..index + 4].copy_from_slice(&[
+            shown[0],
+            shown[1],
+            shown[2],
+            kind.code()
+          ]);
         }
       }
     }
@@ -288,7 +296,10 @@ fn assembled(pieces: &[(Cage, f32, f32)]) -> Mesh {
   Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; count])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, vec![[1.0f32, 0.0, 0.0, 1.0]; count])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, vec![
+      [1.0f32, 0.0, 0.0, 1.0];
+      count
+    ])
     .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, near)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, far)
@@ -311,7 +322,10 @@ fn surface_at(cage: &Cage, x: f32, y: f32) -> f32 {
 fn on_face(texel: Vec2) -> Vec2 {
   let Bounds { centre, half } = Part::Head.bounds();
   let st = texel / 8.0;
-  Vec2::new(centre.x + half.x * (1.0 - 2.0 * st.x), centre.y + half.y * (1.0 - 2.0 * st.y))
+  Vec2::new(
+    centre.x + half.x * (1.0 - 2.0 * st.x),
+    centre.y + half.y * (1.0 - 2.0 * st.y)
+  )
 }
 
 fn sphere(middle: Vec3, radius: f32) -> Cage {
@@ -329,7 +343,10 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
     .into_iter()
     .map(|(texel, iris)| {
       let at = on_face(texel);
-      (Vec2::new(at.x.signum() * at.x.abs().clamp(0.05, 0.072), at.y.clamp(0.18, 0.27)), iris)
+      (
+        Vec2::new(at.x.signum() * at.x.abs().clamp(0.05, 0.072), at.y.clamp(0.18, 0.27)),
+        iris
+      )
     })
     .collect();
   let mouth = mouth(features);
@@ -361,7 +378,11 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
         .pulled(front(at.x, at.y + 0.02), 0.022, Vec3::new(0.0, -0.002, -0.006))
         .pulled(front(at.x, at.y - 0.02), 0.02, Vec3::new(0.0, 0.002, -0.005))
         .pulled(front(at.x * 1.05, at.y + 0.04), 0.045, Vec3::new(0.0, 0.003, -0.008))
-        .pulled(front(at.x * 1.25, at.y - 0.055), 0.05, Vec3::new(at.x.signum() * 0.004, 0.0, -0.007))
+        .pulled(
+          front(at.x * 1.25, at.y - 0.055),
+          0.05,
+          Vec3::new(at.x.signum() * 0.004, 0.0, -0.007)
+        )
     })
     .pulled(front(0.0, eye_y - 0.035), 0.05, Vec3::new(0.0, -0.004, -0.036))
     .pulled(front(0.0, eye_y - 0.07), 0.03, Vec3::new(0.0, -0.004, -0.02))
@@ -376,7 +397,9 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
   let face = shaped.subdivided(1);
   let hairness = |at: Vec3| {
     let (count, hair) = (0..27)
-      .map(|probe| Vec3::new((probe % 3) as f32, (probe / 3 % 3) as f32, (probe / 9) as f32) - 1.0)
+      .map(|probe| {
+        Vec3::new((probe % 3) as f32, (probe / 3 % 3) as f32, (probe / 9) as f32) - 1.0
+      })
       .fold((0.0, 0.0), |(count, hair), offset| {
         let (face, texel) = Part::Head.texel(at + offset * 0.014);
         let hairy = kind(skin, features, Part::Head, face, texel) == Kind::Hair;
@@ -444,22 +467,24 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
 }
 
 fn torso() -> Mesh {
-  let cage = Cage::rounded(Vec3::ZERO, Vec3::new(0.42, 0.7, 0.23), UVec3::new(4, 6, 2), 0.4)
-    .shaped(|at| {
-      let t = (at.y + 0.35) / 0.7;
-      let bell = |middle: f32, width: f32| (-((t - middle) / width).powi(2)).exp();
-      let wide = 1.02 - bell(0.45, 0.18) * 0.12 + bell(0.84, 0.12) * 0.1;
-      let deep = 1.0 + bell(0.74, 0.14) * 0.1 - bell(0.45, 0.2) * 0.06 + bell(0.05, 0.12) * 0.04;
-      let shoulder = (t - 0.8).max(0.0) * (at.x.abs() - 0.06).max(0.0) * 1.4;
-      let collar = (t - 0.9).max(0.0) * (1.0 - (at.x.abs() / 0.12).min(1.0)) * 0.6;
-      Vec3::new(
-        at.x * wide,
-        at.y - shoulder + collar,
-        at.z * deep - bell(0.72, 0.12) * 0.014 * (at.z < 0.0) as u8 as f32
-          + bell(0.8, 0.1) * 0.01 * (at.z > 0.0) as u8 as f32
-      )
-    })
-    .subdivided(3);
+  let cage =
+    Cage::rounded(Vec3::ZERO, Vec3::new(0.42, 0.7, 0.23), UVec3::new(4, 6, 2), 0.4)
+      .shaped(|at| {
+        let t = (at.y + 0.35) / 0.7;
+        let bell = |middle: f32, width: f32| (-((t - middle) / width).powi(2)).exp();
+        let wide = 1.02 - bell(0.45, 0.18) * 0.12 + bell(0.84, 0.12) * 0.1;
+        let deep =
+          1.0 + bell(0.74, 0.14) * 0.1 - bell(0.45, 0.2) * 0.06 + bell(0.05, 0.12) * 0.04;
+        let shoulder = (t - 0.8).max(0.0) * (at.x.abs() - 0.06).max(0.0) * 1.4;
+        let collar = (t - 0.9).max(0.0) * (1.0 - (at.x.abs() / 0.12).min(1.0)) * 0.6;
+        Vec3::new(
+          at.x * wide,
+          at.y - shoulder + collar,
+          at.z * deep - bell(0.72, 0.12) * 0.014 * (at.z < 0.0) as u8 as f32
+            + bell(0.8, 0.1) * 0.01 * (at.z > 0.0) as u8 as f32
+        )
+      })
+      .subdivided(3);
   assembled(&[(cage, code(Part::Body, Finish::Surface, [0; 3]), 0.0)])
 }
 
@@ -492,11 +517,8 @@ pub fn arm(part: Part) -> Mesh {
   .subdivided(2);
   let finger = |z: f32, long: f32| {
     let path = [(-0.04, -0.695), (-0.055, -0.695 - long * 0.7), (-0.08, -0.695 - long)];
-    Cage::tube(
-      &path.map(|(x, y)| (Vec3::new(side * x, y, z), Vec2::splat(0.0125))),
-      6
-    )
-    .subdivided(2)
+    Cage::tube(&path.map(|(x, y)| (Vec3::new(side * x, y, z), Vec2::splat(0.0125))), 6)
+      .subdivided(2)
   };
   let thumb = Cage::tube(
     &[
@@ -601,11 +623,16 @@ mod tests {
 
   fn preview(mesh: &Mesh, offset: Vec3) -> Mesh {
     use bevy::mesh::VertexAttributeValues;
-    let (Some(VertexAttributeValues::Float32x3(positions)), Some(VertexAttributeValues::Float32x4(colors)), Some(Indices::U32(indices))) = (
+    let (
+      Some(VertexAttributeValues::Float32x3(positions)),
+      Some(VertexAttributeValues::Float32x4(colors)),
+      Some(Indices::U32(indices))
+    ) = (
       mesh.attribute(Mesh::ATTRIBUTE_POSITION),
       mesh.attribute(Mesh::ATTRIBUTE_COLOR),
       mesh.indices()
-    ) else {
+    )
+    else {
       panic!("sculpted")
     };
     let corners: Vec<usize> = indices.iter().map(|&index| index as usize).collect();
@@ -616,11 +643,17 @@ mod tests {
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
       .with_inserted_attribute(
         Mesh::ATTRIBUTE_POSITION,
-        corners.iter().map(|&at| (Vec3::from(positions[at]) + offset).to_array()).collect::<Vec<_>>()
+        corners
+          .iter()
+          .map(|&at| (Vec3::from(positions[at]) + offset).to_array())
+          .collect::<Vec<_>>()
       )
       .with_inserted_attribute(
         Mesh::ATTRIBUTE_NORMAL,
-        corners.iter().map(|&at| [colors[at][0], colors[at][1], colors[at][2]]).collect::<Vec<_>>()
+        corners
+          .iter()
+          .map(|&at| [colors[at][0], colors[at][1], colors[at][2]])
+          .collect::<Vec<_>>()
       )
       .with_inserted_attribute(
         Mesh::ATTRIBUTE_COLOR,
@@ -646,6 +679,9 @@ mod tests {
       ]
       .map(|(mesh, part)| preview(mesh, part.pivot()))
     );
-    crate::sculpt::sheet(&[preview(&made.head, Vec3::ZERO), whole], "screenshots/person.ppm")
+    crate::sculpt::sheet(
+      &[preview(&made.head, Vec3::ZERO), whole],
+      "screenshots/person.ppm"
+    )
   }
 }

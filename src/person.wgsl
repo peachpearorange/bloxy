@@ -236,9 +236,9 @@ fn flesh(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, n: vec3<f32>)
     if groove_fade > 0.0 {
         let width = 0.14;
         let groove = (1.0 - smoothstep(0.0, width, furrows.gap)) * groove_fade;
-        shade *= 1.0 - groove * 0.34;
+        shade *= 1.0 - groove * 0.22;
         let dome = 1.0 - smoothstep(0.0, 0.7, furrows.nearest);
-        slope -= furrows.offset * dome * 0.6 * groove_fade;
+        slope -= furrows.offset * dome * 0.4 * groove_fade;
         let fine = cells(p * FURROWS * 3.1 + warp * 2.0, 54u);
         let fine_fade = seen(FURROWS * 3.1 * 2.5, footprint);
         shade *= 1.0 - (1.0 - smoothstep(0.0, 0.12, fine.gap)) * 0.14 * fine_fade;

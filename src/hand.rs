@@ -1,7 +1,7 @@
 use {crate::{block::Block,
-             person::{Flesh, arm, flesh, surface},
              loose::{FLAT, Looks, SIZE, cubic},
              menu::Menu,
+             person::{Flesh, arm, flesh, surface},
              player::{Aim, Eye, Gait, Pilot, Poke, Selected, Swing, View},
              protocol::{Inventory, plays},
              skin::{PX, Part, Skin},
