@@ -538,7 +538,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     } else {
         let warp = vec3<f32>(noise3(p * 55.0), noise3(p * 55.0 + 9.0), noise3(p * 55.0 + 17.0)) - 0.5
             + (vec3<f32>(noise3(p * 260.0), noise3(p * 260.0 + 4.0), noise3(p * 260.0 + 8.0)) - 0.5) * 0.35;
-        let texel = textureLoad(skin, texel_of(part, p + warp * 0.012), 0);
+        let ragged = textureLoad(skin, texel_of(part, p + warp * 0.012), 0);
+        let neat = textureLoad(skin, texel_of(part, p + warp * 0.003), 0);
+        let texel = select(neat, ragged, i32(round(ragged.a * 255.0 / 40.0)) == HAIR || i32(round(neat.a * 255.0 / 40.0)) == HAIR);
         let kind = i32(round(texel.a * 255.0 / 40.0));
         let base = texel.rgb;
         if kind == HAIR {
