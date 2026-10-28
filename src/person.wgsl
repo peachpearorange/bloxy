@@ -17,7 +17,7 @@ const CLOTH: i32 = 2;
 const LEATHER: i32 = 3;
 const LIP: i32 = 4;
 
-const PORES: f32 = 1100.0;
+const PORES: f32 = 650.0;
 const FURROWS: f32 = 380.0;
 const THREADS: f32 = 1300.0;
 const GRAIN: f32 = 420.0;
@@ -229,18 +229,18 @@ fn flesh(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, n: vec3<f32>)
     var shade = 1.0;
     let warp = vec3<f32>(noise3(p * 300.0), noise3(p * 300.0 + 7.0), noise3(p * 300.0 + 13.0)) - 0.5;
     let furrows = cells(p * FURROWS + warp * 1.2, 53u);
-    let groove_fade = seen(FURROWS * 2.5, footprint);
+    let groove_fade = seen(FURROWS * 1.6, footprint);
     if groove_fade > 0.0 {
         let width = 0.14;
         let groove = (1.0 - smoothstep(0.0, width, furrows.gap)) * groove_fade;
-        shade *= 1.0 - groove * 0.26;
+        shade *= 1.0 - groove * 0.34;
         let dome = 1.0 - smoothstep(0.0, 0.7, furrows.nearest);
         slope -= furrows.offset * dome * 0.6 * groove_fade;
         let fine = cells(p * FURROWS * 3.1 + warp * 2.0, 54u);
         let fine_fade = seen(FURROWS * 3.1 * 2.5, footprint);
         shade *= 1.0 - (1.0 - smoothstep(0.0, 0.12, fine.gap)) * 0.14 * fine_fade;
     }
-    let pore_fade = seen(PORES * 2.2, footprint);
+    let pore_fade = seen(PORES * 1.1, footprint);
     if pore_fade > 0.0 {
         let pores = cells(p * PORES, 57u);
         let radius = 0.18 + chance(pores.id, 58u) * 0.16;
@@ -294,16 +294,26 @@ fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
     let across = normalize(cross(n, flow));
 
     let wander = noise3(vec3<f32>(theta * 9.0, phi * 2.0, 1.0)) - 0.5;
-    let clump_coord = phi * 70.0 + wander * 2.5 + noise3(vec3<f32>(theta * 30.0, phi * 20.0, 5.0)) * 0.6;
+    let clump_coord = phi * 45.0 + wander * 2.5 + noise3(vec3<f32>(theta * 30.0, phi * 20.0, 5.0)) * 0.6;
     let clump_fade = 1.0 - smoothstep(0.2, 0.5, fwidth(clump_coord));
     let clump_within = fract(clump_coord);
     let clump_id = floor(clump_coord);
     let clump_round = clump_within * 2.0 - 1.0;
     let clump_profile = sqrt(max(1.0 - clump_round * clump_round, 0.0));
     let clump_tone = 0.85 + chance(vec3<i32>(i32(clump_id), 3, 0), 75u) * 0.3;
-    var shade = mix(1.0, (0.45 + 0.55 * clump_profile) * clump_tone, clump_fade);
-    var slope = across * (-clump_round / max(clump_profile, 0.3)) * 0.25 * clump_fade;
+    var shade = mix(1.0, (0.7 + 0.3 * clump_profile) * clump_tone, clump_fade);
+    var slope = across * (-clump_round / max(clump_profile, 0.3)) * 0.12 * clump_fade;
 
+    let mid_coord = phi * 170.0 + wander * 5.0 + clump_round * 1.2;
+    let mid_fade = 1.0 - smoothstep(0.3, 0.7, fwidth(mid_coord));
+    if mid_fade > 0.0 {
+        let lane = floor(mid_coord);
+        let round = (mid_coord - lane) * 2.0 - 1.0;
+        let profile = sqrt(max(1.0 - round * round, 0.0));
+        let tone = 0.7 + chance(vec3<i32>(i32(lane), i32(floor(theta * 5.0 + chance(vec3<i32>(i32(lane), 0, 2), 77u) * 4.0)), 2), 78u) * 0.6;
+        shade *= mix(1.0, (0.5 + 0.5 * profile) * tone, mid_fade);
+        slope += across * (-round / max(profile, 0.3)) * 0.35 * mid_fade;
+    }
     let lock_coord = phi * 320.0 + wander * 8.0 + clump_round * 1.5;
     let lock_fade = 1.0 - smoothstep(0.2, 0.5, fwidth(lock_coord));
     if lock_fade > 0.0 {
@@ -461,7 +471,7 @@ fn eyeball(n: vec3<f32>, p: vec3<f32>, iris: vec3<f32>, lid: vec3<f32>, footprin
     let spread_x = clamp(n.x / 0.86, -1.0, 1.0);
     let bow = 1.0 - spread_x * spread_x;
     let upper = 0.5 * bow - 0.04 + inner * 0.04;
-    let lower = -0.36 * bow + 0.02;
+    let lower = -0.5 * bow - 0.02;
     let above = n.y - upper;
     let below = lower - n.y;
     let lidded = max(smoothstep(-pixel, pixel, above), smoothstep(-pixel, pixel, below));
@@ -472,7 +482,7 @@ fn eyeball(n: vec3<f32>, p: vec3<f32>, iris: vec3<f32>, lid: vec3<f32>, footprin
     let lash_line = 1.0 - smoothstep(0.0, 0.05 + pixel, abs(above - 0.02));
     let lashes = lash_line * (0.7 + 0.3 * step(0.5, fract(turn * 60.0)));
     let lower_lash = (1.0 - smoothstep(0.0, 0.03 + pixel, abs(below - 0.015))) * 0.5;
-    let skin_tone = lid * 0.82 * (0.9 + noise3(n * 40.0) * 0.15) * mix(1.0, 0.8, smoothstep(0.1, 0.0, above) * step(0.0, above));
+    let skin_tone = lid * 0.9 * vec3<f32>(1.05, 0.9, 0.88) * (0.9 + noise3(n * 40.0) * 0.15) * mix(1.0, 0.8, smoothstep(0.1, 0.0, above) * step(0.0, above));
     let crease = (1.0 - smoothstep(0.0, 0.04, abs(above - 0.22))) * 0.3;
     var lid_color = skin_tone * (1.0 - crease);
     lid_color = mix(lid_color, vec3<f32>(0.02, 0.015, 0.012), max(lashes, lower_lash));

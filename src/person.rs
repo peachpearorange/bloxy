@@ -351,6 +351,7 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
       cage
         .pulled(socket, 0.03, Vec3::Z * 0.01)
         .pulled(front(at.x, at.y + 0.02), 0.022, Vec3::new(0.0, -0.002, -0.006))
+        .pulled(front(at.x, at.y - 0.02), 0.02, Vec3::new(0.0, 0.002, -0.005))
         .pulled(front(at.x * 1.05, at.y + 0.04), 0.045, Vec3::new(0.0, 0.003, -0.008))
         .pulled(front(at.x * 1.25, at.y - 0.055), 0.05, Vec3::new(at.x.signum() * 0.004, 0.0, -0.007))
     })
