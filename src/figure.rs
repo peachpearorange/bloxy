@@ -53,8 +53,7 @@ impl Kit {
 
 #[derive(Component)]
 pub struct Clad {
-  pub material: Handle<StandardMaterial>,
-  pub image: Handle<Image>
+  pub material: Handle<StandardMaterial>
 }
 
 pub fn sew(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
@@ -77,11 +76,11 @@ pub fn clothe(
 ) -> Clad {
   let image = images.add(skin.image(false));
   let material = materials.add(StandardMaterial {
-    base_color_texture: Some(image.clone()),
+    base_color_texture: Some(image),
     perceptual_roughness: 0.85,
     ..default()
   });
-  Clad { material, image }
+  Clad { material }
 }
 
 #[derive(Component)]

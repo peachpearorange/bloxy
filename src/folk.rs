@@ -1146,8 +1146,7 @@ fn dress(
           perceptual_roughness: 0.9,
           reflectance: 0.2,
           ..default()
-        }),
-        image: Handle::default()
+        })
       },
       false => clothe(&outfit(folk.band, folk.luck), &mut images, &mut materials)
     };
