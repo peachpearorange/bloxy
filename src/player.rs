@@ -624,7 +624,9 @@ fn follow(
     View::First => {
       let sway = gait.sway() * BOB;
       Transform::from_translation(
-        pilot.eye() + Vec3::Y * pilot.lift + pilot.facing() * sway
+        opts()
+          .eye
+          .map_or(pilot.eye() + Vec3::Y * pilot.lift + pilot.facing() * sway, Vec3::from)
       )
       .with_rotation(pilot.facing() * Quat::from_rotation_z(sway.x * 0.25))
     }

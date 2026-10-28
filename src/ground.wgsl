@@ -6,7 +6,7 @@
     mesh_functions,
     view_transformations::position_world_to_clip,
 }
-#import bloxy::meadow::{lawn, fuzz}
+#import bloxy::meadow::{lawn, fuzz, lush, blade_colour}
 
 struct Surface {
     dug: vec4<f32>,
@@ -69,17 +69,53 @@ fn ownership(code: f32, origin: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(mark, leafy);
 }
 
+struct Varying {
+    @builtin(position) position: vec4<f32>,
+    @location(0) world_position: vec4<f32>,
+    @location(1) world_normal: vec3<f32>,
+#ifdef VERTEX_UVS_A
+    @location(2) uv: vec2<f32>,
+#endif
+#ifdef VERTEX_UVS_B
+    @location(3) uv_b: vec2<f32>,
+#endif
+#ifdef VERTEX_TANGENTS
+    @location(4) world_tangent: vec4<f32>,
+#endif
+#ifdef VERTEX_COLORS
+    @location(5) color: vec4<f32>,
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    @location(6) @interpolate(flat) instance_index: u32,
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    @location(7) @interpolate(flat) visibility_range_dither: i32,
+#endif
+    @location(8) near: vec3<f32>,
+}
+
+const ANCHOR: f32 = 16.0;
+
+fn anchor() -> vec3<f32> {
+    return floor(view.world_position / ANCHOR) * ANCHOR;
+}
+
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
-    var out: VertexOutput;
+fn vertex(vertex: Vertex) -> Varying {
+    var out: Varying;
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     var world = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
+    var near = mat3x3<f32>(world_from_local[0].xyz, world_from_local[1].xyz, world_from_local[2].xyz) * vertex.position
+        + (world_from_local[3].xyz - anchor());
 #ifdef VERTEX_UVS_B
     let owned = ownership(vertex.uv_b.x, world_from_local[3].xyz);
-    world = vec4<f32>(world.xyz + sway(world.xyz, vec2<f32>(owned.y, vertex.uv_b.y), surface.weather.x, globals.time), 1.0);
+    let swayed = sway(world.xyz, vec2<f32>(owned.y, vertex.uv_b.y), surface.weather.x, globals.time);
+    world = vec4<f32>(world.xyz + swayed, 1.0);
+    near += swayed;
     out.uv_b = vec2<f32>(owned.x, vertex.uv_b.y);
 #endif
     out.world_position = world;
+    out.near = near;
     out.position = position_world_to_clip(world.xyz);
 #ifdef VERTEX_UVS_B
     if owned.x > 0.5 && owned.x < 1.5 {
@@ -103,6 +139,32 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #endif
 #ifdef VISIBILITY_RANGE_DITHER
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(vertex.instance_index, world_from_local[3]);
+#endif
+    return out;
+}
+
+fn plain(passed: Varying) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = passed.position;
+    out.world_position = passed.world_position;
+    out.world_normal = passed.world_normal;
+#ifdef VERTEX_UVS_A
+    out.uv = passed.uv;
+#endif
+#ifdef VERTEX_UVS_B
+    out.uv_b = passed.uv_b;
+#endif
+#ifdef VERTEX_TANGENTS
+    out.world_tangent = passed.world_tangent;
+#endif
+#ifdef VERTEX_COLORS
+    out.color = passed.color;
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    out.instance_index = passed.instance_index;
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    out.visibility_range_dither = passed.visibility_range_dither;
 #endif
     return out;
 }
@@ -204,6 +266,7 @@ struct Finish {
     glow: vec3<f32>,
     rough: f32,
     metal: f32,
+    slope: vec3<f32>,
 }
 
 fn bit(mask: f32, index: f32) -> bool {
@@ -382,6 +445,139 @@ fn below(value: f32, edge: f32) -> f32 {
     return 1.0 - smoothstep(edge - 0.08, edge + 0.08, value);
 }
 
+struct Spot {
+    near: vec3<f32>,
+    anchor: vec3<i32>,
+}
+
+struct Lattice {
+    cell: vec3<i32>,
+    inside: vec3<f32>,
+}
+
+fn lattice(spot: Spot, frequency: i32, shift: vec3<f32>) -> Lattice {
+    let local = spot.near * f32(frequency) + shift;
+    let base = floor(local);
+    return Lattice(spot.anchor * frequency + vec3<i32>(base), local - base);
+}
+
+fn mingled(cell: vec3<i32>, salt: u32) -> u32 {
+    var v = bitcast<vec3<u32>>(cell) * 1664525u + vec3<u32>(1013904223u + salt);
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v = v ^ (v >> vec3<u32>(16u));
+    return v.x + v.y * v.z;
+}
+
+fn roll(cell: vec3<i32>, salt: u32) -> f32 {
+    return f32(mingled(cell, salt) & 0xffffu) / 65535.0;
+}
+
+fn jitter(cell: vec3<i32>, salt: u32) -> vec3<f32> {
+    let h = mingled(cell, salt);
+    return vec3<f32>(f32(h & 1023u), f32((h >> 10u) & 1023u), f32((h >> 20u) & 1023u)) / 1023.0;
+}
+
+fn wave(at: Lattice, salt: u32) -> vec4<f32> {
+    let f = at.inside;
+    let c = at.cell;
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+    let ga = jitter(c, salt) * 2.0 - 1.0;
+    let gb = jitter(c + vec3(1, 0, 0), salt) * 2.0 - 1.0;
+    let gc = jitter(c + vec3(0, 1, 0), salt) * 2.0 - 1.0;
+    let gd = jitter(c + vec3(1, 1, 0), salt) * 2.0 - 1.0;
+    let ge = jitter(c + vec3(0, 0, 1), salt) * 2.0 - 1.0;
+    let gf = jitter(c + vec3(1, 0, 1), salt) * 2.0 - 1.0;
+    let gg = jitter(c + vec3(0, 1, 1), salt) * 2.0 - 1.0;
+    let gh = jitter(c + vec3(1, 1, 1), salt) * 2.0 - 1.0;
+    let va = dot(ga, f);
+    let vb = dot(gb, f - vec3(1.0, 0.0, 0.0));
+    let vc = dot(gc, f - vec3(0.0, 1.0, 0.0));
+    let vd = dot(gd, f - vec3(1.0, 1.0, 0.0));
+    let ve = dot(ge, f - vec3(0.0, 0.0, 1.0));
+    let vf = dot(gf, f - vec3(1.0, 0.0, 1.0));
+    let vg = dot(gg, f - vec3(0.0, 1.0, 1.0));
+    let vh = dot(gh, f - vec3(1.0, 1.0, 1.0));
+    let value = va + u.x * (vb - va) + u.y * (vc - va) + u.z * (ve - va)
+        + u.x * u.y * (va - vb - vc + vd) + u.y * u.z * (va - vc - ve + vg)
+        + u.z * u.x * (va - vb - ve + vf) + u.x * u.y * u.z * (-va + vb + vc - vd + ve - vf - vg + vh);
+    let slope = ga + u.x * (gb - ga) + u.y * (gc - ga) + u.z * (ge - ga)
+        + u.x * u.y * (ga - gb - gc + gd) + u.y * u.z * (ga - gc - ge + gg)
+        + u.z * u.x * (ga - gb - ge + gf) + u.x * u.y * u.z * (-ga + gb + gc - gd + ge - gf - gg + gh)
+        + du * (vec3<f32>(vb - va, vc - va, ve - va)
+            + u.yzx * vec3<f32>(va - vb - vc + vd, va - vc - ve + vg, va - vb - ve + vf)
+            + u.zxy * vec3<f32>(va - vb - ve + vf, va - vb - vc + vd, va - vc - ve + vg)
+            + u.yzx * u.zxy * (-va + vb + vc - vd + ve - vf - vg + vh));
+    return vec4<f32>(value, slope);
+}
+
+struct Relief {
+    height: f32,
+    slope: vec3<f32>,
+    lost: f32,
+}
+
+fn weierstrass(spot: Spot, first: i32, octaves: i32, hurst: f32, rough: f32, footprint: f32, salt: u32) -> Relief {
+    var relief = Relief(0.0, vec3<f32>(0.0), 0.0);
+    var frequency = first;
+    for (var octave = 0; octave < octaves; octave++) {
+        let wavelength = 1.0 / f32(frequency);
+        let amplitude = rough * pow(wavelength, hurst);
+        let fade = 1.0 - smoothstep(0.15, 0.45, f32(frequency) * footprint);
+        let steep = amplitude * f32(frequency);
+        relief.lost += steep * steep * (1.0 - fade) * 0.25;
+        if fade > 0.0 {
+            let n = wave(lattice(spot, frequency, vec3<f32>(f32(octave) * 0.37)), salt + u32(octave) * 7u);
+            relief.height += n.x * amplitude * fade;
+            relief.slope += n.yzw * steep * fade;
+        }
+        frequency *= 2;
+    }
+    return relief;
+}
+
+struct Grain {
+    nearest: f32,
+    gap: f32,
+    id: vec3<i32>,
+    offset: vec3<f32>,
+}
+
+fn grains(spot: Spot, frequency: i32, shift: vec3<f32>, salt: u32) -> Grain {
+    let at = lattice(spot, frequency, shift);
+    var found = Grain(9.0, 9.0, at.cell, vec3<f32>(0.0));
+    var second = 9.0;
+    for (var x = -1; x <= 1; x++) {
+        for (var y = -1; y <= 1; y++) {
+            for (var z = -1; z <= 1; z++) {
+                let step = vec3<i32>(x, y, z);
+                let offset = at.inside - vec3<f32>(step) - jitter(at.cell + step, salt);
+                let distance = length(offset);
+                if distance < found.nearest {
+                    second = found.nearest;
+                    found.nearest = distance;
+                    found.id = at.cell + step;
+                    found.offset = offset;
+                } else if distance < second {
+                    second = distance;
+                }
+            }
+        }
+    }
+    found.gap = second - found.nearest;
+    return found;
+}
+
+fn tangential(slope: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    return slope - normal * dot(slope, normal);
+}
+
+fn tilted(normal: vec3<f32>, slope: vec3<f32>) -> vec3<f32> {
+    return normalize(normal - tangential(slope, normal));
+}
+
 fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let fine = at * 16.0 - normal * 0.02;
     let gravel = kind > 14.5 && kind < 15.5;
@@ -538,17 +734,294 @@ fn rocky(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let micro = fine_grain * 0.07 + finer_grain * 0.025 - grit * 0.02;
     let detailed = color * (1.0 + fine_grain * 0.18 + finer_grain * 0.12 - grit * 0.12);
     let shown = mix(detailed, flat, smoothstep(0.8, 2.0, size) * (1.0 - smoothstep(0.0, 0.05, glow)));
-    return Finish(shown, relief * (1.0 - smoothstep(0.5, 2.0, size)) + micro, shown * glow * 0.6, rough + fine_grain * 0.1, 0.0);
+    return Finish(shown, relief * (1.0 - smoothstep(0.5, 2.0, size)) + micro, shown * glow * 0.6, rough + fine_grain * 0.1, 0.0, vec3<f32>(0.0));
+}
+
+const SAND: array<vec3<f32>, 4> = array<vec3<f32>, 4>(vec3<f32>(0.7, 0.62, 0.42), vec3<f32>(0.8, 0.72, 0.5), vec3<f32>(0.86, 0.79, 0.56), vec3<f32>(0.92, 0.87, 0.66));
+const RIPPLE: f32 = 0.17;
+const RIPPLE_HEIGHT: f32 = 0.01;
+const STOSS: f32 = 0.72;
+const SAND_GRAINS: i32 = 700;
+const SAND_FINES: i32 = 1600;
+const SAND_MEAN: f32 = 0.74;
+const SHELLS: i32 = 46;
+const PEBBLES: i32 = 18;
+
+fn edged(grain: Grain) -> f32 {
+    return grain.nearest / max(grain.nearest + grain.gap * 0.5, 0.0001);
+}
+
+fn domed(grain: Grain, normal: vec3<f32>, steep: f32) -> vec3<f32> {
+    let toward = tangential(grain.offset, normal);
+    let edge = edged(grain);
+    return -toward / max(length(toward), 0.0001) * edge * edge * steep;
+}
+
+fn sandy(at: vec3<f32>, spot: Spot, normal: vec3<f32>, size: f32) -> Finish {
+    let footprint = size / 16.0;
+    let broad = supple(at * 0.35 + 7.0) * 0.6 + supple(at * 1.3 + 3.0) * 0.4;
+    let up = smoothstep(0.55, 0.9, normal.y);
+    let turn = (supple(at * 0.12 + 41.0) - 0.5) * 1.6;
+    let toward = vec2<f32>(cos(0.64 + turn), sin(0.64 + turn));
+    let phase = dot(at.xz, toward) / RIPPLE + (supple(at * 0.8 + 5.0) - 0.5) * 3.0 + (supple(at * 3.1 + 9.0) - 0.5) * 0.5;
+    let crest = fract(phase);
+    let rise = select((1.0 - crest) / (1.0 - STOSS), crest / STOSS, crest < STOSS);
+    let profile = smoothstep(0.0, 1.0, rise);
+    let pitch = select(-1.0 / (1.0 - STOSS), 1.0 / STOSS, crest < STOSS) * 6.0 * rise * (1.0 - rise);
+    let rippled = up * smoothstep(0.35, 0.6, supple(at * 0.5 + 19.0)) * smoothstep(2.5, 7.0, RIPPLE / footprint);
+    let trough = (1.0 - profile) * rippled;
+    var slope = vec3<f32>(toward.x, 0.0, toward.y) * pitch * RIPPLE_HEIGHT / RIPPLE * rippled;
+    let laminae = (1.0 - up) * (supple(vec3<f32>(at.x * 0.6, at.y * 26.0, at.z * 0.6) + 3.0) - 0.5) * smoothstep(2.0, 6.0, 0.04 / footprint);
+    var color = ramped(SAND, 0.5 + (broad - 0.5) * 0.6 + (profile - 0.5) * 0.25 * rippled + laminae * 0.5);
+    var rough = 0.92;
+
+    let grain_pixel = footprint * f32(SAND_GRAINS);
+    let seen = 1.0 - smoothstep(0.18, 0.55, grain_pixel);
+    if seen > 0.0 {
+        let grain = grains(spot, SAND_GRAINS, vec3<f32>(0.0), 11u);
+        let pick = roll(grain.id, 12u) - trough * 0.1;
+        let shade = roll(grain.id, 13u);
+        var tint = mix(vec3<f32>(1.12, 1.09, 1.02), vec3<f32>(0.98, 0.88, 0.72), roll(grain.id, 18u)) * (0.76 + shade * 0.44);
+        var grit = 0.28;
+        var glassy = 1.0;
+        if pick < 0.025 {
+            tint = vec3<f32>(0.2, 0.19, 0.2) * (0.8 + shade * 0.4);
+            grit = 0.22;
+            glassy = 0.0;
+        } else if pick < 0.13 {
+            tint = vec3<f32>(0.6, 0.57, 0.55) * (0.75 + shade * 0.4);
+            grit = 0.65;
+            glassy = 0.0;
+        } else if pick < 0.17 {
+            tint = vec3<f32>(0.95, 0.52, 0.4) * (0.85 + shade * 0.3);
+            grit = 0.4;
+            glassy = 0.5;
+        } else if pick < 0.31 {
+            tint = vec3<f32>(1.12, 0.86, 0.7) * (0.9 + shade * 0.2);
+            grit = 0.55;
+            glassy = 0.2;
+        } else if pick < 0.36 {
+            tint = vec3<f32>(1.2, 1.17, 1.1);
+            grit = 0.6;
+            glassy = 0.0;
+        }
+        let edge = edged(grain);
+        let sunk = roll(grain.id, 14u) < 0.07;
+        let seam = 1.0 - smoothstep(0.0, 0.06 + grain_pixel, grain.gap);
+        tint = tint * (1.0 + glassy * 0.3 * (1.0 - edge) * (1.0 - edge)) * (1.0 - 0.5 * pow(edge, 2.5));
+        let fine_pixel = footprint * f32(SAND_FINES);
+        let fine_seen = 1.0 - smoothstep(0.18, 0.55, fine_pixel);
+        var pore = vec3<f32>(0.4);
+        var pore_slope = vec3<f32>(0.0);
+        if fine_seen > 0.0 && (sunk || seam > 0.01) {
+            let fine = grains(spot, SAND_FINES, vec3<f32>(0.0), 15u);
+            let fine_seam = 1.0 - smoothstep(0.0, 0.08 + fine_pixel, fine.gap);
+            pore = vec3<f32>(mix(0.4, (0.3 + roll(fine.id, 16u) * 0.35) * (1.0 - 0.5 * fine_seam) * (1.0 - 0.3 * pow(edged(fine), 3.0)), fine_seen));
+            pore_slope = domed(fine, normal, 1.2) * fine_seen;
+        }
+        let low = select(seam, 1.0, sunk);
+        let grain_slope = domed(grain, normal, 1.5) + (jitter(grain.id, 17u) - 0.5) * 0.6 * glassy;
+        slope += mix(grain_slope * (1.0 - seam), pore_slope, low) * seen;
+        let factor = mix(tint, pore, low) / SAND_MEAN;
+        color = color * mix(vec3<f32>(1.0), factor, seen);
+        rough = mix(rough, mix(grit, 0.95, low), seen);
+    }
+
+    let shell_pixel = footprint * f32(SHELLS);
+    if shell_pixel < 0.4 {
+        let shown = 1.0 - smoothstep(0.2, 0.4, shell_pixel);
+        let shard = grains(spot, SHELLS, vec3<f32>(supple(at * 70.0), supple(at * 70.0 + 9.0), supple(at * 70.0 + 17.0)) * 0.5, 21u);
+        let present = select(0.0, 1.0, roll(shard.id, 22u) < 0.012 + up * 0.012);
+        let inside = smoothstep(0.03, 0.03 + shell_pixel * 2.0, shard.gap) * (1.0 - smoothstep(0.3, 0.3 + shell_pixel, shard.nearest)) * present * shown;
+        let rim = (1.0 - smoothstep(0.3, 0.42, shard.nearest)) * present * shown * (1.0 - inside);
+        let axis = normalize(jitter(shard.id, 24u) - 0.5);
+        let ribs = sin(dot(shard.offset, axis) * 70.0);
+        let shell = mix(vec3<f32>(0.97, 0.94, 0.88), vec3<f32>(0.93, 0.72, 0.64), roll(shard.id, 23u) * roll(shard.id, 29u)) * (0.86 + ribs * 0.1 + (1.0 - edged(shard)) * 0.1);
+        color = mix(color * (1.0 - rim * 0.45), shell, inside);
+        slope += tangential(axis, normal) * cos(dot(shard.offset, axis) * 70.0) * 0.35 * inside;
+        rough = mix(rough, 0.45, inside);
+    }
+    let pebble_pixel = footprint * f32(PEBBLES);
+    if pebble_pixel < 0.4 {
+        let shown = 1.0 - smoothstep(0.2, 0.4, pebble_pixel);
+        let stone = grains(spot, PEBBLES, vec3<f32>(0.0), 25u);
+        let present = select(0.0, 1.0, roll(stone.id, 26u) < 0.025);
+        let radius = 0.18 + roll(stone.id, 27u) * 0.12;
+        let inside = (1.0 - smoothstep(radius - pebble_pixel, radius + pebble_pixel, stone.nearest)) * present * shown;
+        let toward = tangential(stone.offset, normal);
+        let lean = clamp(length(toward) / radius, 0.0, 1.0);
+        let pebble = mix(vec3<f32>(0.32, 0.3, 0.28), vec3<f32>(0.55, 0.45, 0.36), roll(stone.id, 28u)) * (0.9 + (supple(at * 300.0) - 0.5) * 0.3);
+        color = mix(color * (1.0 - 0.35 * (1.0 - smoothstep(radius, radius * 1.4, stone.nearest)) * present * shown), pebble, inside);
+        slope += -toward / max(length(toward), 0.0001) * lean * lean * 1.6 * inside;
+        rough = mix(rough, 0.5, inside);
+    }
+
+    let relief = weierstrass(spot, 4, 9, 0.8, 0.02, footprint, 31u);
+    let damp = 1.0 - smoothstep(SEA_TOP + 0.3, SEA_TOP + 1.6, at.y);
+    color = mix(color, color * vec3<f32>(0.6, 0.58, 0.54), damp);
+    rough = mix(rough, rough * 0.6, damp);
+    return Finish(color, 0.0, vec3<f32>(0.0), clamp(sqrt(rough * rough + relief.lost), 0.0, 1.0), 0.0, slope + relief.slope);
+}
+
+const CRUMBS: i32 = 120;
+const CRUMB_MEAN: f32 = 0.86;
+const SILT: i32 = 1300;
+const ROOTLETS: i32 = 30;
+const HUMUS: i32 = 90;
+
+fn earthen(at: vec3<f32>, spot: Spot, normal: vec3<f32>, size: f32) -> Finish {
+    let base = rocky(23.0, at, normal, size);
+    let footprint = size / 16.0;
+    var color = base.color;
+    var slope = vec3<f32>(0.0);
+    var rough = base.rough;
+
+    let crumb_pixel = footprint * f32(CRUMBS);
+    let crumb_seen = 1.0 - smoothstep(0.15, 0.45, crumb_pixel);
+    if crumb_seen > 0.0 {
+        let warp = (vec3<f32>(supple(at * 40.0), supple(at * 40.0 + 13.0), supple(at * 40.0 + 29.0)) - 0.5) * 1.6;
+        let crumb = grains(spot, CRUMBS, warp, 31u);
+        let radius = 0.45 + roll(crumb.id, 32u) * 0.3;
+        let lump = 1.0 - smoothstep(radius * 0.7, radius + crumb_pixel, crumb.nearest);
+        let parting = 1.0 - smoothstep(0.0, 0.07 + crumb_pixel, crumb.gap);
+        let kind = roll(crumb.id, 33u);
+        var tint = vec3<f32>(0.86 + roll(crumb.id, 34u) * 0.24);
+        if kind < 0.1 {
+            tint *= vec3<f32>(1.15, 1.1, 1.04);
+        } else if kind < 0.3 {
+            tint *= vec3<f32>(0.6, 0.56, 0.54);
+        } else if kind < 0.35 {
+            tint *= vec3<f32>(1.15, 0.86, 0.66);
+        }
+        let round = clamp(crumb.nearest / radius, 0.0, 1.0);
+        tint *= 1.0 - 0.35 * round * round;
+        let small_pixel = crumb_pixel * 2.7;
+        let small = grains(spot, CRUMBS * 27 / 10, warp * 1.3, 39u);
+        let small_radius = 0.4 + roll(small.id, 40u) * 0.3;
+        let small_lump = (1.0 - smoothstep(small_radius * 0.6, small_radius + small_pixel, small.nearest)) * (1.0 - smoothstep(0.2, 0.5, small_pixel));
+        let small_round = clamp(small.nearest / small_radius, 0.0, 1.0);
+        let crevice = vec3<f32>(mix(0.3, (0.55 + roll(small.id, 42u) * 0.25) * (1.0 - 0.35 * small_round * small_round), small_lump));
+        let body = lump * (1.0 - parting * 0.4);
+        let shown = mix(crevice, tint, body);
+        let toward = tangential(crumb.offset, normal);
+        let small_toward = tangential(small.offset, normal);
+        slope += (-toward / radius * 1.5 * body - small_toward / small_radius * 1.2 * small_lump * (1.0 - body)) * crumb_seen;
+        color = color * mix(vec3<f32>(1.0), shown / CRUMB_MEAN, crumb_seen);
+    }
+
+    let silt_pixel = footprint * f32(SILT);
+    let silt_seen = 1.0 - smoothstep(0.18, 0.55, silt_pixel);
+    if silt_seen > 0.0 {
+        let grain = grains(spot, SILT, vec3<f32>(0.0), 35u);
+        let pick = roll(grain.id, 36u);
+        let mica = pick < 0.015;
+        let quartz = pick > 0.97;
+        var tint = 0.93 + roll(grain.id, 37u) * 0.14;
+        tint = select(tint, 1.15, quartz);
+        tint = select(tint, 1.5, mica);
+        let seam = 1.0 - smoothstep(0.0, 0.08 + silt_pixel, grain.gap);
+        tint = mix(tint * (1.0 - 0.12 * pow(edged(grain), 3.0)), 0.82, seam);
+        color = color * mix(1.0, tint, silt_seen);
+        slope += (domed(grain, normal, 0.5) * (1.0 - seam) + select(vec3<f32>(0.0), (jitter(grain.id, 38u) - 0.5) * 0.8, mica)) * silt_seen;
+        rough = mix(rough, select(rough, 0.18, mica), silt_seen);
+    }
+
+    let root = wave(lattice(spot, ROOTLETS, (vec3<f32>(supple(at * 90.0), supple(at * 90.0 + 7.0), supple(at * 90.0 + 19.0)) - 0.5) * 0.5), 41u);
+    let reach = abs(root.x) / max(length(tangential(root.yzw, normal)), 0.25) / f32(ROOTLETS);
+    let width = 0.00018 + supple(at * 23.0) * 0.00025;
+    let rooted = smoothstep(0.55, 0.7, supple(at * 2.3 + 5.0)) * smoothstep(0.4, 0.6, supple(at * 35.0 + 11.0)) * smoothstep(0.4, 1.2, width / footprint);
+    let strand = (1.0 - smoothstep(width - footprint * 0.5, width + footprint * 0.5, reach)) * rooted;
+    let shadow = (1.0 - smoothstep(width, width * 2.5 + footprint, reach)) * rooted;
+    color = mix(color * (1.0 - shadow * 0.35), base.color * vec3<f32>(1.4, 1.25, 1.0) * (0.85 + 0.3 * supple(at * 400.0)), strand);
+    slope += tangential(root.yzw, normal) * sign(root.x) * -0.4 * strand / max(length(root.yzw), 0.1);
+
+    let humus_pixel = footprint * f32(HUMUS);
+    if humus_pixel < 0.4 {
+        let bit = grains(spot, HUMUS, vec3<f32>(0.0), 45u);
+        let present = select(0.0, 1.0, roll(bit.id, 46u) < 0.06);
+        let inside = (1.0 - smoothstep(0.22 - humus_pixel, 0.22 + humus_pixel, bit.nearest)) * present * (1.0 - smoothstep(0.2, 0.4, humus_pixel));
+        color = mix(color, vec3<f32>(0.07, 0.05, 0.035), inside);
+    }
+
+    let relief = weierstrass(spot, 8, 9, 0.7, 0.03, footprint, 51u);
+    return Finish(color, base.height, base.glow, clamp(sqrt(rough * rough + relief.lost), 0.0, 1.0), 0.0, slope + relief.slope);
+}
+
+const THATCH: i32 = 40;
+const LAYERS: i32 = 5;
+const SLOTS: i32 = 3;
+const STRAW: vec3<f32> = vec3<f32>(0.34, 0.28, 0.15);
+
+struct Thatch {
+    color: vec3<f32>,
+    slope: vec2<f32>,
+    rough: f32,
+}
+
+fn thatch(near: vec2<f32>, anchor: vec2<i32>, at: vec2<f32>, comb: f32, spread: f32, footprint: f32, ground: vec3<f32>) -> Thatch {
+    let pixel = footprint * f32(THATCH);
+    var hit = -1;
+    var best = -1.0;
+    var lengthwise = 0.0;
+    var across = 0.0;
+    var heading = vec2<f32>(1.0, 0.0);
+    var blade = vec3<i32>(0);
+    for (var layer = 0; layer < LAYERS; layer++) {
+        if hit < 0 {
+            let local = near * f32(THATCH) + vec2<f32>(f32(layer) * 0.37, f32(layer) * 0.61);
+            let base = floor(local);
+            let cell = anchor * THATCH + vec2<i32>(base);
+            let inside = local - base;
+            for (var x = -1; x <= 1; x++) {
+                for (var y = -1; y <= 1; y++) {
+                    for (var slot = 0; slot < SLOTS; slot++) {
+                        let id = vec3<i32>(cell + vec2<i32>(x, y), layer * SLOTS + slot);
+                        let r = jitter(id, 61u);
+                        let more = jitter(id, 62u);
+                        let angle = comb + (r.z - 0.5) * spread;
+                        let toward = vec2<f32>(cos(angle), sin(angle));
+                        let reach = 0.6 + more.x * 0.4;
+                        let q = inside - vec2<f32>(f32(x), f32(y)) - r.xy;
+                        let t = dot(q, toward) / reach;
+                        let side = dot(q, vec2<f32>(-toward.y, toward.x));
+                        let half = (0.06 + more.y * 0.045) * pow(min((1.0 - t) * 3.5, 1.0), 0.7);
+                        let covered = t > 0.0 && t < 1.0 && abs(side) < half;
+                        if covered && more.z > best {
+                            best = more.z;
+                            hit = layer;
+                            lengthwise = t;
+                            across = side / max(half, 0.0001);
+                            heading = toward;
+                            blade = id;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    var result = Thatch(ground, vec2<f32>(0.0), 0.95);
+    if hit >= 0 {
+        let lushness = lush(at);
+        let depth = pow(0.74, f32(hit));
+        var color = blade_colour(lushness, 0.3 + 0.6 * lengthwise) * (0.85 + 0.3 * roll(blade, 64u));
+        color = mix(color, STRAW * (0.9 + 0.3 * roll(blade, 66u)), smoothstep(0.8, 1.0, lengthwise) * select(0.0, 0.6, roll(blade, 65u) < 0.15));
+        color = select(color, STRAW * (0.5 + 0.4 * roll(blade, 67u)), roll(blade, 63u) < 0.03);
+        color *= 1.0 + 0.16 * (1.0 - smoothstep(0.0, 0.14, abs(across)));
+        color *= 1.0 + 0.06 * sin(across * 17.0);
+        color *= 1.0 - 0.3 * smoothstep(0.6, 1.0, abs(across));
+        let perp = vec2<f32>(-heading.y, heading.x);
+        result = Thatch(color * depth, -perp * across * 0.8 + heading * (roll(blade, 68u) - 0.3) * 0.9, 0.55);
+    }
+    return result;
 }
 
 const TURF: f32 = 34.0;
 const LEAVES: f32 = 37.0;
 
-fn turfed(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> vec3<f32> {
-    let soil = rocky(23.0, at, normal, size).color;
+fn turfed(kind: f32, at: vec3<f32>, spot: Spot, normal: vec3<f32>, size: f32, time: f32) -> Finish {
+    let soil = earthen(at, spot, normal, size);
     let ragged = (supple(at * 2.3) - 0.5) * 0.3 + (supple(at * 7.0) - 0.5) * 0.12;
     let inside = at - normal * 0.02;
-    let texel = vec3<i32>(floor(inside * 16.0));
     let block = floor(inside);
     let dangle = supple(vec3<f32>(inside.x * 5.0, block.y * 7.0, inside.z * 5.0) + 41.0) * 0.6 + supple(vec3<f32>(inside.x * 13.0, block.y, inside.z * 13.0)) * 0.4;
     let hang = (2.0 + dangle * 4.0) / 16.0;
@@ -557,8 +1030,39 @@ fn turfed(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> 
     let pick = smoothstep(0.0, 1.0, (supple(inside * 14.0 + 3.0) - 0.5) * 2.6 + 0.5);
     let cloud = supple(inside * 3.0) * 0.6 + supple(at * 0.9 + 5.0) * 0.4;
     var cover = vec3<f32>(0.0);
-    if kind < TURF + 0.5 {
-        cover = select(lawn(at.xz, time, distance(at.xz, view.world_position.xz)), fuzz(at.xz, time, size), surface.turf.z > 0.5);
+    var slope = vec3<f32>(0.0);
+    var rough = 0.95;
+    if kind < TURF + 0.5 && surface.turf.z > 0.5 {
+        let footprint = size / 16.0;
+        let seen = 1.0 - smoothstep(0.06, 0.16, footprint * f32(THATCH));
+        var tuft = 0.0;
+        var hue = 0.0;
+        var frequency = THATCH;
+        for (var octave = 0; octave < 4; octave++) {
+            let n = wave(lattice(spot, frequency, vec3<f32>(f32(octave) * 0.31)), 71u + u32(octave)).x;
+            let fade = 1.0 - smoothstep(0.25, 0.7, footprint * f32(frequency));
+            tuft += n * fade * mix(1.0, 0.75, f32(octave) / 3.0);
+            hue += n * fade * f32(octave) / 3.0;
+            frequency = max(frequency / 3, 1);
+        }
+        let meadow = fuzz(at.xz, time, 9.0);
+        let shifted = mix(meadow, meadow * vec3<f32>(1.25, 1.0, 0.7), clamp(hue * 0.8, -0.5, 0.5));
+        cover = shifted * (1.0 + tuft * 0.5) * select(1.0, 0.82, fringe && normal.y < 0.6);
+        if seen > 0.0 {
+            let ground = mix(vec3<f32>(0.03, 0.035, 0.018), STRAW * 0.35, smoothstep(0.55, 0.75, supple(at * 60.0)));
+            let top = normal.y > 0.5;
+            let east = abs(normal.x) > abs(normal.z);
+            let near = select(vec2<f32>(select(spot.near.x, spot.near.z, east), -spot.near.y), spot.near.xz, top);
+            let anchor = select(vec2<i32>(select(spot.anchor.x, spot.anchor.z, east), -spot.anchor.y), spot.anchor.xz, top);
+            let comb = select(1.5708, supple(vec3<f32>(at.x * 0.4, 0.0, at.z * 0.4)) * 12.0, top);
+            let mat = thatch(near, anchor, at.xz, comb, select(0.8, 2.6, top), footprint, ground);
+            let flat = select(select(vec3<f32>(mat.slope.x, -mat.slope.y, 0.0), vec3<f32>(0.0, -mat.slope.y, mat.slope.x), east), vec3<f32>(mat.slope.x, 0.0, mat.slope.y), top);
+            cover = mix(cover, mat.color, seen);
+            slope = flat * seen;
+            rough = mix(rough, mat.rough, seen);
+        }
+    } else if kind < TURF + 0.5 {
+        cover = lawn(at.xz, time, distance(at.xz, view.world_position.xz));
         cover = cover * select(1.0, 0.82, fringe && normal.y < 0.6);
     } else if kind < TURF + 1.5 {
         let snow = array<vec3<f32>, 4>(vec3<f32>(0.7, 0.75, 0.82), vec3<f32>(0.82, 0.86, 0.92), vec3<f32>(0.92, 0.95, 0.99), vec3<f32>(1.0, 1.0, 1.0));
@@ -568,7 +1072,7 @@ fn turfed(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> 
         cover = ramped(spores, 0.45 + (cloud - 0.5) * 0.9 + (pick - 0.5) * 0.3);
         cover = mix(cover, vec3<f32>(0.72, 0.66, 0.7), (1.0 - below(pick, 0.94)) * (1.0 - smoothstep(0.8, 1.2, size)));
     }
-    return mix(soil, cover, covered);
+    return Finish(mix(soil.color, cover, covered), soil.height * (1.0 - covered), vec3<f32>(0.0), mix(soil.rough, rough, covered), 0.0, mix(soil.slope, slope, covered));
 }
 
 fn leafy(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> vec4<f32> {
@@ -662,7 +1166,7 @@ fn masonry(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     }
     let far = mix(ramped(palette, 0.45 + (tone - 0.5) * 0.3), joint, 0.15);
     let fade = smoothstep(1.0, 2.5, size);
-    return Finish(mix(color, far, fade), height * (1.0 - fade), vec3<f32>(0.0), 0.9, 0.0);
+    return Finish(mix(color, far, fade), height * (1.0 - fade), vec3<f32>(0.0), 0.9, 0.0, vec3<f32>(0.0));
 }
 
 fn stroke(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>) -> f32 {
@@ -716,7 +1220,7 @@ fn carved(at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> Finish {
     let carving = 1.0 - smoothstep(0.3, 0.5, near) * (1.0 - smoothstep(1.0, 2.5, size));
     let pulse = 0.75 + 0.25 * sin(time * 1.4 + f32(seed.x + seed.z) * 0.37);
     let color = mix(panel, RUNE, carving);
-    return Finish(color, -0.6 - carving * 0.6 - rim * 0.3, RUNE * carving * 0.55 * pulse, 0.85, 0.0);
+    return Finish(color, -0.6 - carving * 0.6 - rim * 0.3, RUNE * carving * 0.55 * pulse, 0.85, 0.0, vec3<f32>(0.0));
 }
 
 fn planked(at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
@@ -778,7 +1282,7 @@ fn planked(at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let fade = smoothstep(1.2, 3.0, size);
     let height = bevel * 0.9 - max(gap, joint) * 0.6 + (fibre - 0.5) * 0.25 * fine - late * 0.12 - core * 0.3 + nail * 0.2;
     let rough = mix(0.58 + late * 0.12 - scuffed * 0.12, 0.95, max(gap, joint));
-    return Finish(mix(color, far, fade), height * (1.0 - fade), vec3<f32>(0.0), mix(rough, 0.7, fade), nail * 0.8);
+    return Finish(mix(color, far, fade), height * (1.0 - fade), vec3<f32>(0.0), mix(rough, 0.7, fade), nail * 0.8, vec3<f32>(0.0));
 }
 
 fn barked(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
@@ -874,7 +1378,7 @@ fn barked(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32) -> Finish {
     let flake = smoothstep(0.66, 0.74, supple(at * 110.0 + 41.0)) * nearest;
     let rugged = color * (1.0 + fibre * 0.35 + speck * 0.2 - flake * 0.15);
     let fade = smoothstep(1.0, 2.5, size);
-    return Finish(mix(rugged, far, fade * 0.7), height * (1.0 - fade) + fibre * 0.08 + speck * 0.025 - flake * 0.02, vec3<f32>(0.0), 0.9 + fibre * 0.1, 0.0);
+    return Finish(mix(rugged, far, fade * 0.7), height * (1.0 - fade) + fibre * 0.08 + speck * 0.025 - flake * 0.02, vec3<f32>(0.0), 0.9 + fibre * 0.1, 0.0, vec3<f32>(0.0));
 }
 
 fn crafted(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) -> Finish {
@@ -888,7 +1392,7 @@ fn crafted(kind: f32, at: vec3<f32>, normal: vec3<f32>, size: f32, time: f32) ->
     return barked(kind, at, normal, size);
 }
 
-fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>, time: f32, size: f32) -> Finish {
+fn finish(kind: f32, mask: f32, at: vec3<f32>, spot: Spot, normal: vec3<f32>, eye: vec3<f32>, time: f32, size: f32) -> Finish {
     let axis = abs(normal);
     var first = vec3<f32>(1.0, 0.0, 0.0);
     var second = vec3<f32>(0.0, 1.0, 0.0);
@@ -902,7 +1406,7 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>
     let plane = vec2<f32>(dot(at, first), dot(at, second));
     let along = vec2<f32>(dot(at - cell, first), dot(at - cell, second));
     let rim = border(mask, clamp(along, vec2<f32>(0.0), vec2<f32>(1.0)));
-    var out = Finish(vec3<f32>(0.5), 0.0, vec3<f32>(0.0), 0.8, 0.0);
+    var out = Finish(vec3<f32>(0.5), 0.0, vec3<f32>(0.0), 0.8, 0.0, vec3<f32>(0.0));
     if kind < 1.5 {
         let dense = select(0.0, 1.0, kind > 0.5);
         let brushed = lumpy(vec3<f32>(plane.x * 40.0, plane.y * 1.5, 0.0)) * 0.08;
@@ -1005,7 +1509,11 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>
     } else if kind > MASONRY - 0.5 {
         out = crafted(kind, at, normal, size, time);
     } else if kind > TURF - 0.5 {
-        out = Finish(turfed(kind, at, normal, size, time), 0.0, vec3<f32>(0.0), 0.95, 0.0);
+        out = turfed(kind, at, spot, normal, size, time);
+    } else if kind > 22.5 && kind < 23.5 {
+        out = earthen(at, spot, normal, size);
+    } else if kind > 23.5 && kind < 24.5 {
+        out = sandy(at, spot, normal, size);
     } else {
         out = rocky(kind, at, normal, size);
     }
@@ -1032,7 +1540,9 @@ fn glow(at: vec3<f32>, time: f32) -> f32 {
 }
 
 @fragment
-fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
+fn fragment(passed: Varying, @builtin(front_facing) is_front: bool) -> FragmentOutput {
+    let in = plain(passed);
+    let spot = Spot(passed.near, vec3<i32>(anchor()));
     let at = in.world_position.xyz;
     let dx = dpdx(at);
     let dy = dpdy(at);
@@ -1068,12 +1578,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.reflectance = vec3<f32>(0.12);
     } else if procedural {
         let mask = packed - kind * 256.0;
-        let made = finish(kind, mask, at, normal, view.world_position, globals.time, size);
+        let made = finish(kind, mask, at, spot, normal, view.world_position, globals.time, size);
         pbr_input.material.base_color = vec4<f32>(made.color, 1.0) * tinted.color;
         pbr_input.material.perceptual_roughness = made.rough;
         pbr_input.material.metallic = made.metal;
         pbr_input.material.emissive = vec4<f32>(made.glow * 1.4, 0.0);
-        pbr_input.N = bumped(pbr_input.N, at, made.height, 0.05);
+        pbr_input.N = bumped(tilted(pbr_input.N, made.slope), at, made.height, 0.05);
     } else if in.uv_b.y < -0.5 {
         pbr_input.material.base_color = projected(in.uv, in.uv_b.y, at, normal, dx, dy) * tinted.color;
     }
