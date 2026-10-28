@@ -430,14 +430,16 @@ fn cloth(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, side: f32, n:
 fn leather(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32) -> Look {
     var look = Look(base, vec3<f32>(0.0), 0.55, 0.1);
     let grain = cells(p * GRAIN, 91u);
-    let fade = seen(GRAIN * 2.0, footprint);
+    let fade = seen(GRAIN * 1.1, footprint);
     let dome = (1.0 - smoothstep(0.0, 0.7, grain.nearest));
-    var slope = -grain.offset * dome * 0.5 * fade;
-    var shade = 1.0 - (1.0 - smoothstep(0.0, 0.12, grain.gap)) * 0.2 * fade;
-    let crease = wave(vec3<f32>(p.x * 60.0, p.y * 25.0, p.z * 60.0), 92u);
-    let line = 1.0 - smoothstep(0.0, 0.05, abs(crease.x));
-    shade *= 1.0 - line * 0.25 * seen(120.0, footprint);
-    slope += crease.yzw * 0.004 * select(1.0, -1.0, crease.x < 0.0) * line;
+    var slope = -grain.offset * dome * 0.7 * fade;
+    var shade = (1.0 - (1.0 - smoothstep(0.0, 0.14, grain.gap)) * 0.28 * fade) * (0.94 + dome * 0.08 * fade);
+    let ankle = select(0.0, exp(-pow((p.y + 0.6) / 0.05, 2.0)), part >= 4u);
+    let wrinkle = wave(vec3<f32>(p.x * 25.0, p.y * 160.0, p.z * 25.0), 92u);
+    let sparse = smoothstep(0.55, 0.75, noise3(vec3<f32>(p.x * 30.0, p.y * 12.0, p.z * 30.0)));
+    let fold = (1.0 - smoothstep(0.0, 0.08, abs(wrinkle.x))) * max(ankle, sparse * 0.5);
+    shade *= 1.0 - fold * 0.3 * seen(160.0, footprint);
+    slope += wrinkle.yzw * 0.0025 * sign(wrinkle.x) * fold;
     let scuff = smoothstep(0.62, 0.8, noise3(p * 45.0));
     var color = mix(base * shade, base * 1.35 + 0.02, scuff * 0.4);
     var rough = 0.5 + scuff * 0.3 + noise3(p * 80.0) * 0.1;
