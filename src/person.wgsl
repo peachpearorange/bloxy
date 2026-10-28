@@ -18,7 +18,7 @@ const LEATHER: i32 = 3;
 
 const PORES: f32 = 650.0;
 const FURROWS: f32 = 380.0;
-const THREADS: f32 = 1300.0;
+const THREADS: f32 = 520.0;
 const GRAIN: f32 = 420.0;
 
 fn scramble(cell: vec3<i32>, salt: u32) -> u32 {
@@ -388,19 +388,14 @@ fn cloth(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, side: f32, n:
     var shade = 0.94 + folds.x * 0.08 - smoothstep(0.1, 0.5, -creases.x) * 0.06 * (0.4 + bend * 2.0);
 
     let weave_fade = seen(THREADS, footprint);
-    let slub = seen(THREADS * 0.1, footprint);
-    if slub > 0.0 {
-        let row = floor(uv.y * THREADS);
-        let column = floor(uv.x * THREADS);
-        let yarn = 0.94 + chance(vec3<i32>(i32(row) >> 3, 0, i32(part)), 83u) * 0.08
-            + chance(vec3<i32>(i32(column) >> 3, 1, i32(part)), 84u) * 0.06;
-        shade *= mix(1.0, yarn, slub);
-    }
+    let fuzz = noise3(p * 900.0) * 0.6 + noise3(p * 2400.0) * 0.4;
+    shade *= mix(1.0, 0.9 + fuzz * 0.2, seen(900.0, footprint));
     if weave_fade > 0.0 {
         let grid = uv * THREADS;
         let cell = floor(grid);
         let f = grid - cell;
-        let over = (i32(cell.x) + i32(cell.y)) % 2 == 0;
+        let over = ((i32(cell.x) + i32(cell.y)) % 4 + 4) % 4 < 2;
+        let thread_tone = 0.93 + chance(vec3<i32>(select(i32(cell.y), i32(cell.x), over), select(1, 0, over), i32(part)), 83u) * 0.14;
         let wp = 1.0 - pow(2.0 * f.x - 1.0, 2.0);
         let wf = 1.0 - pow(2.0 * f.y - 1.0, 2.0);
         let arch_warp = 0.55 + 0.45 * sin(3.14159 * f.y);
@@ -415,7 +410,7 @@ fn cloth(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, side: f32, n:
             grad = vec2<f32>(0.45 * 3.14159 * cos(3.14159 * f.x), -(2.0 * f.y - 1.0) * 2.0 / max(sqrt(max(wf, 0.0)), 0.2));
         }
         let fibre = wave(vec3<f32>(select(grid.x * 6.0, grid.x * 0.6, over), select(grid.y * 0.6, grid.y * 6.0, over), 2.0), 85u);
-        shade *= mix(1.0, (0.55 + 0.45 * height) * (0.92 + fibre.x * 0.16) * select(0.96, 1.04, over), weave_fade);
+        shade *= mix(1.0, (0.6 + 0.4 * height) * (0.9 + fibre.x * 0.2) * thread_tone * select(0.94, 1.05, over), weave_fade);
         slope += (tangent_u * grad.x + tangent_v * grad.y) * 0.18 * weave_fade;
     }
     let angle = abs(atan2(flat.y, flat.x));
