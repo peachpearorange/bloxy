@@ -338,7 +338,7 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
     Vec3::new(0.0, 0.24, 0.015),
     Vec3::new(0.32, 0.43, 0.36),
     UVec3::new(4, 4, 4),
-    0.7
+    0.55
   )
   .shaped(|at| {
     let low = ((0.22 - at.y) / 0.16).clamp(0.0, 1.0);
@@ -363,8 +363,8 @@ fn head(skin: &Skin, features: &Features) -> Mesh {
         .pulled(front(at.x * 1.05, at.y + 0.04), 0.045, Vec3::new(0.0, 0.003, -0.008))
         .pulled(front(at.x * 1.25, at.y - 0.055), 0.05, Vec3::new(at.x.signum() * 0.004, 0.0, -0.007))
     })
-    .pulled(front(0.0, eye_y - 0.03), 0.05, Vec3::new(0.0, -0.004, -0.03))
-    .pulled(front(0.0, eye_y - 0.065), 0.028, Vec3::new(0.0, -0.004, -0.016))
+    .pulled(front(0.0, eye_y - 0.035), 0.05, Vec3::new(0.0, -0.004, -0.036))
+    .pulled(front(0.0, eye_y - 0.07), 0.03, Vec3::new(0.0, -0.004, -0.02))
     .pulled(front(0.0, eye_y + 0.01), 0.03, Vec3::new(0.0, 0.0, -0.006))
     .pulled(front(0.0, mouth.y - 0.003), 0.03, Vec3::new(0.0, 0.0, -0.006))
     .pulled(front(0.0, mouth.y - 0.055), 0.05, Vec3::new(0.0, -0.006, -0.012));

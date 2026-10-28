@@ -267,7 +267,7 @@ fn flesh(p: vec3<f32>, base: vec3<f32>, footprint: f32, part: u32, n: vec3<f32>)
     return look;
 }
 
-fn lips(p: vec3<f32>, look: Look, footprint: f32) -> Look {
+fn lips(p: vec3<f32>, n: vec3<f32>, look: Look, footprint: f32) -> Look {
     var out = look;
     let mouth = living.parts[18].xy;
     let d = p.xy - mouth;
@@ -278,7 +278,7 @@ fn lips(p: vec3<f32>, look: Look, footprint: f32) -> Look {
     let parting = -0.001 + 0.0015 * across * across;
     let upper = parting + (0.0105 - 0.004 * exp(-pow(d.x / 0.007, 2.0))) * pow(bow, 0.6);
     let lower = parting - 0.013 * pow(bow, 0.75);
-    let front = fall(-0.17, -0.12, p.z);
+    let front = smoothstep(0.2, 0.5, -n.z);
     let inside = (1.0 - smoothstep(-pixel, pixel, d.y - upper)) * (1.0 - smoothstep(-pixel, pixel, lower - d.y)) * step(abs(d.x), half_width * 1.2) * front;
     let line = (1.0 - smoothstep(0.0004, 0.0012 + pixel, abs(d.y - parting))) * fall(0.7, 1.05, abs(across)) * front;
     let furrows = wave(vec3<f32>(d.x * 700.0, d.y * 50.0, 3.0), 61u);
@@ -556,7 +556,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         } else {
             look = flesh(p, base, footprint, part, local_normal);
             if part == 0u {
-                look = lips(p, look, footprint);
+                look = lips(p, local_normal, look, footprint);
             }
         }
     }
