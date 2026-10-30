@@ -21,8 +21,8 @@ server.listen(0, async () => {
   });
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, acceptDownloads: true });
   page.on('console', message => {
-    const text = message.text();
-    if (message.type() === 'error' || /panicked|ERROR|WARN|shot waits/.test(text)) console.log(text.slice(0, 400));
+    const text = message.text().replace(/%c/g, '').replace(/ color: .*$/s, '');
+    if (process.env.VERBOSE || message.type() === 'error' || message.type() === 'warning' || /panicked|ERROR|WARN/.test(text)) console.log(text.slice(0, 2000));
   });
   page.on('pageerror', error => console.log('page error:', error.message));
   const query = `?connect=&opts=${encodeURIComponent((opts || '{shot: 2}').trim().replace(/^\{|\}$/g, ''))}`;
