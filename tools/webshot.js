@@ -24,6 +24,19 @@ server.listen(0, async () => {
     const text = message.text().replace(/%c/g, '').replace(/ color: .*$/s, '');
     if (process.env.VERBOSE || message.type() === 'error' || message.type() === 'warning' || /panicked|ERROR|WARN/.test(text)) console.log(text.slice(0, 2000));
   });
+  await page.addInitScript(() => {
+    const create = GPUDevice.prototype.createShaderModule;
+    GPUDevice.prototype.createShaderModule = function (descriptor) {
+      const module = create.call(this, descriptor);
+      module.getCompilationInfo().then(info => {
+        for (const message of info.messages.filter(message => message.type === 'error')) {
+          const line = descriptor.code.split('\n')[message.lineNum - 1] || '';
+          console.error(`WGSL error ${message.lineNum}:${message.linePos} ${message.message}\n  > ${line.trim()}\n  in shader starting: ${descriptor.code.slice(0, 120).replace(/\n/g, ' ')}`);
+        }
+      });
+      return module;
+    };
+  });
   page.on('pageerror', error => console.log('page error:', error.message));
   const query = `?connect=&opts=${encodeURIComponent((opts || '{shot: 2}').trim().replace(/^\{|\}$/g, ''))}`;
   const download = page.waitForEvent('download', { timeout: 0 });
