@@ -22,6 +22,7 @@ server.listen(0, async () => {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, acceptDownloads: true });
   page.on('console', message => {
     const text = message.text().replace(/%c/g, '').replace(/ color: .*$/s, '');
+    if (/Quitting the application|panicked at/.test(text)) setTimeout(() => process.exit(1), 2000);
     if (process.env.VERBOSE || message.type() === 'error' || message.type() === 'warning' || /panicked|ERROR|WARN/.test(text)) console.log(text.slice(0, 2000));
   });
   await page.addInitScript(() => {

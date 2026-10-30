@@ -1523,11 +1523,7 @@ fn finish(kind: f32, mask: f32, at: vec3<f32>, spot: Spot, normal: vec3<f32>, ey
     return out;
 }
 
-fn bumped(normal: vec3<f32>, at: vec3<f32>, height: f32, scale: f32) -> vec3<f32> {
-    let dx = dpdx(at);
-    let dy = dpdy(at);
-    let hx = dpdx(height) * scale;
-    let hy = dpdy(height) * scale;
+fn bumped(normal: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>, hx: f32, hy: f32) -> vec3<f32> {
     let r1 = cross(dy, normal);
     let r2 = cross(normal, dx);
     let det = dot(dx, r1);
@@ -1560,6 +1556,8 @@ fn fragment(passed: Varying, @builtin(front_facing) is_front: bool) -> FragmentO
     let size = sqrt(length(dx) * length(dy)) * 16.0;
     var mark = 0.0;
     var procedural = false;
+    var height = 0.0;
+    var bumpy = false;
 #ifdef VERTEX_UVS_B
     procedural = in.uv_b.y < -99999.5;
 #endif
@@ -1586,12 +1584,19 @@ fn fragment(passed: Varying, @builtin(front_facing) is_front: bool) -> FragmentO
         pbr_input.material.perceptual_roughness = made.rough;
         pbr_input.material.metallic = made.metal;
         pbr_input.material.emissive = vec4<f32>(made.glow * 1.4, 0.0);
-        pbr_input.N = bumped(tilted(pbr_input.N, made.slope), at, made.height, 0.05);
+        pbr_input.N = tilted(pbr_input.N, made.slope);
+        height = made.height;
+        bumpy = true;
     } else if in.uv_b.y < -0.5 {
         pbr_input.material.base_color = projected(in.uv, in.uv_b.y, at, normal, dx, dy) * tinted.color;
     }
 #endif
 #endif
+    let hx = dpdx(height) * 0.05;
+    let hy = dpdy(height) * 0.05;
+    if bumpy {
+        pbr_input.N = bumped(pbr_input.N, dx, dy, hx, hy);
+    }
     let sunk = max(SEA_TOP - at.y, 0.0) - surface.weather.z;
     let drowned = clamp(exp(-sunk * ABSORBED), vec3<f32>(0.12), vec3<f32>(1.8));
     pbr_input.material.base_color = vec4<f32>(pbr_input.material.base_color.rgb * select(vec3<f32>(1.0), drowned, at.y < SEA_TOP && surface.weather.z >= 0.0), pbr_input.material.base_color.a);

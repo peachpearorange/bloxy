@@ -299,23 +299,33 @@ struct Strands {
     flow: vec3<f32>,
 }
 
-fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
+const CROWN: vec3<f32> = vec3<f32>(0.0, 0.25, 0.015);
+const CROWN_AXIS: vec3<f32> = vec3<f32>(0.0, 0.9701425, 0.2425356);
+
+fn crown(p: vec3<f32>) -> vec2<f32> {
+    let ahead = normalize(vec3<f32>(0.0, 0.0, -1.0) - CROWN_AXIS * dot(vec3<f32>(0.0, 0.0, -1.0), CROWN_AXIS));
+    let beside = cross(CROWN_AXIS, ahead);
+    let d = normalize(p - CROWN);
+    let theta = acos(clamp(dot(d, CROWN_AXIS), -1.0, 1.0));
+    return vec2<f32>(theta, atan2(dot(d, beside), dot(d, ahead)) + 1.6 * exp(-theta * 3.0));
+}
+
+fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>, combing: vec2<f32>) -> Strands {
     var look = Look(base, vec3<f32>(0.0), 0.42, 0.0);
-    let centre = vec3<f32>(0.0, 0.25, 0.015);
-    let axis = normalize(vec3<f32>(0.0, 0.22, 0.055));
+    let axis = CROWN_AXIS;
     let ahead = normalize(vec3<f32>(0.0, 0.0, -1.0) - axis * dot(vec3<f32>(0.0, 0.0, -1.0), axis));
     let beside = cross(axis, ahead);
-    let d = normalize(p - centre);
-    let theta = acos(clamp(dot(d, axis), -1.0, 1.0));
-    let whorl = 1.6 * exp(-theta * 3.0);
-    let phi = atan2(dot(d, beside), dot(d, ahead)) + whorl;
+    let d = normalize(p - CROWN);
+    let angles = crown(p);
+    let theta = angles.x;
+    let phi = angles.y;
     let meridian = normalize(d * dot(d, axis) - axis + beside * 0.0001);
     let flow = normalize(meridian - n * dot(meridian, n));
     let across = normalize(cross(n, flow));
 
     let wander = noise3(vec3<f32>(theta * 9.0, phi * 2.0, 1.0)) - 0.5;
     let clump_coord = phi * 45.0 + wander * 2.5 + noise3(vec3<f32>(theta * 30.0, phi * 20.0, 5.0)) * 0.6;
-    let clump_fade = 1.0 - smoothstep(0.2, 0.5, fwidth(clump_coord));
+    let clump_fade = 1.0 - smoothstep(0.2, 0.5, combing.y * 45.0);
     let clump_within = fract(clump_coord);
     let clump_id = floor(clump_coord);
     let clump_round = clump_within * 2.0 - 1.0;
@@ -325,7 +335,7 @@ fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
     var slope = across * (-clump_round / max(clump_profile, 0.3)) * 0.12 * clump_fade;
 
     let mid_coord = phi * 170.0 + wander * 5.0 + clump_round * 1.2;
-    let mid_fade = 1.0 - smoothstep(0.15, 0.4, fwidth(mid_coord));
+    let mid_fade = 1.0 - smoothstep(0.15, 0.4, combing.y * 170.0);
     if mid_fade > 0.0 {
         let lane = floor(mid_coord);
         let round = (mid_coord - lane) * 2.0 - 1.0;
@@ -335,7 +345,7 @@ fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
         slope += across * (-round / max(profile, 0.3)) * 0.18 * mid_fade;
     }
     let lock_coord = phi * 320.0 + wander * 8.0 + clump_round * 1.5;
-    let lock_fade = 1.0 - smoothstep(0.15, 0.4, fwidth(lock_coord));
+    let lock_fade = 1.0 - smoothstep(0.15, 0.4, combing.y * 320.0);
     if lock_fade > 0.0 {
         let lane = floor(lock_coord);
         let round = (lock_coord - lane) * 2.0 - 1.0;
@@ -345,7 +355,7 @@ fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
         slope += across * (-round / max(profile, 0.3)) * 0.15 * lock_fade;
     }
     let strand_coord = phi * 1400.0 + wander * 30.0 + clump_round * 3.0;
-    let strand_fade = 1.0 - smoothstep(0.15, 0.4, fwidth(strand_coord));
+    let strand_fade = 1.0 - smoothstep(0.15, 0.4, combing.y * 1400.0);
     if strand_fade > 0.0 {
         let lane = floor(strand_coord);
         let within = strand_coord - lane;
@@ -357,7 +367,7 @@ fn hair(p: vec3<f32>, base: vec3<f32>, n: vec3<f32>) -> Strands {
         shade *= mix(1.0, (0.5 + 0.5 * profile) * tone, strand_fade);
         slope += across * (-round / max(profile, 0.3)) * 0.12 * strand_fade;
         let scales = fract(theta * 4000.0 + chance(id, 74u));
-        shade *= mix(1.0, 0.93 + 0.07 * smoothstep(0.0, 0.2, scales), strand_fade * (1.0 - smoothstep(0.2, 0.5, fwidth(theta * 4000.0))));
+        shade *= mix(1.0, 0.93 + 0.07 * smoothstep(0.0, 0.2, scales), strand_fade * (1.0 - smoothstep(0.2, 0.5, combing.x * 4000.0)));
     }
     let depth = smoothstep(0.0, 0.6, theta) * (1.0 - clump_profile * 0.5);
     look.color = base * shade * mix(1.0, 0.85, depth * clump_fade);
@@ -523,6 +533,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let finish = (code >> 3u) & 3u;
     let tint = code >> 5u;
     let footprint = length(fwidth(p));
+    let combing = fwidth(crown(p));
     let side = living.parts[part * 3u + 2u].w;
 
     let up = normalize(in.world_normal);
@@ -545,7 +556,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let kind = i32(round(texel.a * 255.0 / 40.0));
         let base = texel.rgb;
         if kind == HAIR {
-            let strands = hair(p, base, local_normal);
+            let strands = hair(p, base, local_normal, combing);
             look = strands.look;
             flow = strands.flow;
             anisotropy = 0.6;
