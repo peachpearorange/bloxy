@@ -29,6 +29,7 @@ mod crafting;
 mod crew;
 mod crumble;
 mod death;
+mod droid;
 mod dungeon;
 mod editor;
 mod facet;
@@ -368,7 +369,8 @@ fn main() {
       submarine::Submarines,
       mech::Mechs,
       biology::Biology,
-      robot::Robots
+      robot::Robots,
+      droid::Droids
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
