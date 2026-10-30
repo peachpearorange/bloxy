@@ -239,6 +239,10 @@ pub fn tagline(block: Block) -> Option<&'static str> {
     Block::HeatShield => Some("Wades through lava."),
     Block::BuildArm => Some("Builds from afar."),
     Block::Dynamo => Some("Charges itself."),
+    Block::Cogling => Some("Small and eager. Picks up what you drop."),
+    Block::Gladiator => Some("Built for the arena. Guards whoever woke it."),
+    Block::Paragon => Some("A hero asleep in its armour, waiting for a reason."),
+    Block::Cogwheel => Some("The heart of every clockwork friend."),
     _ => None
   }
 }

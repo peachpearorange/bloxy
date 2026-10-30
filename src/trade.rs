@@ -41,8 +41,24 @@ const OFFERS: [Offer; 14] = [
   offer((Block::Dirt, 32), (Block::Grass, 8))
 ];
 
-pub fn offers(luck: u32) -> Vec<Offer> {
-  let mut ranked: Vec<(u32, Offer)> = OFFERS
+const SALVAGE: [Offer; 9] = [
+  offer((Block::IronOre, 6), (Block::Cogwheel, 4)),
+  offer((Block::Log, 16), (Block::Cogwheel, 2)),
+  offer((Block::AlloyScrap, 4), (Block::Cogwheel, 6)),
+  offer((Block::GoldOre, 4), (Block::Cogling, 1)),
+  offer((Block::GoldOre, 3), (Block::Cogling, 1)),
+  offer((Block::DiamondOre, 3), (Block::Gladiator, 1)),
+  offer((Block::DiamondOre, 6), (Block::Paragon, 1)),
+  offer((Block::Cogwheel, 8), (Block::Battery, 1)),
+  offer((Block::Cogwheel, 6), (Block::GoldOre, 1))
+];
+
+pub fn offers(band: Band, luck: u32) -> Vec<Offer> {
+  let wares: &[Offer] = match band {
+    Band::Scavver => &SALVAGE,
+    _ => &OFFERS
+  };
+  let mut ranked: Vec<(u32, Offer)> = wares
     .iter()
     .enumerate()
     .map(|(index, &offer)| (hash(luck, index as i32, 0x7, 0x3), offer))
@@ -66,9 +82,9 @@ fn trade(
   for &FromClient { client_id, message: Trade { trader, offer } } in trades.read() {
     if let Some((avatar, mut inventory)) = player_of(players.iter_mut(), client_id)
       && let Ok(folk) = folk.get(trader)
-      && folk.band == Band::Trader
+      && folk.band.trades()
       && (avatar.at + Vec3::Y * EYE).distance(folk.at + Vec3::Y) <= HAIL + 1.0
-      && let Some(&offer) = offers(folk.luck).get(usize::from(offer))
+      && let Some(&offer) = offers(folk.band, folk.luck).get(usize::from(offer))
       && let Some(after) = barter(&inventory, offer)
     {
       *inventory = after
@@ -120,7 +136,7 @@ fn hail(
       .map_or(HAIL, |hit| (hit.at.as_vec3() + 0.5).distance(from));
     if let Some((trader, _)) = folk
       .iter()
-      .filter(|(_, folk)| folk.band == Band::Trader)
+      .filter(|(_, folk)| folk.band.trades())
       .filter_map(|(entity, folk)| struck(folk, from, toward).map(|near| (entity, near)))
       .filter(|&(_, near)| near <= blocked)
       .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -196,11 +212,14 @@ fn haggle(
       .and_then(|entity| folk.get(entity).ok().map(|folk| (entity, folk)))
       .filter(|(_, folk)| folk.at.distance(pilot.at) < HAIL * 3.0);
     let inventory = inventories.get(pilot.me).cloned().unwrap_or_default();
-    let deals = trader.map(|(_, folk)| offers(folk.luck)).unwrap_or_default();
+    let deals = trader.map(|(_, folk)| offers(folk.band, folk.luck)).unwrap_or_default();
     let haves: Vec<u32> =
       deals.iter().map(|offer| inventory.count(offer.give.0)).collect();
     let key = (trader.map(|(entity, _)| entity), haves.clone());
     let line = match trader {
+      Some((_, folk)) if folk.band == Band::Scavver => {
+        "A scavver whirs and clicks: gears for scrap, and a few sleeping friends for ore."
+      }
       Some(_) => "A trader. Take a look at my wares!",
       None => "The trader has sailed on."
     };
@@ -258,7 +277,7 @@ mod tests {
 
   #[test]
   fn traders_offer_four_distinct_deals_that_work() {
-    let deals = offers(12345);
+    let deals = offers(Band::Trader, 12345);
     assert_eq!(deals.len(), 4);
     assert!(deals.iter().enumerate().all(|(index, deal)| !deals[..index].contains(deal)));
     let deal = deals[0];

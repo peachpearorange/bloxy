@@ -43,7 +43,11 @@ impl Band {
       Band::Phantom => 10,
       Band::Imp => 7,
       Band::Sentinel => 14,
-      Band::Custodian => 70
+      Band::Custodian => 70,
+      Band::Cogling => 12,
+      Band::Scavver => 14,
+      Band::Gladiator => 36,
+      Band::Paragon => 44
     }
   }
 
@@ -58,6 +62,8 @@ impl Band {
       Band::Imp => 4.4,
       Band::Sentinel => 3.8,
       Band::Custodian => 2.6,
+      Band::Cogling => 4.0,
+      Band::Gladiator | Band::Paragon => 4.6,
       _ => 3.4
     }
   }
@@ -69,6 +75,8 @@ impl Band {
       Band::Warden => 5,
       Band::Custodian => 6,
       Band::Thrall => 3,
+      Band::Gladiator => 5,
+      Band::Paragon => 4,
       _ => 2
     }
   }
@@ -565,7 +573,11 @@ fn hat(band: Band) -> Gear {
     | Band::Pirate
     | Band::Viking
     | Band::Sentinel
-    | Band::Custodian => vec![],
+    | Band::Custodian
+    | Band::Cogling
+    | Band::Scavver
+    | Band::Gladiator
+    | Band::Paragon => vec![],
     Band::Phantom => vec![
       (at(0.0, 4.5, 0.6), at(9.2, 9.4, 9.0), [0.1, 0.16, 0.4]),
       (at(0.0, 9.6, 1.5), at(7.0, 1.4, 7.0), [0.1, 0.16, 0.4]),
@@ -1131,7 +1143,7 @@ fn dress(
   mut ossuary: ResMut<Ossuary>,
   mut commands: Commands
 ) {
-  for (entity, folk) in arrivals.iter() {
+  for (entity, folk) in arrivals.iter().filter(|(_, folk)| folk.band.model().is_none()) {
     let bony = folk.band.sculpted();
     let imp = folk.band == Band::Imp;
     let made = folk.band.construct();

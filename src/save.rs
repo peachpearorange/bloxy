@@ -45,7 +45,9 @@ pub struct World {
   #[serde(default)]
   pub subs: Vec<crate::submarine::Sub>,
   #[serde(default)]
-  pub mechs: Vec<crate::mech::Mech>
+  pub mechs: Vec<crate::mech::Mech>,
+  #[serde(default)]
+  pub automatons: Vec<crate::robot::Kept>
 }
 
 pub fn load() -> Option<World> {
@@ -80,7 +82,10 @@ fn store(
     Query<&crate::submarine::Sub>,
     Query<&crate::mech::Mech>
   ),
-  signs: Query<&Sign>,
+  (signs, robots): (
+    Query<&Sign>,
+    Query<(&Folk, &crate::robot::Automaton, &Health, &crate::robot::Drive)>
+  ),
   claims: Query<(&Claim, &Holding)>,
   (coffers, works, hoards): (
     Res<crate::chest::Coffers>,
@@ -101,6 +106,7 @@ fn store(
       Changed<crate::balloon::Aerostat>,
       Changed<crate::submarine::Sub>,
       Changed<crate::mech::Mech>,
+      Changed<crate::robot::Automaton>,
       Changed<Sign>,
       Changed<Claim>,
       Changed<Holding>
@@ -173,7 +179,8 @@ fn store(
           striding: false,
           ..mech.clone()
         })
-        .collect()
+        .collect(),
+      automatons: crate::robot::kept(&robots)
     };
     match write(path, &world) {
       Ok(()) => *pending = false,

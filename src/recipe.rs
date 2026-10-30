@@ -284,6 +284,21 @@ const DEPTHS: &[Recipe] = &[
     (Block::TorpedoBay, 1)
   ),
   table(&[(Block::IronOre, 1), (Block::CoalOre, 2)], (Block::Torpedo, 4)),
+  table(&[(Block::IronOre, 2), (Block::CopperOre, 1)], (Block::Cogwheel, 4)),
+  table(
+    &[(Block::Cogwheel, 6), (Block::IronOre, 4), (Block::Glass, 2), (Block::Battery, 1)],
+    (Block::Cogling, 1)
+  ),
+  table(
+    &[
+      (Block::Cogwheel, 12),
+      (Block::IronOre, 16),
+      (Block::GoldOre, 3),
+      (Block::Glass, 2),
+      (Block::Battery, 2)
+    ],
+    (Block::Gladiator, 1)
+  ),
   table(&[(Block::Battery, 2), (Block::CopperCable, 2)], (Block::PowerCell, 1)),
   table(
     &[

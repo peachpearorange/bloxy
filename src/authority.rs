@@ -192,7 +192,8 @@ fn found_world(mut commands: Commands) {
     packs,
     pockets,
     subs,
-    mechs
+    mechs,
+    automatons
   } = save::load().unwrap_or_else(|| World {
     seed: opts().seed,
     edits: default(),
@@ -209,7 +210,8 @@ fn found_world(mut commands: Commands) {
     packs: default(),
     pockets: default(),
     subs: default(),
-    mechs: default()
+    mechs: default(),
+    automatons: default()
   });
   let migrating = generation.is_some_and(|generation| generation != generate::GENERATION);
   if migrating {
@@ -235,6 +237,9 @@ fn found_world(mut commands: Commands) {
   }
   for mech in mechs.into_iter() {
     crate::mech::spawn(&mut commands, mech)
+  }
+  for robot in automatons.into_iter() {
+    crate::robot::lodge(&mut commands, robot)
   }
   for (at, yaw, fuel, pattern) in balloons.into_iter() {
     crate::balloon::spawn(

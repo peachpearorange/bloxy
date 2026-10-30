@@ -424,13 +424,28 @@ pub enum Band {
   Phantom,
   Imp,
   Sentinel,
-  Custodian
+  Custodian,
+  Cogling,
+  Scavver,
+  Gladiator,
+  Paragon
 }
 
 impl Band {
   pub fn hostile(self) -> bool {
-    !matches!(self, Band::Trader | Band::Thrall | Band::Phantom)
+    !matches!(
+      self,
+      Band::Trader
+        | Band::Thrall
+        | Band::Phantom
+        | Band::Cogling
+        | Band::Scavver
+        | Band::Gladiator
+        | Band::Paragon
+    )
   }
+
+  pub fn trades(self) -> bool { matches!(self, Band::Trader | Band::Scavver) }
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
@@ -612,7 +627,10 @@ impl Plugin for Protocol {
       .add_mapped_client_message::<crate::mech::Refit>(Channel::Ordered)
       .add_mapped_client_message::<crate::mech::Unfit>(Channel::Ordered)
       .add_client_message::<crate::mech::Stride>(Channel::Unreliable)
-      .add_client_message::<crate::mech::Shoot>(Channel::Ordered);
+      .add_client_message::<crate::mech::Shoot>(Channel::Ordered)
+      .replicate::<crate::robot::Automaton>()
+      .add_client_message::<crate::robot::Rouse>(Channel::Ordered)
+      .add_mapped_client_message::<crate::robot::Order>(Channel::Ordered);
   }
 }
 

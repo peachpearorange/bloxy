@@ -2211,6 +2211,102 @@ fn submarine(x: u32, y: u32) -> Texel {
 const MECH: Palette =
   [[0.42, 0.2, 0.04], [0.82, 0.46, 0.1], [0.96, 0.64, 0.18], [1.0, 0.85, 0.45]];
 
+const COG: Palette =
+  [[0.22, 0.23, 0.26], [0.42, 0.43, 0.47], [0.62, 0.63, 0.67], [0.84, 0.85, 0.88]];
+
+fn cogwheel(x: u32, y: u32) -> Texel {
+  let (fx, fy) = (x as f32 - 7.5, y as f32 - 7.5);
+  let reach = Vec2::new(fx, fy).length();
+  let teeth =
+    ((fy.atan2(fx) / std::f32::consts::TAU * 8.0).rem_euclid(1.0) < 0.5) as u8 as f32;
+  match () {
+    () if reach < 1.6 => clear(),
+    () if reach < 2.6 => tone(&COG, 0.85, x, y),
+    () if reach < 5.2 => tone(&COG, 0.55 - (fx + fy) / 40.0, x, y),
+    () if reach < 5.2 + teeth * 2.1 => tone(&COG, 0.38, x, y),
+    () => clear()
+  }
+}
+
+fn automaton(tile: Tile, x: u32, y: u32) -> Texel {
+  let (armour, trim, glow): ([f32; 3], [f32; 3], [f32; 3]) = match tile {
+    Tile::Cogling => ([0.2, 0.42, 0.85], [0.42, 0.26, 0.5], [1.0, 0.55, 0.12]),
+    Tile::Gladiator => ([0.68, 0.09, 0.06], [0.95, 0.66, 0.16], [1.0, 0.55, 0.12]),
+    _ => ([0.86, 0.88, 0.92], [0.4, 0.5, 0.6], [0.35, 0.78, 1.0])
+  };
+  let paint = |color: [f32; 3], shade: f32| {
+    let [r, g, b] = color.map(|channel| channel * shade);
+    Texel::rgb(r, g, b).scaled(lit(x, y))
+  };
+  let steel = |shade: f32| ramp(&COG, shade).scaled(lit(x, y));
+  let (fx, fy) = (x as f32 - 7.5, y as f32);
+  match tile {
+    Tile::Cogling => {
+      let head = Vec2::new(fx / 3.6, (fy - 3.6) / 3.4).length() < 1.0;
+      let eye = (fx.abs() - 1.5).abs() < 0.9 && (3.0..5.0).contains(&fy);
+      let torso = fx.abs() < 3.0 && (7.0..11.0).contains(&fy);
+      let heart = (fx - 1.0).abs() < 0.8 && (8.0..9.5).contains(&fy);
+      let arm = (fx.abs() - 4.0).abs() < 0.8 && (7.0..12.0).contains(&fy);
+      let leg = (fx.abs() - 1.6).abs() < 1.0 && (11.0..15.0).contains(&fy);
+      let foot = (fx.abs() - 1.8).abs() < 1.6 && fy >= 15.0;
+      match () {
+        () if head && eye => Texel::rgb(glow[0], glow[1], glow[2]).glowing(1.0),
+        () if head => paint(armour, 1.0 - (fy - 1.0) * 0.04),
+        () if heart => Texel::rgb(glow[0], glow[1], glow[2]).glowing(1.0),
+        () if torso => paint(armour, 0.85),
+        () if arm => match fy > 10.0 {
+          true => paint(trim, 1.0),
+          false => steel(0.6)
+        },
+        () if leg => steel(0.45),
+        () if foot => paint(armour, 0.75),
+        () => clear()
+      }
+    }
+    Tile::Gladiator => {
+      let head = fx.abs() < 1.6 - (fy - 2.0).max(0.0) * 0.12 && (0.0..4.0).contains(&fy);
+      let eye = fx.abs() < 1.2 && fy == 2.0;
+      let pads = (fx.abs() - 3.6).abs() < 1.6 && (4.0..6.0).contains(&fy);
+      let spike = (fx.abs() - 4.5).abs() < 0.6 && (2.0..4.0).contains(&fy);
+      let chest = fx.abs() < 2.6 - (fy - 5.0) * 0.35 && (5.0..9.0).contains(&fy);
+      let arm = (fx.abs() - 3.8).abs() < 0.7 && (6.0..11.0).contains(&fy);
+      let leg = (fx.abs() - 1.5).abs() < 0.8 && (9.0..15.0).contains(&fy);
+      let foot = (fx.abs() - 1.8).abs() < 1.3 && fy >= 15.0;
+      let blade = x == 13 + (y < 6) as u32 && (1..10).contains(&y);
+      match () {
+        () if eye => Texel::rgb(glow[0], glow[1], glow[2]).glowing(1.0),
+        () if blade => ramp(&COG, 0.95),
+        () if head => paint(armour, 1.0),
+        () if spike => paint(trim, 1.1),
+        () if pads => paint(armour, 0.95),
+        () if chest => paint(armour, 0.85 + (fx.abs() < 0.6) as u8 as f32 * 0.3),
+        () if arm => steel(0.55),
+        () if leg => match fy < 12.0 {
+          true => steel(0.5),
+          false => paint(armour, 0.8)
+        },
+        () if foot => paint(trim, 0.9),
+        () => clear()
+      }
+    }
+    _ => {
+      let (mx, my) = (fx / 6.2, (fy - 8.0) / 7.0);
+      let mask = Vec2::new(mx, my).length() < 1.0 && my < 0.85 - mx.abs() * 0.3;
+      let socket = (fx.abs() - 2.4).abs() < 1.5 && (5.0..8.5).contains(&fy);
+      let eye = (fx.abs() - 2.4).abs() < 0.7 && (6.0..7.5).contains(&fy);
+      let brow = fy < 5.0 && fy >= 4.0 && fx.abs() < 4.5;
+      let nose = fx.abs() < 0.7 && (8.0..11.0).contains(&fy);
+      match () {
+        () if !mask => clear(),
+        () if eye => Texel::rgb(glow[0], glow[1], glow[2]).glowing(1.0),
+        () if socket => steel(0.05),
+        () if brow || nose => paint(trim, 1.0),
+        () => paint(armour, 1.0 - (fy - 2.0) * 0.03 - mx.abs() * 0.15)
+      }
+    }
+  }
+}
+
 fn mech(x: u32, y: u32) -> Texel {
   let leg = ((4..7).contains(&x) || (9..12).contains(&x)) && (10..15).contains(&y);
   let foot = ((3..7).contains(&x) || (9..13).contains(&x)) && y == 15;
@@ -2421,6 +2517,8 @@ pub fn paint(tile: Tile, x: u32, y: u32) -> Texel {
     | Tile::BuildArm
     | Tile::Dynamo => module(tile, x, y),
     Tile::Mech => mech(x, y),
+    Tile::Cogwheel => cogwheel(x, y),
+    Tile::Cogling | Tile::Gladiator | Tile::Paragon => automaton(tile, x, y),
     Tile::Glass => {
       let frame = x == 0 || y == 0 || x == PIXELS - 1 || y == PIXELS - 1;
       let streak = (x + y == 5 || x + y == 7 || x + y == 20) && x > 1 && y > 1;

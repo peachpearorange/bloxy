@@ -40,7 +40,11 @@ impl Band {
       | Band::Phantom
       | Band::Imp
       | Band::Sentinel
-      | Band::Custodian => 6.0
+      | Band::Custodian
+      | Band::Cogling
+      | Band::Scavver
+      | Band::Gladiator
+      | Band::Paragon => 6.0
     }
   }
 
@@ -56,7 +60,11 @@ impl Band {
       | Band::Phantom
       | Band::Imp
       | Band::Sentinel
-      | Band::Custodian => 1.4
+      | Band::Custodian
+      | Band::Cogling
+      | Band::Scavver
+      | Band::Gladiator
+      | Band::Paragon => 1.4
     }
   }
 
@@ -72,7 +80,11 @@ impl Band {
       | Band::Phantom
       | Band::Imp
       | Band::Sentinel
-      | Band::Custodian => 5.0
+      | Band::Custodian
+      | Band::Cogling
+      | Band::Scavver
+      | Band::Gladiator
+      | Band::Paragon => 5.0
     }
   }
 
@@ -88,7 +100,11 @@ impl Band {
       | Band::Phantom
       | Band::Imp
       | Band::Sentinel
-      | Band::Custodian => &VIKING_SEATS
+      | Band::Custodian
+      | Band::Cogling
+      | Band::Scavver
+      | Band::Gladiator
+      | Band::Paragon => &VIKING_SEATS
     }
   }
 }
@@ -483,7 +499,11 @@ fn canvas(band: Band) -> Image {
       | Band::Phantom
       | Band::Imp
       | Band::Sentinel
-      | Band::Custodian => [0.92, 0.88, 0.8]
+      | Band::Custodian
+      | Band::Cogling
+      | Band::Scavver
+      | Band::Gladiator
+      | Band::Paragon => [0.92, 0.88, 0.8]
     };
     [r * weave, g * weave, b * weave]
   };
@@ -514,7 +534,11 @@ fn hull(band: Band) -> Vec<(Vec3, Vec3)> {
     | Band::Phantom
     | Band::Imp
     | Band::Sentinel
-    | Band::Custodian => 0.45,
+    | Band::Custodian
+    | Band::Cogling
+    | Band::Scavver
+    | Band::Gladiator
+    | Band::Paragon => 0.45,
     _ => 0.7
   };
   let (top, keel) = (DECK + wall, -0.55);
@@ -545,7 +569,11 @@ fn hull(band: Band) -> Vec<(Vec3, Vec3)> {
     | Band::Phantom
     | Band::Imp
     | Band::Sentinel
-    | Band::Custodian => slabs.extend([
+    | Band::Custodian
+    | Band::Cogling
+    | Band::Scavver
+    | Band::Gladiator
+    | Band::Paragon => slabs.extend([
       (Vec3::new(-0.15, top, -length - 1.6), Vec3::new(0.15, top + 0.7, -length - 1.2)),
       (
         Vec3::new(-0.15, top + 0.5, -length - 2.0),
@@ -581,7 +609,11 @@ fn tint(band: Band) -> [f32; 3] {
     | Band::Phantom
     | Band::Imp
     | Band::Sentinel
-    | Band::Custodian => [0.9, 0.8, 0.66]
+    | Band::Custodian
+    | Band::Cogling
+    | Band::Scavver
+    | Band::Gladiator
+    | Band::Paragon => [0.9, 0.8, 0.66]
   }
 }
 
@@ -645,7 +677,11 @@ fn rig(
       | Band::Phantom
       | Band::Imp
       | Band::Sentinel
-      | Band::Custodian => 6.0
+      | Band::Custodian
+      | Band::Cogling
+      | Band::Scavver
+      | Band::Gladiator
+      | Band::Paragon => 6.0
     };
     let (sail_wide, sail_tall) = match band {
       Band::Trader => (2.4, 2.8),
@@ -658,7 +694,11 @@ fn rig(
       | Band::Phantom
       | Band::Imp
       | Band::Sentinel
-      | Band::Custodian => (4.0, 3.4)
+      | Band::Custodian
+      | Band::Cogling
+      | Band::Scavver
+      | Band::Gladiator
+      | Band::Paragon => (4.0, 3.4)
     };
     let cannon = (band == Band::Pirate).then(|| {
       commands

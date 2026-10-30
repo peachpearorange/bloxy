@@ -7,6 +7,7 @@ mod apparatus;
 mod arcana;
 mod audio;
 mod authority;
+mod automaton;
 mod balloon;
 mod beast;
 mod biology;
@@ -70,6 +71,7 @@ mod player;
 mod precursor;
 mod protocol;
 mod recipe;
+mod robot;
 mod runestone;
 mod save;
 mod sculpt;
@@ -365,7 +367,8 @@ fn main() {
       goal::Goals,
       submarine::Submarines,
       mech::Mechs,
-      biology::Biology
+      biology::Biology,
+      robot::Robots
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]

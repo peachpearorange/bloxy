@@ -1020,6 +1020,12 @@ pub fn loot(seed: u32, at: IVec3, tier: u8) -> Vec<Stack> {
     found.push((Block::DiamondOre, 1 + (roll(99) * 2.0) as u16));
     found.push((Block::ArcaneDust, 4))
   }
+  if tier >= 2 && roll(77) < 0.5 {
+    found.push((Block::Paragon, 1))
+  }
+  if tier >= 1 && roll(78) < 0.3 {
+    found.push((Block::Cogwheel, 2 + (roll(79) * 5.0) as u16))
+  }
   let salt = hash(seed ^ 0x6EA3, at.x, at.y, at.z);
   found
     .into_iter()

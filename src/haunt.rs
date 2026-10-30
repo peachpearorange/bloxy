@@ -327,7 +327,12 @@ fn prowl(
   >,
   mut servants: Query<
     (Entity, &Folk, &mut Health),
-    (With<Servant>, Without<Haunt>, Without<Controller>, Without<Dying>)
+    (
+      Or<(With<Servant>, With<crate::robot::Automaton>)>,
+      Without<Haunt>,
+      Without<Controller>,
+      Without<Dying>
+    )
   >,
   mut knocks: MessageWriter<ToClients<Knock>>,
   (mut subs, mut mechs): (

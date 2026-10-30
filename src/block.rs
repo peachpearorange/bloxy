@@ -294,7 +294,11 @@ pub enum Block {
   RepairDroid,
   HeatShield,
   BuildArm,
-  Dynamo
+  Dynamo,
+  Cogwheel,
+  Cogling,
+  Gladiator,
+  Paragon
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
@@ -527,7 +531,11 @@ pub enum Tile {
   RepairDroid,
   HeatShield,
   BuildArm,
-  Dynamo
+  Dynamo,
+  Cogwheel,
+  Cogling,
+  Gladiator,
+  Paragon
 }
 
 impl Tile {
@@ -704,6 +712,7 @@ impl Block {
       || self == Block::Submarine
       || self == Block::Mech
       || self.rig()
+      || self.automaton()
       || self.trinket()
       || self.spell()
       || self.forged()
@@ -726,6 +735,10 @@ impl Block {
   pub fn module(self) -> bool { (Block::SonarModule..=Block::PowerCell).contains(&self) }
 
   pub fn rig(self) -> bool { (Block::HydraulicClamp..=Block::Dynamo).contains(&self) }
+
+  pub fn automaton(self) -> bool {
+    matches!(self, Block::Cogwheel | Block::Cogling | Block::Gladiator | Block::Paragon)
+  }
 
   pub fn organism(self) -> bool { (Block::Kelp..=Block::Clam).contains(&self) }
 
@@ -931,6 +944,7 @@ impl Block {
       portable if portable.portable() => 1,
       gear if gear.forged() || gear.worn() => 1,
       Block::Submarine | Block::Mech => 1,
+      Block::Cogling | Block::Gladiator | Block::Paragon => 1,
       rig if rig.rig() => 1,
       module if module.module() => 1,
       Block::Bucket | Block::Torpedo => 16,
@@ -1514,7 +1528,11 @@ impl Block {
       Block::RepairDroid => "Repair Droid",
       Block::HeatShield => "Heat Shielding",
       Block::BuildArm => "Build Arm",
-      Block::Dynamo => "Dynamo"
+      Block::Dynamo => "Dynamo",
+      Block::Cogwheel => "Cogwheel",
+      Block::Cogling => "Cogling",
+      Block::Gladiator => "Gladiator",
+      Block::Paragon => "Dormant Paragon"
     }
   }
 
@@ -1782,6 +1800,10 @@ impl Block {
       Block::HeatShield => all(Tile::HeatShield),
       Block::BuildArm => all(Tile::BuildArm),
       Block::Dynamo => all(Tile::Dynamo),
+      Block::Cogwheel => all(Tile::Cogwheel),
+      Block::Cogling => all(Tile::Cogling),
+      Block::Gladiator => all(Tile::Gladiator),
+      Block::Paragon => all(Tile::Paragon),
       Block::ElectricPump
       | Block::Refinery
       | Block::BiofuelGenerator

@@ -386,6 +386,25 @@ fn rand_unit(entity: Entity, now: f32) -> f32 {
   crate::noise::unit(entity.index_u32(), (now * 1000.0) as i32, 7, 1)
 }
 
+pub fn hurl(
+  commands: &mut Commands,
+  spell: Block,
+  from: Vec3,
+  velocity: Vec3,
+  damage: u8,
+  caster: Entity,
+  homing: Option<Entity>
+) {
+  commands.spawn((Replicated, Bolt { spell, at: from }, Flight {
+    velocity,
+    caster,
+    life: BOLT_LIFE,
+    damage,
+    rank: 2,
+    homing
+  }));
+}
+
 pub fn harm(
   commands: &mut Commands,
   target: Entity,
