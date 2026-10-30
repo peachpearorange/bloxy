@@ -1019,7 +1019,6 @@ const TURF: f32 = 34.0;
 const LEAVES: f32 = 37.0;
 
 fn turfed(kind: f32, at: vec3<f32>, spot: Spot, normal: vec3<f32>, size: f32, time: f32) -> Finish {
-    let soil = earthen(at, spot, normal, size);
     let ragged = (supple(at * 2.3) - 0.5) * 0.3 + (supple(at * 7.0) - 0.5) * 0.12;
     let inside = at - normal * 0.02;
     let block = floor(inside);
@@ -1027,6 +1026,10 @@ fn turfed(kind: f32, at: vec3<f32>, spot: Spot, normal: vec3<f32>, size: f32, ti
     let hang = (2.0 + dangle * 4.0) / 16.0;
     let fringe = abs(normal.y) < 0.6 && block.y + 1.0 - at.y < hang;
     let covered = max(smoothstep(0.34, 0.5, normal.y + ragged), select(0.0, 1.0, fringe));
+    var soil = Finish(vec3<f32>(0.0), 0.0, vec3<f32>(0.0), 0.95, 0.0, vec3<f32>(0.0));
+    if covered < 1.0 {
+        soil = earthen(at, spot, normal, size);
+    }
     let pick = smoothstep(0.0, 1.0, (supple(inside * 14.0 + 3.0) - 0.5) * 2.6 + 0.5);
     let cloud = supple(inside * 3.0) * 0.6 + supple(at * 0.9 + 5.0) * 0.4;
     var cover = vec3<f32>(0.0);

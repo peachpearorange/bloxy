@@ -1,0 +1,4 @@
+#!/bin/sh
+# tools/webshot <name> '<json5 opts>' — builds the web (WebGPU) version, then screenshots it in headless Chromium.
+trunk build --dist target/web >/dev/null 2>target/web.log || { tail -20 target/web.log; exit 1; }
+NODE_PATH=$(npm root -g) timeout ${SHOT_TIMEOUT:-900} node tools/webshot.js "$1" "$2"

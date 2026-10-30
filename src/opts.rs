@@ -46,7 +46,7 @@ impl Default for Opts {
       password: None,
       menu: None,
       seed: 1,
-      reach: if cfg!(target_arch = "wasm32") { 6 } else { 9 },
+      reach: 6,
       hour: 10.0,
       shot: None,
       at: None,

@@ -16,7 +16,7 @@ use {crate::{block::{Block, Fluid},
 
 const TILE: i32 = 128;
 const COLUMNS: i32 = TILE / SIZE;
-pub const FAR: i32 = if cfg!(target_arch = "wasm32") { 900 } else { 1600 };
+pub const FAR: i32 = 900;
 const FINE_WITHIN: i32 = 480;
 const FINE: i32 = 4;
 const COARSE: i32 = 8;

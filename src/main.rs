@@ -190,6 +190,7 @@ fn snapshot(
       commands.spawn(Screenshot::primary_window()).observe(
         move |captured: On<ScreenshotCaptured>| {
           save(captured);
+          #[cfg(not(target_arch = "wasm32"))]
           std::process::exit(0)
         }
       );
