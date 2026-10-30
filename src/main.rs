@@ -183,17 +183,21 @@ fn snapshot(
     });
     if !*taken && ready {
       *taken = true;
-      let mut save = save_to_disk(format!(
-        "screenshots/shot-{}.png",
-        std::env::var("SHOT_NAME").unwrap_or("latest".into())
-      ));
-      commands.spawn(Screenshot::primary_window()).observe(
-        move |captured: On<ScreenshotCaptured>| {
-          save(captured);
-          #[cfg(not(target_arch = "wasm32"))]
-          std::process::exit(0)
+      match cfg!(target_arch = "wasm32") {
+        true => info!("shot ready"),
+        false => {
+          let mut save = save_to_disk(format!(
+            "screenshots/shot-{}.png",
+            std::env::var("SHOT_NAME").unwrap_or("latest".into())
+          ));
+          commands.spawn(Screenshot::primary_window()).observe(
+            move |captured: On<ScreenshotCaptured>| {
+              save(captured);
+              std::process::exit(0)
+            }
+          );
         }
-      );
+      }
     }
   }
 }

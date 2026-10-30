@@ -19,9 +19,12 @@ server.listen(0, async () => {
     channel: 'chromium',
     args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-angle=vulkan', '--disable-vulkan-surface', '--disable-gpu-watchdog', '--disable-gpu-process-crash-limit']
   });
-  const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, acceptDownloads: true });
+  const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+  let ready;
+  const shown = new Promise(resolve => ready = resolve);
   page.on('console', message => {
     const text = message.text().replace(/%c/g, '').replace(/ color: .*$/s, '');
+    if (/shot ready/.test(text)) ready();
     if (/Quitting the application|panicked at/.test(text)) setTimeout(() => process.exit(1), 2000);
     if (process.env.VERBOSE || message.type() === 'error' || message.type() === 'warning' || /panicked|ERROR|WARN/.test(text)) console.log(text.slice(0, 2000));
   });
@@ -40,10 +43,10 @@ server.listen(0, async () => {
   });
   page.on('pageerror', error => console.log('page error:', error.message));
   const query = `?connect=&opts=${encodeURIComponent((opts || '{shot: 2}').trim().replace(/^\{|\}$/g, ''))}`;
-  const download = page.waitForEvent('download', { timeout: 0 });
   await page.goto(`http://localhost:${server.address().port}/${query}`);
   const shot = `screenshots/web-${name}.png`;
-  await (await download).saveAs(shot);
+  await shown;
+  await page.screenshot({ path: shot });
   console.log(shot);
   await browser.close();
   server.close();
