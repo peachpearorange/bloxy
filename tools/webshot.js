@@ -16,7 +16,7 @@ const server = http.createServer((request, response) => {
 
 server.listen(0, async () => {
   const browser = await chromium.launch({
-    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--disable-vulkan-surface']
+    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--disable-vulkan-surface', '--disable-gpu-watchdog', '--disable-gpu-process-crash-limit']
   });
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, acceptDownloads: true });
   page.on('console', message => {
