@@ -300,49 +300,55 @@ fn turned(cage: Cage, at: Vec3, toward: Vec3) -> Cage {
   cage.shaped(|point| at + turn * point)
 }
 
-fn ball(at: Vec3, radius: Vec3, level: u32) -> Cage {
-  Cage::rounded(at, radius * 2.0, UVec3::splat(if level >= 2 { 3 } else { 2 }), 1.0)
+fn ball(at: Vec3, radius: Vec3) -> Cage {
+  Cage::rounded(at, radius * 2.0, UVec3::splat(2), 1.0)
 }
 
-fn slab(at: Vec3, size: Vec3, round: f32, level: u32) -> Cage {
-  Cage::rounded(at, size, UVec3::splat(if level >= 2 { 3 } else { 2 }), round)
+fn orb(at: Vec3, radius: Vec3) -> Cage {
+  Cage::rounded(at, radius * 2.0, UVec3::splat(3), 1.0)
+}
+
+fn slab(at: Vec3, size: Vec3, round: f32) -> Cage {
+  Cage::rounded(at, size, UVec3::splat(2), round)
 }
 
 fn rod(from: Vec3, to: Vec3, radius: f32, sides: u32) -> Cage {
-  Cage::tube(&[(from, Vec2::splat(radius)), (to, Vec2::splat(radius))], sides.min(6))
+  Cage::tube(&[(from, Vec2::splat(radius)), (to, Vec2::splat(radius))], sides.min(5))
 }
 
 fn ring(at: Vec3, toward: Vec3, radius: f32, thick: f32) -> Cage {
-  let path: Vec<(Vec3, Vec2)> = (0..=12)
+  let path: Vec<(Vec3, Vec2)> = (0..=8)
     .map(|step| {
-      let angle = step as f32 / 12.0 * TAU;
+      let angle = step as f32 / 8.0 * TAU;
       (Vec3::new(angle.cos() * radius, angle.sin() * radius, 0.0), Vec2::splat(thick))
     })
     .collect();
-  turned(Cage::tube(&path, 4), at, toward)
+  turned(Cage::tube(&path, 3), at, toward)
 }
 
-fn piston(from: Vec3, to: Vec3, radius: f32) -> [(Cage, Coat); 4] {
+fn piston(from: Vec3, to: Vec3, radius: f32) -> [(Cage, Coat); 2] {
   let split = from.lerp(to, 0.52);
   [
-    (rod(from, split, radius, 8), GUNMETAL),
-    (rod(from.lerp(to, 0.47), to, radius * 0.55, 8), STEEL),
     (
-      rod(split - (to - from) * 0.03, split + (to - from) * 0.03, radius * 1.18, 8),
-      STEEL
-    ),
-    (
-      rod(from - (to - from) * 0.02, from + (to - from) * 0.06, radius * 1.12, 8),
+      Cage::tube(
+        &[
+          (from, Vec2::splat(radius * 1.12)),
+          (split - (to - from) * 0.02, Vec2::splat(radius)),
+          (split, Vec2::splat(radius * 1.18))
+        ],
+        5
+      ),
       GUNMETAL
-    )
+    ),
+    (rod(split, to, radius * 0.55, 5), STEEL)
   ]
 }
 
 fn gear(at: Vec3, toward: Vec3, radius: f32, thick: f32, teeth: u32) -> Cage {
-  let sides = teeth * 4;
+  let sides = teeth * 2;
   let cog = Cage::prism(sides, radius, thick).shaped(|point| {
     let step = (point.z.atan2(point.x) / TAU * sides as f32).round() as i32;
-    let reach = if step.rem_euclid(4) < 2 { 1.0 } else { 0.78 };
+    let reach = if step.rem_euclid(2) == 0 { 1.0 } else { 0.8 };
     Vec3::new(point.x * reach, point.z * reach, point.y)
   });
   turned(cog, at, toward)
@@ -352,7 +358,7 @@ fn coil(from: Vec3, to: Vec3, radius: f32, thick: f32, turns: f32) -> Cage {
   let axis = to - from;
   let across = axis.any_orthonormal_vector();
   let up = axis.normalize().cross(across);
-  let steps = (turns * 6.0) as usize;
+  let steps = (turns * 4.0) as usize;
   Cage::tube(
     &(0..=steps)
       .map(|step| {
@@ -364,12 +370,12 @@ fn coil(from: Vec3, to: Vec3, radius: f32, thick: f32, turns: f32) -> Cage {
         )
       })
       .collect::<Vec<_>>(),
-    5
+    3
   )
 }
 
 fn shell(path: &[(Vec3, Vec2)], level: u32) -> Cage {
-  Cage::tube(path, 8).subdivided(level.saturating_sub(1))
+  Cage::tube(path, 6 + 2 * u32::from(level >= 2))
 }
 
 fn spike(from: Vec3, to: Vec3, thick: Vec2) -> Cage { Cage::spike(from, to, thick) }
@@ -377,7 +383,7 @@ fn spike(from: Vec3, to: Vec3, thick: Vec2) -> Cage { Cage::spike(from, to, thic
 fn hand(wrist: Vec3, side: f32, size: f32) -> Vec<(Cage, Coat)> {
   let palm = wrist - Vec3::Y * size * 0.55;
   let inward = Vec3::X * -side;
-  let fingers = [-0.32f32, 0.0, 0.32].map(|offset| {
+  let fingers = [-0.22f32, 0.22].map(|offset| {
     let base = palm + Vec3::new(0.0, -size * 0.38, offset * size);
     let middle = base + Vec3::new(0.0, -size * 0.32, -size * 0.04) + inward * size * 0.1;
     let tip = middle + inward * size * 0.3 + Vec3::Y * -size * 0.1;
@@ -388,7 +394,7 @@ fn hand(wrist: Vec3, side: f32, size: f32) -> Vec<(Cage, Coat)> {
           (middle, Vec2::splat(size * 0.1)),
           (tip, Vec2::splat(size * 0.07))
         ],
-        4
+        3
       ),
       STEEL
     )
@@ -402,11 +408,11 @@ fn hand(wrist: Vec3, side: f32, size: f32) -> Vec<(Cage, Coat)> {
           Vec2::splat(size * 0.08)
         )
       ],
-      5
+      3
     ),
     STEEL
   );
-  [(slab(palm, Vec3::new(0.5, 0.8, 0.85) * size, 0.5, 1), GUNMETAL), thumb]
+  [(slab(palm, Vec3::new(0.5, 0.8, 0.85) * size, 0.5), GUNMETAL), thumb]
     .into_iter()
     .chain(fingers)
     .collect()
@@ -421,7 +427,7 @@ fn on_egg(centre: Vec3, radius: Vec3, x: f32, y: f32) -> (Vec3, Vec3) {
 
 fn eye(body: &mut Body, at: Vec3, normal: Vec3, size: f32, glow: Coat) {
   body.put(
-    turned(ball(Vec3::ZERO, Vec3::new(size, size, size * 0.5), 2), at, normal),
+    turned(orb(Vec3::ZERO, Vec3::new(size, size, size * 0.5)), at, normal),
     glow,
     HEAD
   );
@@ -463,11 +469,11 @@ fn cogling(tribe: &Tribe) -> Mesh {
   let glow = coat(tribe.glow, Finish::Glow);
   let mut body = Body { scale: 1.0, pieces: Vec::new() };
   body.put(
-    slab(Vec3::new(0.0, 0.51, 0.0), Vec3::new(0.24, 0.12, 0.15), 0.6, 1),
+    slab(Vec3::new(0.0, 0.51, 0.0), Vec3::new(0.24, 0.12, 0.15), 0.6),
     GUNMETAL,
     PELVIS
   );
-  body.put(ball(Vec3::new(0.0, 0.585, 0.0), Vec3::splat(0.05), 1), STEEL, CHEST);
+  body.put(ball(Vec3::new(0.0, 0.585, 0.0), Vec3::splat(0.05)), STEEL, CHEST);
   body.paint(
     Cage::rounded(
       Vec3::new(0.0, 0.73, 0.0),
@@ -478,18 +484,17 @@ fn cogling(tribe: &Tribe) -> Mesh {
     .shaped(|at| {
       let rise = ((at.y - 0.6) / 0.27).clamp(0.0, 1.0);
       Vec3::new(at.x * (0.82 + rise * 0.3), at.y, at.z - (at.y - 0.73) * 0.06)
-    })
-    .subdivided(1),
+    }),
     |at, _| if at.y < 0.625 { trim } else { armour },
     CHEST
   );
   body.put(
-    slab(Vec3::new(0.0, 0.74, 0.1), Vec3::new(0.12, 0.22, 0.06), 0.5, 1),
+    slab(Vec3::new(0.0, 0.74, 0.1), Vec3::new(0.12, 0.22, 0.06), 0.5),
     GUNMETAL,
     CHEST
   );
   body.put(
-    ball(Vec3::new(0.075, 0.76, -0.112), Vec3::new(0.026, 0.026, 0.012), 2),
+    orb(Vec3::new(0.075, 0.76, -0.112), Vec3::new(0.026, 0.026, 0.012)),
     coat(tribe.glow, Finish::Pulse),
     CHEST
   );
@@ -499,11 +504,7 @@ fn cogling(tribe: &Tribe) -> Mesh {
     STEEL,
     HEAD
   );
-  body.put(
-    ball(Vec3::new(0.0, 1.0, 0.03), Vec3::new(0.09, 0.1, 0.09), 1),
-    GUNMETAL,
-    HEAD
-  );
+  body.put(ball(Vec3::new(0.0, 1.0, 0.03), Vec3::new(0.09, 0.1, 0.09)), GUNMETAL, HEAD);
   let (centre, radius) = (Vec3::new(0.0, 1.04, -0.01), Vec3::new(0.12, 0.155, 0.115));
   body.put(
     Cage::rounded(centre, radius * 2.0, UVec3::splat(2), 1.0)
@@ -536,7 +537,7 @@ fn cogling(tribe: &Tribe) -> Mesh {
   body.put(Cage::tube(&brow, 6), trim, HEAD);
   let (mouth, facing) = on_egg(centre, radius, 0.0, -0.075);
   body.put(
-    turned(slab(Vec3::ZERO, Vec3::new(0.055, 0.022, 0.02), 0.6, 1), mouth, facing),
+    turned(slab(Vec3::ZERO, Vec3::new(0.055, 0.022, 0.02), 0.6), mouth, facing),
     GUNMETAL,
     HEAD
   );
@@ -544,7 +545,7 @@ fn cogling(tribe: &Tribe) -> Mesh {
     let (at, facing) = on_egg(centre, radius, slit * 0.014, -0.075);
     body.put(
       turned(
-        slab(Vec3::ZERO, Vec3::new(0.005, 0.016, 0.01), 0.3, 0),
+        slab(Vec3::ZERO, Vec3::new(0.005, 0.016, 0.01), 0.3),
         at - facing * 0.004,
         facing
       ),
@@ -564,19 +565,18 @@ fn cogling(tribe: &Tribe) -> Mesh {
         knee,
         bones: [upper, lower, thigh, shin]
       } = limb;
-      body.put(ball(shoulder, Vec3::splat(0.052), 1), STEEL, upper);
+      body.put(ball(shoulder, Vec3::splat(0.052)), STEEL, upper);
       body.put(
         slab(
           shoulder + Vec3::new(side * 0.02, 0.035, 0.0),
           Vec3::new(0.12, 0.08, 0.13),
-          0.7,
-          2
+          0.7
         ),
         armour,
         upper
       );
       body.put(rod(shoulder, elbow, 0.03, 8), GUNMETAL, upper);
-      body.put(ball(elbow, Vec3::splat(0.035), 1), STEEL, lower);
+      body.put(ball(elbow, Vec3::splat(0.035)), STEEL, lower);
       body.put(
         shell(
           &[
@@ -597,10 +597,10 @@ fn cogling(tribe: &Tribe) -> Mesh {
       for (cage, finish) in hand(wrist - Vec3::Y * 0.06, side, 0.09) {
         body.put(cage, finish, lower)
       }
-      body.put(ball(hip, Vec3::splat(0.045), 1), STEEL, thigh);
+      body.put(ball(hip, Vec3::splat(0.045)), STEEL, thigh);
       body.put(rod(hip, knee, 0.035, 8), GUNMETAL, thigh);
       body.put(
-        slab(knee + Vec3::new(0.0, 0.0, -0.025), Vec3::splat(0.1), 0.8, 2),
+        slab(knee + Vec3::new(0.0, 0.0, -0.025), Vec3::splat(0.1), 0.8),
         armour,
         shin
       );
@@ -617,13 +617,13 @@ fn cogling(tribe: &Tribe) -> Mesh {
         shin
       );
       body.put(
-        slab(Vec3::new(knee.x, 0.048, -0.04), Vec3::new(0.12, 0.09, 0.22), 0.5, 2)
+        slab(Vec3::new(knee.x, 0.048, -0.04), Vec3::new(0.12, 0.09, 0.22), 0.5)
           .shaped(|at| at - Vec3::Y * ((-0.04 - at.z).max(0.0) * 0.18)),
         armour,
         shin
       );
       body.put(
-        slab(Vec3::new(knee.x, 0.008, -0.04), Vec3::new(0.115, 0.016, 0.2), 0.3, 1),
+        slab(Vec3::new(knee.x, 0.008, -0.04), Vec3::new(0.115, 0.016, 0.2), 0.3),
         GUNMETAL,
         shin
       )
@@ -638,7 +638,7 @@ fn scavver(tribe: &Tribe) -> Mesh {
   let glow = coat(tribe.glow, Finish::Glow);
   let mut body = Body { scale: 1.0, pieces: Vec::new() };
   body.put(
-    slab(Vec3::new(0.0, 0.53, 0.0), Vec3::new(0.28, 0.13, 0.17), 0.6, 1),
+    slab(Vec3::new(0.0, 0.53, 0.0), Vec3::new(0.28, 0.13, 0.17), 0.6),
     GUNMETAL,
     PELVIS
   );
@@ -656,7 +656,7 @@ fn scavver(tribe: &Tribe) -> Mesh {
   );
   for side in [1.0f32, -1.0] {
     body.put(
-      slab(Vec3::new(side * 0.115, 0.88, -0.055), Vec3::new(0.15, 0.15, 0.1), 0.55, 2)
+      slab(Vec3::new(side * 0.115, 0.88, -0.055), Vec3::new(0.15, 0.15, 0.1), 0.55)
         .shaped(|at| at + Vec3::Z * (at.x * side - 0.115).abs() * 0.2),
       armour,
       CHEST
@@ -673,7 +673,7 @@ fn scavver(tribe: &Tribe) -> Mesh {
     CHEST
   );
   body.put(
-    slab(Vec3::new(0.0, 0.8, 0.1), Vec3::new(0.26, 0.28, 0.08), 0.5, 2),
+    slab(Vec3::new(0.0, 0.8, 0.1), Vec3::new(0.26, 0.28, 0.08), 0.5),
     armour,
     CHEST
   );
@@ -694,17 +694,13 @@ fn scavver(tribe: &Tribe) -> Mesh {
     HEAD
   );
   body.put(
-    slab(helm + Vec3::new(0.0, 0.005, -0.125), Vec3::new(0.19, 0.055, 0.05), 0.7, 2),
+    slab(helm + Vec3::new(0.0, 0.005, -0.125), Vec3::new(0.19, 0.055, 0.05), 0.7),
     coat(tribe.glow, Finish::Lens),
     HEAD
   );
   for side in [1.0f32, -1.0] {
     body.put(
-      ball(
-        helm + Vec3::new(side * 0.048, 0.006, -0.148),
-        Vec3::new(0.02, 0.016, 0.008),
-        2
-      ),
+      ball(helm + Vec3::new(side * 0.048, 0.006, -0.148), Vec3::new(0.02, 0.016, 0.008)),
       glow,
       HEAD
     )
@@ -734,13 +730,12 @@ fn scavver(tribe: &Tribe) -> Mesh {
         knee,
         bones: [upper, lower, thigh, shin]
       } = limb;
-      body.put(ball(shoulder, Vec3::splat(0.06), 1), STEEL, upper);
+      body.put(ball(shoulder, Vec3::splat(0.06)), STEEL, upper);
       body.put(
         slab(
           shoulder + Vec3::new(side * 0.03, 0.045, 0.0),
           Vec3::new(0.15, 0.09, 0.16),
-          0.65,
-          2
+          0.65
         ),
         trim,
         upper
@@ -748,7 +743,7 @@ fn scavver(tribe: &Tribe) -> Mesh {
       for (cage, finish) in piston(shoulder, elbow, 0.036) {
         body.put(cage, finish, upper)
       }
-      body.put(ball(elbow, Vec3::splat(0.04), 1), STEEL, lower);
+      body.put(ball(elbow, Vec3::splat(0.04)), STEEL, lower);
       body.put(
         shell(
           &[
@@ -769,14 +764,14 @@ fn scavver(tribe: &Tribe) -> Mesh {
         body.put(rod(grip.with_y(0.04), grip.with_y(1.28), 0.016, 6), GUNMETAL, lower);
         body.put(ring(grip.with_y(1.24), Vec3::Y, 0.04, 0.012), BRASS, lower);
         body.put(gear(grip.with_y(1.3), Vec3::NEG_Z, 0.055, 0.02, 7), BRASS, lower);
-        body.put(ball(grip.with_y(1.3), Vec3::splat(0.022), 2), glow, lower)
+        body.put(ball(grip.with_y(1.3), Vec3::splat(0.022)), glow, lower)
       }
-      body.put(ball(hip, Vec3::splat(0.05), 1), STEEL, thigh);
+      body.put(ball(hip, Vec3::splat(0.05)), STEEL, thigh);
       for (cage, finish) in piston(hip, knee, 0.04) {
         body.put(cage, finish, thigh)
       }
       body.put(
-        slab(knee + Vec3::new(0.0, 0.0, -0.03), Vec3::splat(0.11), 0.75, 2),
+        slab(knee + Vec3::new(0.0, 0.0, -0.03), Vec3::splat(0.11), 0.75),
         trim,
         shin
       );
@@ -793,13 +788,13 @@ fn scavver(tribe: &Tribe) -> Mesh {
         shin
       );
       body.put(
-        slab(Vec3::new(knee.x, 0.05, -0.045), Vec3::new(0.15, 0.1, 0.25), 0.5, 2)
+        slab(Vec3::new(knee.x, 0.05, -0.045), Vec3::new(0.15, 0.1, 0.25), 0.5)
           .shaped(|at| at - Vec3::Y * ((-0.04 - at.z).max(0.0) * 0.2)),
         trim,
         shin
       );
       body.put(
-        slab(Vec3::new(knee.x, 0.009, -0.045), Vec3::new(0.14, 0.018, 0.23), 0.3, 1),
+        slab(Vec3::new(knee.x, 0.009, -0.045), Vec3::new(0.14, 0.018, 0.23), 0.3),
         GUNMETAL,
         shin
       )
@@ -829,7 +824,7 @@ fn weapon(
       let toward = Vec3::new(0.0, 0.3, -1.0).normalize();
       let flat = toward.cross(Vec3::X).normalize();
       body.put(rod(grip - toward * 0.1, grip + toward * 0.1, 0.019, 6), GUNMETAL, bone);
-      body.put(ball(grip - toward * 0.11, Vec3::splat(0.026), 1), BRASS, bone);
+      body.put(ball(grip - toward * 0.11, Vec3::splat(0.026)), BRASS, bone);
       body.put(
         Cage::tube(
           &[
@@ -919,8 +914,7 @@ fn weapon(
             at.y,
             at.z + rise * rise * 0.05
           )
-        })
-        .subdivided(1),
+        }),
         EDGE,
         bone
       );
@@ -933,7 +927,7 @@ fn weapon(
         trim,
         bone
       );
-      body.put(ball(head, Vec3::new(0.03, 0.06, 0.04), 1), trim, bone)
+      body.put(ball(head, Vec3::new(0.03, 0.06, 0.04)), trim, bone)
     }
   }
 }
@@ -945,13 +939,13 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
   let size = if hero { Model::Paragon.size() } else { 1.0 };
   let mut body = Body { scale: size, pieces: Vec::new() };
   body.put(
-    slab(Vec3::new(0.0, 1.03, 0.0), Vec3::new(0.3, 0.14, 0.18), 0.5, 1),
+    slab(Vec3::new(0.0, 1.03, 0.0), Vec3::new(0.3, 0.14, 0.18), 0.5),
     GUNMETAL,
     PELVIS
   );
   body.put(gear(Vec3::new(0.0, 1.07, 0.1), Vec3::Z, 0.075, 0.03, 8), STEEL, PELVIS);
   body.put(
-    slab(Vec3::new(0.0, 0.99, -0.09), Vec3::new(0.12, 0.13, 0.045), 0.6, 2),
+    slab(Vec3::new(0.0, 0.99, -0.09), Vec3::new(0.12, 0.13, 0.045), 0.6),
     if hero { coat(tribe.trim, Finish::Gilt) } else { armour },
     PELVIS
   );
@@ -991,7 +985,7 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
   );
   if hero {
     body.put(
-      ball(Vec3::new(0.0, 1.43, -0.168), Vec3::new(0.036, 0.036, 0.014), 2),
+      orb(Vec3::new(0.0, 1.43, -0.168), Vec3::new(0.036, 0.036, 0.014)),
       coat(tribe.glow, Finish::Pulse),
       CHEST
     );
@@ -1011,7 +1005,7 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
     }
   }
   body.put(
-    slab(Vec3::new(0.0, 1.66, 0.01), Vec3::new(0.22, 0.08, 0.16), 0.6, 1),
+    slab(Vec3::new(0.0, 1.66, 0.01), Vec3::new(0.22, 0.08, 0.16), 0.6),
     GUNMETAL,
     CHEST
   );
@@ -1021,7 +1015,7 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
     HEAD
   );
   body.put(
-    ball(Vec3::new(0.0, 1.85, 0.025), Vec3::new(0.085, 0.1, 0.09), 1),
+    ball(Vec3::new(0.0, 1.85, 0.025), Vec3::new(0.085, 0.1, 0.09)),
     GUNMETAL,
     HEAD
   );
@@ -1044,14 +1038,14 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
         HEAD
       );
       body.put(
-        slab(helm + Vec3::new(0.0, 0.012, -0.104), Vec3::new(0.15, 0.05, 0.04), 0.7, 2),
+        slab(helm + Vec3::new(0.0, 0.012, -0.104), Vec3::new(0.15, 0.05, 0.04), 0.7),
         coat(tribe.glow, Finish::Lens),
         HEAD
       );
       for side in [1.0f32, -1.0] {
         let at = helm + Vec3::new(side * 0.042, 0.016, -0.126);
         body.put(
-          slab(Vec3::ZERO, Vec3::new(0.06, 0.016, 0.014), 0.6, 1)
+          slab(Vec3::ZERO, Vec3::new(0.06, 0.016, 0.014), 0.6)
             .shaped(|point| at + Quat::from_rotation_z(side * 0.32) * point),
           glow,
           HEAD
@@ -1101,13 +1095,13 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
       for side in [1.0f32, -1.0] {
         let (at, normal) = on_egg(helm, radius * 0.98, side * 0.045, -0.005);
         body.put(
-          turned(slab(Vec3::ZERO, Vec3::new(0.06, 0.036, 0.02), 0.8, 1), at, normal),
+          turned(slab(Vec3::ZERO, Vec3::new(0.06, 0.036, 0.02), 0.8), at, normal),
           GUNMETAL,
           HEAD
         );
         body.put(
           turned(
-            ball(Vec3::ZERO, Vec3::new(0.02, 0.015, 0.008), 2),
+            orb(Vec3::ZERO, Vec3::new(0.02, 0.015, 0.008)),
             at - normal * 0.004,
             normal
           ),
@@ -1166,11 +1160,10 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
         bones: [upper, lower, thigh, shin]
       } = limb;
       let pad = shoulder + Vec3::new(side * 0.04, 0.08, 0.0);
-      body.put(ball(shoulder, Vec3::splat(0.06), 1), STEEL, upper);
+      body.put(ball(shoulder, Vec3::splat(0.06)), STEEL, upper);
       body.put(
         Cage::rounded(pad, Vec3::new(0.21, 0.11, 0.25) * bulk, UVec3::splat(2), 0.6)
-          .shaped(|at| at - Vec3::Y * ((at.x - pad.x) * side).max(0.0).powi(2) * 3.0)
-          .subdivided(1),
+          .shaped(|at| at - Vec3::Y * ((at.x - pad.x) * side).max(0.0).powi(2) * 3.0),
         armour,
         upper
       );
@@ -1212,14 +1205,13 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
           slab(
             shoulder.lerp(elbow, 0.55) + Vec3::X * side * 0.03,
             Vec3::new(0.08, 0.17, 0.11),
-            0.6,
-            2
+            0.6
           ),
           armour,
           upper
         )
       }
-      body.put(ball(elbow, Vec3::splat(0.05), 1), STEEL, lower);
+      body.put(ball(elbow, Vec3::splat(0.05)), STEEL, lower);
       body.put(
         shell(
           &[
@@ -1254,7 +1246,7 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
           lower
         )
       }
-      body.put(ball(hip, Vec3::splat(0.06), 1), STEEL, thigh);
+      body.put(ball(hip, Vec3::splat(0.06)), STEEL, thigh);
       for (cage, finish) in piston(hip, knee, 0.05) {
         body.put(cage, finish, thigh)
       }
@@ -1262,15 +1254,14 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
         slab(
           hip.lerp(knee, 0.4) + Vec3::new(side * 0.035, 0.0, -0.045),
           Vec3::new(0.1, 0.24, 0.08),
-          0.6,
-          1
+          0.6
         ),
         armour,
         thigh
       );
-      body.put(ball(knee, Vec3::splat(0.055), 1), STEEL, shin);
+      body.put(ball(knee, Vec3::splat(0.055)), STEEL, shin);
       body.put(
-        slab(knee + Vec3::new(0.0, 0.02, -0.07), Vec3::new(0.1, 0.13, 0.06), 0.6, 2)
+        slab(knee + Vec3::new(0.0, 0.02, -0.07), Vec3::new(0.1, 0.13, 0.06), 0.6)
           .shaped(|at| at - Vec3::Z * (at.y - knee.y).max(0.0) * 0.3),
         trim,
         shin
@@ -1288,11 +1279,11 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
         armour,
         shin
       );
-      body.put(ball(Vec3::new(knee.x, 0.11, 0.0), Vec3::splat(0.045), 1), GUNMETAL, shin);
+      body.put(ball(Vec3::new(knee.x, 0.11, 0.0), Vec3::splat(0.045)), GUNMETAL, shin);
       match hero {
         false => {
           body.put(
-            slab(Vec3::new(knee.x, 0.06, -0.02), Vec3::new(0.12, 0.08, 0.16), 0.5, 1),
+            slab(Vec3::new(knee.x, 0.06, -0.02), Vec3::new(0.12, 0.08, 0.16), 0.5),
             GUNMETAL,
             shin
           );
@@ -1320,13 +1311,13 @@ fn champion(tribe: &Tribe, which: usize, hero: bool) -> Mesh {
         }
         true => {
           body.put(
-            slab(Vec3::new(knee.x, 0.06, -0.05), Vec3::new(0.15, 0.11, 0.3), 0.5, 2)
+            slab(Vec3::new(knee.x, 0.06, -0.05), Vec3::new(0.15, 0.11, 0.3), 0.5)
               .shaped(|at| at - Vec3::Y * ((-0.05 - at.z).max(0.0) * 0.2)),
             armour,
             shin
           );
           body.put(
-            slab(Vec3::new(knee.x, 0.01, -0.05), Vec3::new(0.14, 0.02, 0.28), 0.3, 1),
+            slab(Vec3::new(knee.x, 0.01, -0.05), Vec3::new(0.14, 0.02, 0.28), 0.3),
             GUNMETAL,
             shin
           )
@@ -1416,7 +1407,7 @@ mod tests {
     ] {
       let triangles = mesh(model, tribe).count_vertices() / 3;
       println!("{model:?}: {triangles} triangles");
-      assert!(triangles < 4_500)
+      assert!(triangles < 3_000)
     }
   }
 
