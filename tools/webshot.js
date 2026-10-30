@@ -46,7 +46,14 @@ server.listen(0, async () => {
   await page.goto(`http://localhost:${server.address().port}/${query}`);
   const shot = `screenshots/web-${name}.png`;
   await shown;
-  await page.screenshot({ path: shot });
+  const png = await page.evaluate(() => {
+    const { width, height, data } = window.bloxyShot;
+    const canvas = document.createElement('canvas');
+    Object.assign(canvas, { width, height });
+    canvas.getContext('2d').putImageData(new ImageData(data, width, height), 0, 0);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  fs.writeFileSync(shot, Buffer.from(png, 'base64'));
   console.log(shot);
   await browser.close();
   server.close();

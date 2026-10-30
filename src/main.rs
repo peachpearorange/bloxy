@@ -99,7 +99,7 @@ use {bevy::{app::ScheduleRunnerPlugin,
             prelude::*,
             render::{Render, RenderApp, RenderSystems,
                      render_resource::PipelineCache,
-                     view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk}},
+                     view::screenshot::{Screenshot, ScreenshotCaptured}},
             state::app::StatesPlugin},
      bevy_replicon::prelude::*,
      opts::opts,
@@ -136,6 +136,34 @@ fn role() -> Role {
     (_, _, true) => Role::Host,
     _ => Role::Solo
   }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn hand_over(captured: On<ScreenshotCaptured>) {
+  bevy::render::view::screenshot::save_to_disk(format!(
+    "screenshots/shot-{}.png",
+    std::env::var("SHOT_NAME").unwrap_or("latest".into())
+  ))(captured);
+  std::process::exit(0)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn hand_over(captured: On<ScreenshotCaptured>) {
+  if let Ok(image) = captured.image.clone().try_into_dynamic()
+    && let Some(window) = web_sys::window()
+  {
+    let pixels = image.to_rgba8();
+    let shot = js_sys::Object::new();
+    for (key, value) in [
+      ("width", pixels.width().into()),
+      ("height", pixels.height().into()),
+      ("data", js_sys::Uint8ClampedArray::from(pixels.as_raw().as_slice()).into())
+    ] {
+      js_sys::Reflect::set(&shot, &key.into(), &value).ok();
+    }
+    js_sys::Reflect::set(&window, &"bloxyShot".into(), &shot).ok();
+  }
+  info!("shot ready")
 }
 
 fn snapshot(
@@ -183,21 +211,7 @@ fn snapshot(
     });
     if !*taken && ready {
       *taken = true;
-      match cfg!(target_arch = "wasm32") {
-        true => info!("shot ready"),
-        false => {
-          let mut save = save_to_disk(format!(
-            "screenshots/shot-{}.png",
-            std::env::var("SHOT_NAME").unwrap_or("latest".into())
-          ));
-          commands.spawn(Screenshot::primary_window()).observe(
-            move |captured: On<ScreenshotCaptured>| {
-              save(captured);
-              std::process::exit(0)
-            }
-          );
-        }
-      }
+      commands.spawn(Screenshot::primary_window()).observe(hand_over);
     }
   }
 }
