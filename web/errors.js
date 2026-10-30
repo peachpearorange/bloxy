@@ -136,6 +136,8 @@
     list.className = "list";
     box.append(head, details, list);
     document.body.append(box);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    if (document.pointerLockElement) document.exitPointerLock?.();
   };
 
   const entry = ({ text, count }, index) => {

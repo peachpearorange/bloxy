@@ -103,12 +103,17 @@ mod web {
     }
   }
 
+  fn aimed_at(event: &web_sys::MouseEvent, canvas: &web_sys::Element) -> bool {
+    event.target().is_some_and(|target| target == ***canvas)
+  }
+
   pub fn listen_for_clicks() {
     let pressed =
       Closure::<dyn FnMut(web_sys::MouseEvent)>::new(|event: web_sys::MouseEvent| {
         if event.button() == 0
           && let Some(document) = web_sys::window().and_then(|window| window.document())
           && let Some(canvas) = document.query_selector("canvas").ok().flatten()
+          && aimed_at(&event, &canvas)
         {
           match document.fullscreen_element().is_none() {
             true => widen(document, canvas),
@@ -121,6 +126,7 @@ mod web {
         if event.button() == 0
           && let Some(document) = web_sys::window().and_then(|window| window.document())
           && let Some(canvas) = document.query_selector("canvas").ok().flatten()
+          && aimed_at(&event, &canvas)
           && !WIDENING.with(Cell::get)
         {
           lock(&document, &canvas)
