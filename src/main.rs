@@ -96,6 +96,7 @@ mod voxels;
 mod water;
 mod waystone;
 mod weather;
+mod wizard;
 
 use {bevy::{app::ScheduleRunnerPlugin,
             camera::{Viewport, visibility::RenderLayers},
@@ -370,7 +371,8 @@ fn main() {
       mech::Mechs,
       biology::Biology,
       robot::Robots,
-      droid::Droids
+      droid::Droids,
+      wizard::Wizards
     ))
     .add_systems(Startup, serve);
   #[cfg(not(target_arch = "wasm32"))]
